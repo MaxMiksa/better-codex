@@ -1,7 +1,7 @@
 <h1 align="center">Better Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.0"><img alt="Version" src="https://img.shields.io/badge/version-v0.3.0-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.1"><img alt="Version" src="https://img.shields.io/badge/version-v0.3.1-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -37,7 +37,7 @@ Speed is the **average of the latest completed response**, calculated from local
 
 You need **Windows 11 x64 and the official Codex Store app**. The portable ZIP includes its own Python, Node.js and dependencies. No system runtime installation or first-run dependency download is needed.
 
-1. Download **`better-codex-v0.3.0-windows-x64-portable.zip`** from [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.0).
+1. Download **`better-codex-v0.3.1-windows-x64-portable.zip`** from [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.1).
 2. Extract the **entire ZIP** to a writable folder you plan to keep.
 3. Double-click **`BetterCodex.exe`**. Click the statistics to adjust reading width; use `Stop.cmd` to stop the enhancements.
 
@@ -108,7 +108,7 @@ A dash means timing or usage is unavailable, not zero speed. New turns, uncertai
 <details>
 <summary><b>💻 Developer guide</b></summary>
 
-A separate `better-codex-v0.3.0-source.zip` remains available. Source installation requires Python 3.11+ and Node.js 20+; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1` from its extracted folder. Add `-Language en` or `-Language zh-CN` to choose setup messages explicitly; the default is automatic. The portable build already includes its runtimes and needs no browser download. See [Development](docs/DEVELOPMENT.md) for module boundaries, isolated checks and packaging. Runtime files, private research and local configuration are excluded from the public package.
+A separate `better-codex-v0.3.1-source.zip` remains available. Source installation requires Python 3.11+ and Node.js 20+; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1` from its extracted folder. Add `-Language en` or `-Language zh-CN` to choose setup messages explicitly; the default is automatic. The portable build already includes its runtimes and needs no browser download. See [Development](docs/DEVELOPMENT.md) for module boundaries, isolated checks and packaging. Runtime files, private research and local configuration are excluded from the public package.
 
 </details>
 
