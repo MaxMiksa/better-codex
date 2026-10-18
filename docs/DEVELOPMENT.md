@@ -7,7 +7,9 @@ The source package keeps the existing module boundaries:
 | `tools/token-hud-local/collector/` | MIT-derived local event measurements and session discovery |
 | `tools/token-hud-local/shared/` | Official app activation, Store package discovery and listener identity checks |
 | `tools/token-hud-local/embedded/` | Controller, chat binding, statistics display, reading width and file-list presentation |
-| `Install.ps1` | Private runtime dependencies, machine-local settings and the owned launch shortcut |
+| `Install.ps1` | Source setup, or offline preparation when bundled runtimes are present |
+| `PortableLauncher.cs` / `portable_bootstrap.py` | Double-click entry, bundled dependency checks, relocatable settings and launch |
+| `scripts/build-portable.py` | Verified upstream runtimes, Windows launcher build and offline ZIP |
 | `scripts/package.py` | Explicit public-file allowlist, ZIP and SHA-256 generation |
 
 Run setup with Python 3.11+, Node.js 20+ and the official Windows Store app installed. Production attaches to the app; it does not launch a separate browser or download browser binaries. `Install.ps1 -CheckOnly` checks prerequisites without writing files. For an existing development environment, `-SkipDependencies -PlaywrightPath <absolute module path>` uses the supplied Python and Playwright instead of installing private dependencies.
@@ -30,3 +32,18 @@ Use the Python interpreter prepared by setup if `psutil` or `pywin32` is unavail
 The version in root `VERSION` and `package.json` is the Better Codex product version. `collector/VERSION` records the independent upstream collector version and intentionally differs. Upstream source is pinned in `THIRD_PARTY_NOTICES.md`.
 
 Page structure and the local display interface are not a stable extension API. Keep unknown layouts hidden rather than guessing; preserve program identity checks and Codex's ability to start when the HUD fails. New features should stay independent of model traffic.
+
+## Portable build
+
+On Windows x64 with Python 3.11+ and the Windows .NET Framework compiler:
+
+```powershell
+python -B scripts/package.py
+python -B scripts/build-portable.py
+```
+
+The builder downloads archives from scripts/portable-lock.json and verifies their pinned SHA-256 or npm SHA-512 integrity before assembly. It includes CPython's embeddable runtime, architecture-matching wheels, Node.exe, Playwright and their license files; pip, npm and extra browsers are not needed on the user's machine. Source and portable ZIPs plus SHA256SUMS.txt are written to dist/. Build staging remains under .validation-runtime/.
+
+Use BetterCodex.exe for normal portable startup. `--check` verifies bundled dependencies and the installed Codex app without creating settings; `--prepare-only` creates local settings/shortcuts without activating Codex; `--stop` requests this copy's normal stop. Repeated launcher calls are serialized. A stopped folder can be moved; settings are regenerated from its current path, while width preferences are preserved. External shortcuts from another installation are not adopted. Stop the old copy before an upgrade or move.
+
+Do not describe a restricted-PATH test as a clean Windows installation test. Portable acceptance should check bundled module paths, no external downloads, full startup/stop, repeat reuse, Unicode/space paths and relocation. Do not stop or restart the user's Codex for packaging tests.

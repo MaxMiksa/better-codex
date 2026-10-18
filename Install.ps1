@@ -11,6 +11,13 @@ $ErrorActionPreference = 'Stop'
 $workspace = $PSScriptRoot
 $runtime = Join-Path $workspace '.runtime/token-hud/embedded'
 $settingsPath = Join-Path $runtime 'settings.json'
+$bundledPython = Join-Path $workspace 'runtime/python/python.exe'
+if (Test-Path -LiteralPath $bundledPython) {
+    $mode = $(if ($CheckOnly) { '--check' } else { '--prepare-only' })
+    & $bundledPython -B -X utf8 (Join-Path $workspace 'tools/token-hud-local/portable_bootstrap.py') $mode
+    if ($LASTEXITCODE -ne 0) { throw 'Portable preparation failed. Extract the full portable ZIP again.' }
+    return
+}
 $basePython = (Get-Command $PythonExecutable -CommandType Application -ErrorAction Stop).Source
 $node = (Get-Command $NodeExecutable -CommandType Application -ErrorAction Stop).Source
 & $basePython -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11 or newer is required"'

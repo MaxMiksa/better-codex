@@ -14,7 +14,9 @@ Thank you to [openai/codex](https://github.com/openai/codex) and its contributor
 
 ## Runtime dependencies
 
-Setup downloads [Playwright](https://github.com/microsoft/playwright) (Apache-2.0), [psutil](https://github.com/giampaolo/psutil) (BSD-3-Clause), and [pywin32](https://github.com/mhammond/pywin32) (its PSF-derived license). Their license files remain in the installed distributions. Node.js, Python and the Codex app are user-installed prerequisites, not bundled binaries.
+The portable ZIP bundles [Playwright](https://github.com/microsoft/playwright) (Apache-2.0), [psutil](https://github.com/giampaolo/psutil) (BSD-3-Clause), and [pywin32](https://github.com/mhammond/pywin32) (its PSF-derived license). Their original license files are included with the bundled distributions. The source installer downloads these dependencies instead.
+
+The portable ZIP also includes the official Windows x64 CPython 3.14.8 embeddable distribution (PSF-2.0 and its included component notices), and Node.js 24.22.0 (MIT and the complete bundled third-party notices). Python LICENSE.txt and Node LICENSE are preserved under runtime/. Fixed download URLs and integrity digests are recorded in scripts/portable-lock.json; runtime/manifest.json identifies the assembled files. The Codex app remains a user-installed prerequisite and is not bundled.
 
 ---
 

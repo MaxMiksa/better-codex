@@ -14,7 +14,7 @@ ICON = RUNTIME / 'codex.ico'
 APP_ID = 'OpenAI.Codex_2p2nqsd0c76g0!App'
 
 
-def install():
+def install(previous_root=None, quiet=False):
     wrapper = RUNTIME / 'start-composer.vbs'
     recovery = RUNTIME / 'taskbar-recovery'
     links = [ROOT / 'launchers/Codex.lnk', Path(os.environ['APPDATA']) /
@@ -22,6 +22,9 @@ def install():
              Path(os.environ['APPDATA']) / 'Microsoft/Windows/Start Menu/Programs/Startup/Codex with HUD.lnk']
     wscript = Path(os.environ['WINDIR']) / 'System32/wscript.exe'
     shell_object = win32com.client.Dispatch('WScript.Shell')
+    previous_root = previous_root or ROOT
+    previous_wrapper = previous_root / '.runtime/token-hud/embedded/start-composer.vbs'
+    previous_compat = previous_root / '.runtime/hud/service/start-embedded.vbs'
     if not ICON.is_file():
         raise FileNotFoundError('Run Install.ps1 to prepare the installed app icon')
     if not links[0].exists():
@@ -39,7 +42,10 @@ def install():
         if not path.exists():
             continue
         link = shell_object.CreateShortcut(str(path))
-        if Path(link.TargetPath) != wscript or Path(link.Arguments.strip('"')) not in (COMPAT, wrapper):
+        allowed = {COMPAT, wrapper}
+        if index == 0 or not previous_root.exists():
+            allowed.update((previous_wrapper, previous_compat))
+        if Path(link.TargetPath) != wscript or Path(link.Arguments.strip('"')) not in allowed:
             if index != 0:
                 skipped.append(str(path))
                 continue
@@ -54,8 +60,9 @@ def install():
     template = (ROOT / 'tools/token-hud-local/start-composer.vbs').read_text(encoding='utf-8')
     text = template.replace('@POWERSHELL@', str(Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'))
     text = text.replace('@SCRIPT@', str(ROOT / 'tools/token-hud-local/Start-ComposerHud.ps1'))
+    previous_text = text.replace(str(ROOT), str(previous_root))
     for target in (wrapper, COMPAT):
-        if target.exists() and target.read_text(encoding='utf-16') != text:
+        if target.exists() and target.read_text(encoding='utf-16') not in (text, previous_text):
             raise ValueError('Owned wrapper changed externally; refusing to overwrite: '+str(target))
     recovery.mkdir(parents=True, exist_ok=True)
     for target in (wrapper, COMPAT):
@@ -84,10 +91,13 @@ def install():
         if not backup.exists():
             shutil.copy2(path, backup)
     shell.SHChangeNotify(shellcon.SHCNE_ASSOCCHANGED, shellcon.SHCNF_IDLIST, None, None)
-    print(json.dumps({'updatedShortcuts': [str(p) for _, p, _ in selected],
+    result = {'updatedShortcuts': [str(p) for _, p, _ in selected],
                       'pinnedShortcutUpdated': any(i == 1 for i, _, _ in selected),
                       'skippedUnmanagedShortcuts': skipped,
-                      'appIdPreserved': True, 'recovery': str(recovery)}, ensure_ascii=False))
+                      'appIdPreserved': True, 'recovery': str(recovery)}
+    if not quiet:
+        print(json.dumps(result, ensure_ascii=False))
+    return result
 
 
 if __name__ == '__main__':

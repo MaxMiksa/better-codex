@@ -1,6 +1,7 @@
 """Resolve the current registered Store package; never trust a process name alone."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -9,7 +10,8 @@ FAMILY = 'OpenAI.Codex_2p2nqsd0c76g0'
 
 def discover():
     command = "$p=@(Get-AppxPackage -Name OpenAI.Codex | Where-Object {$_.PackageFamilyName -eq 'OpenAI.Codex_2p2nqsd0c76g0'}); if($p.Count -ne 1){exit 1}; $p[0] | Select-Object InstallLocation,Version,PackageFamilyName,SignatureKind,Status | ConvertTo-Json -Compress"
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
+    powershell = Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    result = subprocess.run([str(powershell), '-NoProfile', '-NonInteractive', '-Command', command],
                             check=True, capture_output=True, text=True, timeout=20,
                             creationflags=subprocess.CREATE_NO_WINDOW)
     package = json.loads(result.stdout)

@@ -9,8 +9,9 @@ PUBLIC_FILES = [
     'README.md', 'README-zh.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
     '.gitignore', 'VERSION', 'package.json', 'requirements.txt', 'Install.ps1', 'Start.cmd', 'Stop.cmd',
     'Presentation/overview.png', 'docs/PRIVACY.md', 'docs/DEVELOPMENT.md', 'scripts/package.py',
+    'scripts/build-portable.py', 'scripts/portable-lock.json',
 ]
-CODE_SUFFIXES = {'.py', '.ps1', '.vbs', '.cjs', '.js'}
+CODE_SUFFIXES = {'.py', '.ps1', '.vbs', '.cjs', '.js', '.cs'}
 
 
 def public_files():
@@ -31,16 +32,21 @@ def package():
         raise ValueError('Product version mismatch')
     output = ROOT / 'dist'
     output.mkdir(exist_ok=True)
-    name = 'better-codex-v'+version+'-windows-x64'
+    name = 'better-codex-v'+version+'-source'
     archive = output / (name+'.zip')
     files = public_files()
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as bundle:
         for p in files:
             bundle.write(p, name+'/'+p.relative_to(ROOT).as_posix())
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    checksum = output / 'SHA256SUMS.txt'
-    checksum.write_text(digest+'  '+archive.name+'\n', encoding='utf-8')
+    write_checksums(version)
     print(json.dumps({'archive': str(archive), 'files': len(files), 'sha256': digest}))
+
+
+def write_checksums(version):
+    archives = sorted((ROOT / 'dist').glob('better-codex-v'+version+'-*.zip'))
+    lines = [hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name for p in archives]
+    (ROOT / 'dist/SHA256SUMS.txt').write_text('\n'.join(lines)+'\n', encoding='utf-8')
 
 
 if __name__ == '__main__':

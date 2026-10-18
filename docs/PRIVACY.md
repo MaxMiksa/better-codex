@@ -1,6 +1,6 @@
 # Local data and privacy / 本地数据与隐私
 
-Better Codex processes data on your computer. It does not add a model proxy, send analytics, read login credentials, or change Codex's model connection settings. Dependency installation uses Python/npm registries.
+Better Codex processes data on your computer. It does not add a model proxy, send analytics, read login credentials, or change Codex's model connection settings. The portable launcher does not download dependencies. Building a portable package and installing from the optional source ZIP use official runtime/package download sources. Codex model traffic still uses its existing network connection.
 
 The collector reads Codex's local session index, session records and read-only state database. Those source files may contain conversation content; parsing local event records does not mean the process never encounters that content. Better Codex does not export conversation bodies or copy full logs into its own status files. Statistics and discovery metadata can include conversation identifiers, titles, paths, timestamps, model labels from local records and token counts. Model labels are not proof of the model that served a request.
 
