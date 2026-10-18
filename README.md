@@ -16,7 +16,7 @@ A collection of small enhancements that make Codex more comfortable to use. It p
 
 ## 🎬 Preview
 
-<p align="center"><img src="Presentation/overview.png" alt="Better Codex: inline statistics, reading-width control and collapsed file changes" width="800" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better Codex: inline statistics, reading-width control and collapsed file changes" width="900" /></p>
 
 *Inline statistics, reading-width control and collapsed file changes.*
 

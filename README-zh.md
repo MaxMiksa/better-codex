@@ -16,7 +16,7 @@
 
 ## 🎬 演示
 
-<p align="center"><img src="Presentation/overview.png" alt="Better Codex：内嵌统计、正文宽度调节与文件变更列表收起" width="800" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better Codex：内嵌统计、正文宽度调节与文件变更列表收起" width="900" /></p>
 
 *内嵌统计、正文宽度调节与文件变更列表收起。*
 
