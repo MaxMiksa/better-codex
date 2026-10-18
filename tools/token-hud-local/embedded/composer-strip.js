@@ -3,7 +3,7 @@
   if (window.__codexComposerHud) return false;
   const host = document.createElement('div');
   host.id = 'codex-composer-hud';
-  host.style.cssText = 'position:fixed;width:max-content;pointer-events:none;z-index:20;transform:translateX(-50%);';
+  host.style.cssText = 'position:fixed;width:max-content;pointer-events:none;z-index:20;transform:translateX(-50%);color:var(--color-text-tertiary,#a8a8a8);';
   const shadow = host.attachShadow({mode:'open'});
   shadow.innerHTML = `<style>
     section{display:flex;align-items:center;justify-content:center;white-space:nowrap}
@@ -80,7 +80,7 @@
     const rowControls=controls.filter(r=>Math.abs((r.top+r.bottom)/2-bottom)<12);
     if (rowControls.length<2 || bottom<editors[0].getBoundingClientRect().bottom-3) return refuse('unknown-footer-contract');
     const x=(bounds.left+bounds.right)/2;
-    // Match actual label typography, including child spans, rather than icon-button styles.
+    // Match label typography; keep the muted theme color independent of menu state.
     const labels=buttons.filter(e=>{const r=e.getBoundingClientRect();return r.left>x && Math.abs((r.top+r.bottom)/2-bottom)<12;}).sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left);
     let reference;
     for(const button of labels){
@@ -93,7 +93,7 @@
     }
     if(!reference)return refuse('missing-footer-label-style');
     const style=getComputedStyle(reference);
-    for(const property of ['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','color'])host.style[property]=style[property];
+    for(const property of ['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing'])host.style[property]=style[property];
     if(!host.isConnected)document.body.append(host);
     host.style.visibility='hidden';host.hidden=false;
     const size=host.getBoundingClientRect(), y=bottom-size.height/2;

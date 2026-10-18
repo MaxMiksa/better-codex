@@ -8,7 +8,8 @@ const id='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-0
 const source=fs.readFileSync(path.join(__dirname,'composer-strip.js'),'utf8');
 const readingSource=fs.readFileSync(path.join(__dirname,'reading-width.js'),'utf8');
 const html=`<!doctype html><style>
-:root{--color-text:#eee;--color-surface:#292929;--thread-content-max-width:48rem;font-family:'Segoe UI',sans-serif}body{margin:0;background:#181818;color:var(--color-text)}
+#model[data-state="open"]{color:#777}
+:root{--color-text:#eee;--color-text-tertiary:#aaa;--color-surface:#292929;--thread-content-max-width:48rem;font-family:'Segoe UI',sans-serif}body{margin:0;background:#181818;color:var(--color-text)}
 aside{position:absolute;width:1px;height:1px}#composer{position:absolute;left:96px;right:61px;top:78px;height:146px;padding:18px;box-sizing:border-box;background:#3f3f3f;border:1px solid #494949;border-radius:32px}
 [contenteditable]{height:62px;font-size:20px;outline:none}footer{position:absolute;left:18px;right:12px;bottom:12px;display:flex;justify-content:space-between;height:40px}footer>div{display:flex;align-items:center;gap:16px}button{background:none;border:0;color:inherit;font:18px 'Segoe UI';height:40px;padding:0 4px}#access{color:#ff8c4a}#send{background:#fff;color:#111;border-radius:50%;width:40px}
 </style><div class="thread-scroll-container" style="height:40px"><div class="max-w-(--thread-body-max-width)" style="width:100%;max-width:var(--thread-body-max-width);--thread-body-max-width:var(--thread-content-max-width)">Layout fixture</div></div><aside data-app-action-sidebar-thread-active="true" data-app-action-sidebar-thread-kind="local" data-app-action-sidebar-thread-host-id="local" data-app-action-sidebar-thread-id="local:${id}"></aside>
@@ -32,9 +33,14 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('native-footer-typography-matched',await page.evaluate(()=>{
     const reference=getComputedStyle(document.querySelector('#model'));
     return [...document.querySelector('#codex-composer-hud').shadowRoot.querySelectorAll('span,i')].every(e=>{
-      const actual=getComputedStyle(e);return ['fontFamily','fontSize','fontWeight','color'].every(k=>actual[k]===reference[k])&&actual.opacity==='1';
+      const actual=getComputedStyle(e);return ['fontFamily','fontSize','fontWeight'].every(k=>actual[k]===reference[k])&&actual.opacity==='1';
     });
   }));
+  check('default-metrics-muted-gray',await page.locator('#metrics').evaluate(e=>getComputedStyle(e).color)==='rgb(170, 170, 170)');
+  await page.evaluate(()=>document.querySelector('#model').setAttribute('data-state','open'));
+  await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('model-state-does-not-change-gray',await page.locator('#metrics').evaluate(e=>getComputedStyle(e).color)==='rgb(170, 170, 170)');
+  await page.evaluate(()=>document.querySelector('#model').removeAttribute('data-state'));
   await page.evaluate(readingSource);
   await page.evaluate(()=>window.__codexComposerHud.readingState(window.__codexReadingWidth.update('wide')));
   const metrics=page.locator('#metrics'),panel=page.locator('#width-panel'),range=page.locator('#width-range');
@@ -57,9 +63,9 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.locator('#add').click();check('outside-click-closes-panel',!await panel.isVisible());
   await metrics.click();await range.press('Escape');check('escape-closes-panel',!await panel.isVisible()&&await metrics.evaluate(e=>e===e.getRootNode().activeElement));
   await metrics.click();await metrics.click();check('hud-click-toggles-closed',!await panel.isVisible());
-  await page.evaluate(()=>{document.documentElement.style.setProperty('--color-text','#333');document.documentElement.style.setProperty('--color-surface','#fff');document.body.style.background='#fff';document.querySelector('#composer').style.background='#f2f2f2';});
+  await page.evaluate(()=>{document.documentElement.style.setProperty('--color-text','#333');document.documentElement.style.setProperty('--color-text-tertiary','#777');document.documentElement.style.setProperty('--color-surface','#fff');document.body.style.background='#fff';document.querySelector('#composer').style.background='#f2f2f2';});
   await page.evaluate(()=>window.__codexComposerHud.snapshot());
-  check('theme-inherited',await page.locator('#codex-composer-hud').evaluate(e=>getComputedStyle(e).color)==='rgb(51, 51, 51)');
+  check('muted-color-follows-theme',await page.locator('#codex-composer-hud').evaluate(e=>getComputedStyle(e).color)==='rgb(119, 119, 119)');
   await metrics.click();await page.screenshot({path:path.join(evidence,'composer-light.png')});
   await page.evaluate(value=>document.querySelector('aside').setAttribute('data-app-action-sidebar-thread-id','local:'+value),other);
   await page.evaluate(()=>window.__codexComposerHud.snapshot());check('chat-switch-closes-panel',!await panel.isVisible());
