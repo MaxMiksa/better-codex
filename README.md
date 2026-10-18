@@ -1,14 +1,14 @@
 <h1 align="center">Better Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.2.0"><img alt="Version" src="https://img.shields.io/badge/version-v0.2.0-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.0"><img alt="Version" src="https://img.shields.io/badge/version-v0.3.0-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
   <a href="README-zh.md"><img alt="[中文说明]" src="https://img.shields.io/badge/%5B%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E%5D-2f3640.svg" /></a>
 </p>
 
-✅ **No Python/Node.js installation · Local processing · Open source**  
+✅ **No Python/Node.js installation · English / 简体中文 · Local processing**  
 ✅ **Inline statistics · Adjustable reading width · Compact file changes**  
 ✅ **Windows 11 · Official Codex desktop app**  
 
@@ -16,17 +16,18 @@ A collection of small enhancements that make Codex more comfortable to use. It p
 
 ## 🎬 Preview
 
-<p align="center"><img src="Presentation/overview.png" alt="Inline statistics, reading-width control and collapsed file changes" width="800" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better Codex: inline statistics, reading-width control and collapsed file changes" width="800" /></p>
 
-*Actual enhancement modules on an illustrative page with synthetic data. No private conversation is shown.*
+*Inline statistics, reading-width control and collapsed file changes.*
 
 ## ✨ Features
 
 | Feature | What you get |
 | --- | --- |
-| Inline statistics | See the latest response's output speed, input cache percentage and sample age by the input box. |
+| Inline statistics | Muted gray text shows the latest response's output speed, input cache percentage and sample age by the input box. |
 | Reading width | Click the statistics to adjust conversation width up to 1600px. Your choice is saved; the input box keeps its width. |
 | Compact file changes | Multi-file lists start collapsed. Expand the full list when needed; review and undo remain accessible. |
+| English and Simplified Chinese | Interface labels, setup and launch messages select the language automatically. |
 | Familiar launch | Start Codex and the enhancements together with a shortcut. Login startup is optional. |
 | Easy to stop | Restore the native layout while Codex keeps running. |
 
@@ -36,7 +37,7 @@ Speed is the **average of the latest completed response**, calculated from local
 
 You need **Windows 11 x64 and the official Codex Store app**. The portable ZIP includes its own Python, Node.js and dependencies. No system runtime installation or first-run dependency download is needed.
 
-1. Download **`better-codex-v0.2.0-windows-x64-portable.zip`** from [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.2.0).
+1. Download **`better-codex-v0.3.0-windows-x64-portable.zip`** from [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.0).
 2. Extract the **entire ZIP** to a writable folder you plan to keep.
 3. Double-click **`BetterCodex.exe`**. Click the statistics to adjust reading width; use `Stop.cmd` to stop the enhancements.
 
@@ -49,7 +50,9 @@ If the existing Codex window has no local display interface, save your work and 
 
 Tested on Windows 11 x64 with Codex desktop package `26.1013.4894.0`. Other app versions, multiple windows and every display scale are not fully verified. A Codex update may require adaptation. The launcher is unsigned; Windows may show an unfamiliar-publisher notice.
 
-Statistics need readable local Codex session records; cloud-only chats are not measured. Chat mode can share reading width but receives no Codex statistics. UI control labels currently use Simplified Chinese; documentation is bilingual.
+Statistics need readable local Codex session records; cloud-only chats are not measured. Chat mode can share reading width but receives no Codex statistics.
+
+HUD labels, relative times, reading-width controls, file-list buttons, setup and launch messages default to the Windows display language. English and Simplified Chinese are supported; other languages use English. Changing Codex's own language does not change Better Codex's default language. Native Codex buttons and third-party setup tools keep their own language.
 
 This release has no model-quality/downgrade detector, plugin marketplace or automatic updater. It does not promise faster model generation. Keep its local display port on loopback; do not expose or forward it.
 
@@ -105,7 +108,7 @@ A dash means timing or usage is unavailable, not zero speed. New turns, uncertai
 <details>
 <summary><b>💻 Developer guide</b></summary>
 
-A separate `better-codex-v0.2.0-source.zip` remains available. Source installation requires Python 3.11+ and Node.js 20+; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1` from its extracted folder. The portable build already includes its runtimes and needs no browser download. See [Development](docs/DEVELOPMENT.md) for module boundaries, isolated checks and packaging. Runtime files, private research and local configuration are excluded from the public package.
+A separate `better-codex-v0.3.0-source.zip` remains available. Source installation requires Python 3.11+ and Node.js 20+; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1` from its extracted folder. Add `-Language en` or `-Language zh-CN` to choose setup messages explicitly; the default is automatic. The portable build already includes its runtimes and needs no browser download. See [Development](docs/DEVELOPMENT.md) for module boundaries, isolated checks and packaging. Runtime files, private research and local configuration are excluded from the public package.
 
 </details>
 

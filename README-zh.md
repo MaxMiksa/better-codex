@@ -1,14 +1,14 @@
 <h1 align="center">Better Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.2.0"><img alt="版本" src="https://img.shields.io/badge/version-v0.2.0-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.0"><img alt="版本" src="https://img.shields.io/badge/version-v0.3.0-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
   <a href="README.md"><img alt="[English]" src="https://img.shields.io/badge/%5BEnglish%5D-2f3640.svg" /></a>
 </p>
 
-✅ **不用安装 Python/Node.js · 本地处理 · 开源**  
+✅ **不用安装 Python/Node.js · 中英文支持 · 本地处理**  
 ✅ **内嵌统计 · 正文宽度调节 · 文件变更列表收起**  
 ✅ **Windows 11 · 官方 Codex 桌面应用**  
 
@@ -16,17 +16,18 @@
 
 ## 🎬 演示
 
-<p align="center"><img src="Presentation/overview.png" alt="内嵌统计、正文宽度滑杆和收起后的文件变更列表" width="800" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better Codex：内嵌统计、正文宽度调节与文件变更列表收起" width="800" /></p>
 
-*使用真实增强模块和模拟数据生成的演示页面，不包含私人聊天。*
+*内嵌统计、正文宽度调节与文件变更列表收起。*
 
 ## ✨ 功能
 
 | 功能 | 使用体验 |
 | --- | --- |
-| 内嵌统计 | 在输入框旁查看最近一次响应的输出速度、输入缓存比例和统计时间。 |
+| 内嵌统计 | 用灰色文字在输入框旁显示最近一次响应的输出速度、输入缓存比例和统计时间。 |
 | 正文宽度 | 点击统计文字调整正文宽度，最大 1600px。自动保存偏好，输入框保持原宽度。 |
 | 文件列表收起 | 多文件变更列表默认收起，需要时展开全部；保留查看变更和撤销入口。 |
+| 中英文支持 | 界面标签、安装与启动提示自动选择英文或简体中文。 |
 | 联合启动 | 用快捷方式一起打开 Codex 和增强功能，登录启动可以单独开启。 |
 | 随时停止 | 恢复原生布局，Codex 继续运行。 |
 
@@ -36,7 +37,7 @@
 
 需要 **Windows 11 x64 和官方 Codex 商店应用**。便携包已包含独立的 Python、Node.js 和依赖，不用安装系统运行环境，首次启动也不下载依赖。
 
-1. 从 [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.2.0) 下载 **`better-codex-v0.2.0-windows-x64-portable.zip`**。
+1. 从 [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.0) 下载 **`better-codex-v0.3.0-windows-x64-portable.zip`**。
 2. 将 ZIP **完整解压**到可写且准备长期保留的目录。
 3. 双击 **`BetterCodex.exe`**。点击输入框底部的统计文字调节正文宽度；双击 `Stop.cmd` 可停止增强功能。
 
@@ -49,9 +50,11 @@
 
 当前版本在 Windows 11 x64、Codex 桌面包 `26.1013.4894.0` 上验证。其他版本、多窗口和全部显示缩放比例尚未充分验证；Codex 更新后可能需要适配。启动程序尚未签名，Windows 可能显示发布者提示。
 
-统计依赖可读取的本地 Codex 会话记录，不测量只有云端记录的聊天。Chat 模式可以沿用正文宽度，但不显示 Codex 统计。界面控制文字目前为简体中文，说明文档提供中英双语。
+统计依赖可读取的本地 Codex 会话记录，不测量只有云端记录的聊天。Chat 模式可以沿用正文宽度，但不显示 Codex 统计。
 
-首版没有模型能力或降级检测、插件市场或自动更新功能，不承诺加快模型生成。请保持本地显示接口仅供本机访问，不要暴露或转发到外网。
+HUD 标签、相对时间、正文宽度控件、文件列表按钮及安装和启动提示，默认跟随 Windows 显示语言。支持英文和简体中文，其他语言回退英文；单独修改 Codex 的语言不改变 Better Codex 的默认语言。Codex 原生按钮和第三方安装工具沿用各自语言。
+
+当前版本没有模型能力或降级检测、插件市场或自动更新功能，不承诺加快模型生成。请保持本地显示接口仅供本机访问，不要暴露或转发到外网。
 
 </details>
 
@@ -105,7 +108,7 @@
 <details>
 <summary><b>💻 开发说明</b></summary>
 
-同时保留 `better-codex-v0.2.0-source.zip`。源码安装需要 Python 3.11+ 和 Node.js 20+，在解压目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`。便携版已经包含运行环境，无需下载浏览器。[开发说明](docs/DEVELOPMENT.md)列出模块职责、隔离检查及打包方式。公开包不包含运行数据、私人探索记录或本机配置。
+同时保留 `better-codex-v0.3.0-source.zip`。源码安装需要 Python 3.11+ 和 Node.js 20+，在解压目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`。可加 `-Language en` 或 `-Language zh-CN` 明确选择安装提示语言，默认自动选择。便携版已经包含运行环境，无需下载浏览器。[开发说明](docs/DEVELOPMENT.md)列出模块职责、隔离检查及打包方式。公开包不包含运行数据、私人探索记录或本机配置。
 
 </details>
 
