@@ -10,6 +10,7 @@ PUBLIC_FILES = [
     '.gitignore', 'VERSION', 'package.json', 'requirements.txt', 'Install.ps1', 'Start.cmd', 'Stop.cmd',
     'Presentation/overview.png', 'docs/PRIVACY.md', 'docs/DEVELOPMENT.md', 'scripts/package.py',
     'scripts/build-portable.py', 'scripts/portable-lock.json',
+    'tools/token-hud-local/shared/messages.json',
 ]
 CODE_SUFFIXES = {'.py', '.ps1', '.vbs', '.cjs', '.js', '.cs'}
 

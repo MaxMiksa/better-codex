@@ -6,8 +6,9 @@ const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolv
 const evidence=path.resolve(process.argv[2]),scratch=path.resolve(process.argv[3]);
 const id='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002';
 const source=fs.readFileSync(path.join(__dirname,'composer-strip.js'),'utf8');
+const i18nSource=require('./i18n.js').pageSource('zh-CN');
 const readingSource=fs.readFileSync(path.join(__dirname,'reading-width.js'),'utf8');
-const html=`<!doctype html><style>
+const html=`<!doctype html><html lang="zh-CN"><style>
 #model[data-state="open"]{color:#777}
 :root{--color-text:#eee;--color-text-tertiary:#aaa;--color-surface:#292929;--thread-content-max-width:48rem;font-family:'Segoe UI',sans-serif}body{margin:0;background:#181818;color:var(--color-text)}
 aside{position:absolute;width:1px;height:1px}#composer{position:absolute;left:96px;right:61px;top:78px;height:146px;padding:18px;box-sizing:border-box;background:#3f3f3f;border:1px solid #494949;border-radius:32px}
@@ -21,8 +22,10 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
  const context=await chromium.launchPersistentContext(scratch,{headless:true,executablePath:process.env.HUD_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',viewport:{width:1261,height:253}});
  try{
   const page=context.pages()[0];
-  const reset=async()=>{await page.evaluate(()=>{window.__codexReadingWidth?.remove();window.__codexComposerHud?.remove();});await page.setContent(html);await page.evaluate(source);return page.evaluate(()=>window.__codexComposerHud.snapshot());};
+  const reset=async()=>{await page.evaluate(()=>{window.__codexReadingWidth?.remove();window.__codexComposerHud?.remove();});await page.setContent(html);await page.evaluate(i18nSource);await page.evaluate(source);return page.evaluate(()=>window.__codexComposerHud.snapshot());};
   let snapshot=await reset();check('unique-local-chat-and-composer: '+snapshot.compatibility.reason,snapshot.id===id&&snapshot.visible);
+  await page.evaluate(()=>{document.documentElement.lang='en-US';Object.defineProperty(navigator,'language',{value:'en-US',configurable:true});});
+  check('computer-language-overrides-app-and-browser',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).locale==='zh-CN');
   const nativeBefore=await page.locator('#composer').innerHTML();
   check('render-current-generation',await page.evaluate(s=>window.__codexComposerHud.render({...s,speed:'53 tok/s',cache:'98%',age:'31秒前'}),snapshot));
   const text=await page.locator('#codex-composer-hud section').innerText();
@@ -58,6 +61,19 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('late-save-ack-keeps-newer-choice',await page.evaluate(value=>{window.__codexComposerHud.readingAck(value);return window.__codexComposerHud.readingRequest()?.value===1040;},oldRequest));
   await page.evaluate(()=>{const request=window.__codexComposerHud.readingRequest();window.__codexComposerHud.readingAck(request);window.__codexComposerHud.readingState(window.__codexReadingWidth.update(request.value));});
   check('ack-clears-save-request',await page.evaluate(()=>window.__codexComposerHud.readingRequest()===null));
+  await page.evaluate(()=>{window.__codexHudLanguage='en-US';window.dispatchEvent(new Event('languagechange'));});
+  check('english-width-labels',await metrics.getAttribute('title')==='Adjust reading width'&&await panel.getAttribute('aria-label')==='Reading width'&&await range.getAttribute('aria-valuetext')==='1040 pixels');
+  check('language-change-preserves-panel-and-width',await panel.isVisible()&&await range.inputValue()==='1040');
+  snapshot=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('injected-computer-language-used',snapshot.locale==='en');
+  check('late-language-render-rejected',!await page.evaluate(s=>window.__codexComposerHud.render({...s,locale:'zh-CN',speed:'53 tok/s',cache:'98%',age:'刚刚'}),snapshot));
+  check('english-metrics-render',await page.evaluate(s=>window.__codexComposerHud.render({...s,speed:'53 tok/s',cache:'98%',age:'31s ago'}),snapshot)&&await metrics.isVisible());
+  await range.press('Home');
+  check('english-default-width',await page.locator('output').innerText()==='Default'&&await range.getAttribute('aria-valuetext')==='Default width');
+  await page.evaluate(()=>{window.__codexHudLanguage='fr-FR';window.dispatchEvent(new Event('languagechange'));});
+  check('unsupported-page-language-falls-back-to-english',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).locale==='en');
+  await page.evaluate(()=>{window.__codexHudLanguage='zh-Hans';window.dispatchEvent(new Event('languagechange'));});
+  check('chinese-live-switch',await metrics.getAttribute('title')==='调整正文宽度'&&await page.locator('output').innerText()==='默认'&&await range.getAttribute('aria-valuetext')==='默认宽度');
   check('slider-leaves-native-composer-untouched',nativeBefore===await page.locator('#composer').innerHTML());
   await page.screenshot({path:path.join(evidence,'composer-dark.png')});
   await page.locator('#add').click();check('outside-click-closes-panel',!await panel.isVisible());
@@ -124,10 +140,16 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('lost-controller-clears-values',!(await page.locator('#codex-composer-hud section').innerText()).includes('99'));
   await page.evaluate(()=>window.__codexComposerHud.remove());check('removal-cleans-view',await page.locator('#codex-composer-hud').count()===0);
   const now=1000000,data={binding:'ok',thread_id:id,updated_at_ms:now,source:{state:'ok'},metrics:{model:'fixture',stage:'idle',last:{model:'fixture',rate:52.9,cache_percent:97.5,measured_at_ms:now-31000}}};
-  check('metadata-format',JSON.stringify(formatMetrics(data,id,now))===JSON.stringify({speed:'53 tok/s',cache:'98%',age:'31秒前'}));
+  check('metadata-format',JSON.stringify(formatMetrics(data,id,now,'zh-CN'))===JSON.stringify({speed:'53 tok/s',cache:'98%',age:'31秒前'}));
   check('wrong-chat-rejected',formatMetrics(data,other,now).speed==='— tok/s');
-  check('stale-heartbeat-rejected',formatMetrics({...data,updated_at_ms:now-6001},id,now).age==='采集未连接');
-  check('expired-sample-rejected',formatMetrics({...data,metrics:{...data.metrics,last:{...data.metrics.last,measured_at_ms:now-900000}}},id,now).age==='数据已过期');
+  check('stale-heartbeat-rejected',formatMetrics({...data,updated_at_ms:now-6001},id,now,'zh-CN').age==='采集未连接');
+  check('expired-sample-rejected',formatMetrics({...data,metrics:{...data.metrics,last:{...data.metrics.last,measured_at_ms:now-900000}}},id,now,'zh-CN').age==='数据已过期');
+  check('english-relative-seconds',formatMetrics(data,id,now,'en-US').age==='31s ago');
+  for(const [age,text] of [[0,'Just now'],[2000,'2s ago'],[59000,'59s ago'],[60000,'1m ago'],[899000,'14m ago'],[900000,'Stats expired']]){
+    check('english-age-boundary-'+age,formatMetrics({...data,metrics:{...data.metrics,last:{...data.metrics.last,measured_at_ms:now-age}}},id,now,'en').age===text);
+  }
+  check('english-disconnected',formatMetrics({...data,updated_at_ms:now-6001},id,now,'en').age==='Collector offline');
+  check('english-empty-and-unsupported-fallback',formatMetrics(null,id,now,'de-DE').age==='Waiting for stats');
   check('new-turn-clears-old-sample',formatMetrics({...data,metrics:{...data.metrics,stage:'generating',turn_started_at_ms:now}},id,now).speed==='— tok/s');
   fs.writeFileSync(path.join(evidence,'verification.json'),JSON.stringify({scope:'Synthetic Edge composer, not actual Codex renderer',results},null,2));console.log(JSON.stringify({passed:results.length}));
  }finally{await context.close();}

@@ -1,5 +1,6 @@
 param([ValidateSet('Enable','Disable','Status')][string]$Mode = 'Status')
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'shared/i18n.ps1')
 $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $startup = [Environment]::GetFolderPath('Startup')
 $destination = Join-Path $startup 'Codex with HUD.lnk'
@@ -15,13 +16,13 @@ function Test-OwnedShortcut([string]$Path) {
 }
 
 if ((Test-Path -LiteralPath $destination) -and -not (Test-OwnedShortcut $destination)) {
-    throw 'Startup shortcut belongs to another target; refusing to replace or remove it.'
+    throw (Get-BetterCodexText 'startup.unowned')
 }
 if ($Mode -eq 'Enable') {
     if (-not (Test-Path -LiteralPath $source) -or -not (Test-Path -LiteralPath $wrapper)) {
-        throw 'HUD launcher missing. Restore the existing entry before enabling login startup.'
+        throw (Get-BetterCodexText 'startup.missing')
     }
-    if (-not (Test-OwnedShortcut $source)) { throw 'Project shortcut does not match the HUD entry.' }
+    if (-not (Test-OwnedShortcut $source)) { throw (Get-BetterCodexText 'startup.mismatch') }
     [IO.Directory]::CreateDirectory($startup) | Out-Null
     Copy-Item -LiteralPath $source -Destination $destination -Force
 } elseif ($Mode -eq 'Disable' -and (Test-Path -LiteralPath $destination)) {
@@ -32,6 +33,8 @@ $present = Test-Path -LiteralPath $destination
 $approval = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder' -Name 'Codex with HUD.lnk' -ErrorAction SilentlyContinue
 $approvalBytes = $approval.'Codex with HUD.lnk'
 [pscustomobject]@{
+    locale = $script:BetterCodexLanguage
+    message = Get-BetterCodexText $(if ($Mode -eq 'Enable') { 'startup.enabled' } elseif ($Mode -eq 'Disable') { 'startup.disabled' } elseif ($present) { 'startup.present' } else { 'startup.absent' })
     shortcutPresent = $present
     owned = $present -and (Test-OwnedShortcut $destination)
     path = $destination

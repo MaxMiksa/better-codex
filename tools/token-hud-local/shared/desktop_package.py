@@ -4,6 +4,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+
+# Embedded Python omits the script directory from sys.path on direct invocation.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from localization import text
 
 FAMILY = 'OpenAI.Codex_2p2nqsd0c76g0'
 
@@ -17,7 +22,7 @@ def discover():
     package = json.loads(result.stdout)
     # Enum values in Get-AppxPackage JSON: Store=3, Ok=0.
     if package['PackageFamilyName'] != FAMILY or package['SignatureKind'] not in (3, 'Store') or package['Status'] not in (0, 'Ok'):
-        raise ValueError('Expected a healthy registered Codex Store package')
+        raise ValueError(text('package.unhealthy'))
     executable = Path(package['InstallLocation']) / 'app/ChatGPT.exe'
     return {'executable': str(executable), 'sha256': hashlib.sha256(executable.read_bytes()).hexdigest(),
             'packageVersion': str(package['Version']), 'packageFamily': FAMILY}

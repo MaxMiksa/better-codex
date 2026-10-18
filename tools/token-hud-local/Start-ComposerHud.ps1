@@ -1,9 +1,10 @@
 param([switch]$CheckOnly, [switch]$FunctionsOnly)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'shared/i18n.ps1')
 . (Join-Path $PSScriptRoot 'shared/codex_activation.ps1')
 
 function Get-ComposerLaunchPlan($Package, $Settings, $Desktops, $Listeners) {
-    if ($Settings.port -lt 1024 -or $Settings.port -gt 65535) { throw 'Invalid display port.' }
+    if ($Settings.port -lt 1024 -or $Settings.port -gt 65535) { throw (Get-BetterCodexText 'launch.invalidPort') }
     $verified = @($Desktops | Where-Object { $_.Path -eq $Package.executable })
     if ($verified.Count -ne $Desktops.Count) { return @{arguments='';reason='desktop-identity-unverified';attach=$false} }
     if ($Listeners.Count -and ($Listeners.Count -ne 1 -or $Listeners[0].LocalAddress -ne '127.0.0.1' -or
@@ -37,6 +38,7 @@ function Start-ComposerSupervisor($Settings, [string]$SettingsPath, [string]$Run
     if (Test-Path -LiteralPath $stop) { Remove-Item -LiteralPath $stop }
     if (-not $alreadyRunning) {
         $arguments = '-X utf8 "{0}" --settings "{1}" --runtime "{2}"' -f (Join-Path $PSScriptRoot 'embedded/supervisor.py'),$SettingsPath,$Runtime
+        $env:BETTER_CODEX_LANGUAGE = $script:BetterCodexLanguage
         $process = Start-Process -FilePath $Settings.python -ArgumentList $arguments -WindowStyle Hidden -PassThru
         @{supervisorPid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath $pidPath -Encoding utf8
     }
@@ -63,10 +65,10 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
     try {
         $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($dependency in @($settings.python,$settings.node,(Join-Path $settings.playwright 'package.json'),(Join-Path $settings.collectorDir 'metrics.py'))) {
-            if (-not $dependency -or -not (Test-Path -LiteralPath $dependency)) { throw 'HUD dependency unavailable.' }
+            if (-not $dependency -or -not (Test-Path -LiteralPath $dependency)) { throw (Get-BetterCodexText 'launch.dependencyMissing') }
         }
         $package = & $settings.python (Join-Path $PSScriptRoot 'shared/desktop_package.py') | ConvertFrom-Json
-        if ($LASTEXITCODE -ne 0 -or -not $package.executable) { throw 'Codex package verification failed.' }
+        if ($LASTEXITCODE -ne 0 -or -not $package.executable) { throw (Get-BetterCodexText 'launch.packageFailed') }
         $desktops = @(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)
         $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $settings.port -ErrorAction SilentlyContinue)
         $plan = Get-ComposerLaunchPlan $package $settings $desktops $listeners
@@ -79,7 +81,8 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
     }
     $receipt.hudReason = $plan.reason
     $receipt.packageVersion = $package.packageVersion
-    if ($CheckOnly) { return $receipt }
+    $receipt.locale = $script:BetterCodexLanguage
+    if ($CheckOnly) { $receipt.message = Get-BetterCodexText 'launch.checked'; return $receipt }
     # Every normal click activates the app, including HUD failure and existing instances.
     try {
         $receipt.activationProcessId = Invoke-CodexActivation $plan.arguments
@@ -88,6 +91,7 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
         $receipt.hudReason = 'activation-failed'
         $receipt.errorType = $_.Exception.GetType().Name
     }
+    $receipt.message = Get-BetterCodexText "launch.$($receipt.hudReason)"
     Write-ComposerLaunchReceipt $runtime $receipt
     return $receipt
 }
@@ -97,7 +101,7 @@ if (-not $FunctionsOnly) {
     $held = $false
     try {
         try { $held = $mutex.WaitOne(15000) } catch [Threading.AbandonedMutexException] { $held = $true }
-        if (-not $held) { Write-Output '{"hudReason":"launch-already-in-progress"}'; return }
+        if (-not $held) { @{hudReason='launch-already-in-progress';locale=$script:BetterCodexLanguage;message=(Get-BetterCodexText 'launch.launch-already-in-progress')} | ConvertTo-Json; return }
         $result = Invoke-ComposerLaunch -CheckOnly:$CheckOnly
         $result | ConvertTo-Json
         if (-not $CheckOnly -and -not $result.activationSucceeded) { exit 1 }

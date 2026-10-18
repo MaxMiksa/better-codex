@@ -45,17 +45,18 @@ internal static class PortableLauncher {
                 process.WaitForExit();
                 Console.Write(output);
                 if (process.ExitCode == 2 && normal) {
-                    MessageBox.Show("Save your work and exit Codex normally when convenient, then open BetterCodex.exe again. Your current Codex session has been preserved.", "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(BetterCodexI18n.Text(root, "launch.restart-required"), "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 } else if (process.ExitCode != 0 && normal) {
                     ActivateCodex();
-                    MessageBox.Show("Better Codex could not start its enhancements. Extract the entire portable ZIP to a writable folder, and make sure the official Codex Windows app is installed. Codex activation was attempted.\n\n" + output.Trim(), "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    string detail = BetterCodexI18n.OutputMessage(output);
+                    MessageBox.Show(BetterCodexI18n.Text(root, "portable.failed") + (String.IsNullOrEmpty(detail) ? "" : "\n\n" + detail), "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 return process.ExitCode;
             }
         } catch (Exception error) {
             if (normal) {
                 ActivateCodex();
-                MessageBox.Show("Extract the entire Better Codex portable ZIP before starting it.\n\n" + error.GetType().Name, "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(BetterCodexI18n.Text(AppDomain.CurrentDomain.BaseDirectory, "portable.extract") + "\n\n" + error.GetType().Name, "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             return 1;
         }

@@ -16,6 +16,7 @@ async function main(){
     page=pages[0];session=await page.context().newCDPSession(page);
     collector=spawn(settings.python,['-I','-X','utf8',path.join(settings.collectorDir,'metrics.py'),'--runtime',runtime,'--codex-home',settings.codexHome,'--parent-pid',String(process.pid)],{windowsHide:true,stdio:'ignore'});
     let collectorFailed=false;collector.on('error',()=>{collectorFailed=true;});
+    const i18nSource=require('./i18n.js').pageSource();
     const source=fs.readFileSync(path.join(__dirname,'composer-strip.js'),'utf8');
     const readingSource=fs.readFileSync(path.join(__dirname,'reading-width.js'),'utf8');
     const filesSource=fs.readFileSync(path.join(__dirname,'file-changes.js'),'utf8');
@@ -24,6 +25,7 @@ async function main(){
       if(collectorFailed || collector.exitCode!==null)throw Error('collector-exited');
       const pagesNow=browser.contexts().flatMap(c=>c.pages()).filter(p=>p.url()==='app://-/index.html');
       if(pagesNow.length!==1)throw Error('ambiguous-page');
+      if(!await page.evaluate(()=>Boolean(window.__codexHudI18n)))await session.send('Runtime.evaluate',{expression:i18nSource});
       if(!await page.evaluate(()=>Boolean(window.__codexComposerHud)))await session.send('Runtime.evaluate',{expression:source});
       // Reading layout is optional; failure must not stop metrics or the app.
       let readingWidth;
@@ -50,7 +52,7 @@ async function main(){
       }
       const data=read(path.join(runtime,'metrics.json'));
       let rendered=false;
-      if(observation.id)rendered=await page.evaluate(value=>window.__codexComposerHud?.render(value),{id:observation.id,generation:observation.generation,...formatMetrics(data,observation.id)});
+      if(observation.id)rendered=await page.evaluate(value=>window.__codexComposerHud?.render(value),{id:observation.id,generation:observation.generation,locale:observation.locale,...formatMetrics(data,observation.id,Date.now(),observation.locale)});
       write(path.join(runtime,'view-status.json'),{...observation,rendered,readingWidth,fileChanges,collectorBound:data?.thread_id===observation.id&&data?.binding==='ok',writes:writer.diagnostics(),checkedAt:Date.now()});
       await sleep(350);
     }
@@ -58,6 +60,7 @@ async function main(){
     if(page)await page.evaluate(()=>window.__codexFileChanges?.remove()).catch(()=>{});
     if(page)await page.evaluate(()=>window.__codexReadingWidth?.remove()).catch(()=>{});
     if(page)await page.evaluate(()=>window.__codexComposerHud?.remove()).catch(()=>{});
+    if(page)await page.evaluate(()=>{delete window.__codexHudI18n;delete window.__codexHudLanguage;}).catch(()=>{});
     if(session)await session.detach().catch(()=>{});
     if(collector && collector.exitCode===null)collector.kill();
     // Never invoke Browser.close on the user's app. Process exit disconnects CDP.

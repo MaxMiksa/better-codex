@@ -1,6 +1,7 @@
 // Local presentation only; leave file actions and React state ownership to Codex.
 (() => {
   if (window.__codexFileChanges) return false;
+  const i18n=window.__codexHudI18n;
   const headerSelector = '.thread-scroll-container [class~="group/turn-diff-header"]';
   const marker = 'data-codex-hud-file-list';
   const toggleMarker = 'data-codex-hud-file-toggle';
@@ -47,7 +48,8 @@
     const mode = record.expanded ? 'open' : 'closed';
     if (body.getAttribute(marker)!==mode) body.setAttribute(marker,mode);
     if (record.button.getAttribute('aria-expanded')!==expanded) record.button.setAttribute('aria-expanded',expanded);
-    const label = record.expanded ? '收起文件' : `展开 ${count} 个文件`;
+    const label = i18n.t(record.expanded ? 'collapseFiles' : 'expandFiles',{count});
+    if(record.button.lang!==i18n.locale())record.button.lang=i18n.locale();
     if (record.label.textContent!==label) record.label.textContent=label;
     if (!record.button.isConnected) record.header.parentElement.append(record.button);
     // Use the native reveal action once so all files, including those not yet
@@ -112,10 +114,13 @@
         [...change.addedNodes,...change.removedNodes].some(node=>!own(node))))) scan();
   });
   observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-expanded']});
+  observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
+  window.addEventListener('languagechange',scan);
   window.__codexFileChanges = {
     snapshot:scan,
     remove() {
       observer.disconnect();
+      window.removeEventListener('languagechange',scan);
       records.forEach(release);records.clear();style.remove();
       delete window.__codexFileChanges;
     }

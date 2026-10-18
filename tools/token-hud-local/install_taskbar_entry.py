@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import win32com.client
 from win32com.propsys import propsys, pscon
 from win32com.shell import shell, shellcon
@@ -12,6 +13,8 @@ RUNTIME = ROOT / '.runtime/token-hud/embedded'
 COMPAT = ROOT / '.runtime/hud/service/start-embedded.vbs'
 ICON = RUNTIME / 'codex.ico'
 APP_ID = 'OpenAI.Codex_2p2nqsd0c76g0!App'
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'shared'))
+from localization import language, text as translate
 
 
 def install(previous_root=None, quiet=False):
@@ -26,7 +29,7 @@ def install(previous_root=None, quiet=False):
     previous_wrapper = previous_root / '.runtime/token-hud/embedded/start-composer.vbs'
     previous_compat = previous_root / '.runtime/hud/service/start-embedded.vbs'
     if not ICON.is_file():
-        raise FileNotFoundError('Run Install.ps1 to prepare the installed app icon')
+        raise FileNotFoundError(translate('shortcut.iconMissing'))
     if not links[0].exists():
         links[0].parent.mkdir(parents=True, exist_ok=True)
         link = shell_object.CreateShortcut(str(links[0]))
@@ -49,21 +52,21 @@ def install(previous_root=None, quiet=False):
             if index != 0:
                 skipped.append(str(path))
                 continue
-            raise ValueError('Shortcut was changed externally; refusing to overwrite: '+str(path))
+            raise ValueError(translate('shortcut.changed', path=path))
         store = propsys.SHGetPropertyStoreFromParsingName(str(path), None, shellcon.GPS_DEFAULT)
         if store.GetValue(pscon.PKEY_AppUserModel_ID).GetValue() != APP_ID:
-            raise ValueError('Unexpected shortcut application identity')
+            raise ValueError(translate('shortcut.identity'))
         del store
         selected.append((index, path, link))
     if not selected or selected[0][0] != 0:
-        raise FileNotFoundError('Project shortcut is required')
+        raise FileNotFoundError(translate('shortcut.required'))
     template = (ROOT / 'tools/token-hud-local/start-composer.vbs').read_text(encoding='utf-8')
     text = template.replace('@POWERSHELL@', str(Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'))
     text = text.replace('@SCRIPT@', str(ROOT / 'tools/token-hud-local/Start-ComposerHud.ps1'))
     previous_text = text.replace(str(ROOT), str(previous_root))
     for target in (wrapper, COMPAT):
         if target.exists() and target.read_text(encoding='utf-16') not in (text, previous_text):
-            raise ValueError('Owned wrapper changed externally; refusing to overwrite: '+str(target))
+            raise ValueError(translate('shortcut.wrapperChanged', path=target))
     recovery.mkdir(parents=True, exist_ok=True)
     for target in (wrapper, COMPAT):
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +81,7 @@ def install(previous_root=None, quiet=False):
         link.Arguments = '"'+str(target)+'"'
         link.IconLocation = str(ICON)+',0'
         link.WorkingDirectory = str(ROOT)
-        link.Description = 'Codex with local token HUD'
+        link.Description = translate('shortcut.description')
         link.Save()
         store = propsys.SHGetPropertyStoreFromParsingName(str(path), None, shellcon.GPS_READWRITE)
         store.SetValue(pscon.PKEY_AppUserModel_ID, propsys.PROPVARIANTType(APP_ID))
@@ -91,7 +94,8 @@ def install(previous_root=None, quiet=False):
         if not backup.exists():
             shutil.copy2(path, backup)
     shell.SHChangeNotify(shellcon.SHCNE_ASSOCCHANGED, shellcon.SHCNF_IDLIST, None, None)
-    result = {'updatedShortcuts': [str(p) for _, p, _ in selected],
+    result = {'locale': language(), 'message': translate('shortcut.updated'),
+                      'updatedShortcuts': [str(p) for _, p, _ in selected],
                       'pinnedShortcutUpdated': any(i == 1 for i, _, _ in selected),
                       'skippedUnmanagedShortcuts': skipped,
                       'appIdPreserved': True, 'recovery': str(recovery)}

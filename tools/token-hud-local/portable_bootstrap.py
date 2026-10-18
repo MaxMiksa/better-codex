@@ -1,5 +1,4 @@
 """Prepare private bundled runtimes and launch without package downloads."""
-import argparse
 from datetime import datetime
 import json
 import os
@@ -15,6 +14,7 @@ sys.path.insert(0, str(HERE / 'shared'))
 import psutil
 from desktop_package import discover
 from install_taskbar_entry import install
+from localization import language, text
 
 POWERSHELL = Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
 
@@ -48,7 +48,7 @@ def prepare():
     node = ROOT / 'runtime/node/node.exe'
     playwright = ROOT / 'runtime/node_modules/playwright'
     if Path(sys.executable) != python:
-        raise ValueError('Use the bundled Python through BetterCodex.exe')
+        raise ValueError(text('portable.bundledPython'))
     subprocess.run([str(node), '-e', 'require(process.argv[1]).chromium || process.exit(1)',
                     str(playwright)], check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
     package = discover()
@@ -57,7 +57,7 @@ def prepare():
     previous = Path(location['root']) if location.get('root') else ROOT
     if running(current):
         if previous != ROOT:
-            raise ValueError('Stop the other running copy before moving or copying this folder')
+            raise ValueError(text('portable.otherCopy'))
         return current
     settings = {'port': current.get('port', 19163), 'python': str(python), 'node': str(node),
                 'playwright': str(playwright),
@@ -79,10 +79,15 @@ def prepare():
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['launch', 'check', 'prepare-only', 'stop'])
-    args = parser.parse_args([a.removeprefix('--') for a in sys.argv[1:]])
-    if args.mode == 'check':
+    if sys.argv[1:] in (['--help'], ['-h']):
+        print(text('portable.help'))
+        return 0
+    modes = [a.removeprefix('--') for a in sys.argv[1:]]
+    if len(modes) != 1 or modes[0] not in ('launch', 'check', 'prepare-only', 'stop'):
+        print(json.dumps({'status': 'invalid-arguments', 'locale': language(), 'message': text('cli.invalidArguments', usage=text('portable.help'))}, ensure_ascii=False))
+        return 1
+    mode = modes[0]
+    if mode == 'check':
         import win32com.client
         import win32api
         node = ROOT / 'runtime/node/node.exe'
@@ -90,22 +95,23 @@ def main():
                         str(ROOT / 'runtime/node_modules/playwright')], check=True,
                        capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         discover()
-        print(json.dumps({'status': 'ready', 'bundledRuntimes': True, 'downloads': False}))
+        print(json.dumps({'status': 'ready', 'bundledRuntimes': True, 'downloads': False, 'locale': language(), 'message': text('portable.ready')}, ensure_ascii=False))
         return 0
-    if args.mode == 'stop':
+    if mode == 'stop':
         stop = RUNTIME / 'runtime/stop'
         stop.parent.mkdir(parents=True, exist_ok=True)
         stop.touch()
+        print(json.dumps({'status': 'stop-requested', 'locale': language(), 'message': text('stop.requested')}, ensure_ascii=False))
         return 0
     prepare()
-    if args.mode == 'prepare-only':
-        print(json.dumps({'status': 'prepared', 'downloads': False}))
+    if mode == 'prepare-only':
+        print(json.dumps({'status': 'prepared', 'downloads': False, 'locale': language(), 'message': text('portable.prepared')}, ensure_ascii=False))
         return 0
     result = subprocess.run([str(POWERSHELL), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                              str(HERE / 'Start-ComposerHud.ps1')], check=True, capture_output=True,
                             encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
     receipt = json.loads(result.stdout.lstrip('\ufeff'))
-    print(json.dumps({'status': receipt['hudReason'], 'activated': receipt['activationSucceeded']}))
+    print(json.dumps({'status': receipt['hudReason'], 'activated': receipt['activationSucceeded'], 'locale': receipt['locale'], 'message': receipt['message']}, ensure_ascii=False))
     return 2 if receipt['hudReason'] == 'restart-required' else 0 if receipt['activationSucceeded'] else 1
 
 
@@ -113,5 +119,5 @@ if __name__ == '__main__':
     try:
         sys.exit(main())
     except (OSError, ValueError, KeyError, subprocess.SubprocessError, psutil.Error) as error:
-        print(json.dumps({'status': 'preparation-failed', 'errorType': type(error).__name__}))
+        print(json.dumps({'status': 'preparation-failed', 'errorType': type(error).__name__, 'locale': language(), 'message': text('portable.preparationFailed')}, ensure_ascii=False))
         sys.exit(1)

@@ -1,6 +1,8 @@
 // Page-only view. Receives whitelisted metadata; never reads the editor or messages.
 (() => {
   if (window.__codexComposerHud) return false;
+  const i18n=window.__codexHudI18n;
+  const t=(key,values)=>i18n.t(key,values);
   const host = document.createElement('div');
   host.id = 'codex-composer-hud';
   host.style.cssText = 'position:fixed;width:max-content;pointer-events:none;z-index:20;transform:translateX(-50%);color:var(--color-text-tertiary,#a8a8a8);';
@@ -15,13 +17,13 @@
     input::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:color-mix(in srgb,currentColor 25%,transparent)}
     input::-webkit-slider-thumb{appearance:none;width:14px;height:14px;margin-top:-5px;border-radius:50%;background:currentColor}
     input:focus-visible{outline:1px solid currentColor;outline-offset:3px;border-radius:4px}
-  </style><section><button id="metrics" type="button" title="调整正文宽度" aria-haspopup="dialog" aria-expanded="false" aria-controls="width-panel"><span>— tok/s</span><i>·</i><span>—%</span><i>·</i><span>等待统计</span></button></section>
-  <div id="width-panel" role="dialog" aria-label="正文宽度" hidden><div class="heading"><label for="width-range">正文宽度</label><output for="width-range">1152 px</output></div><input id="width-range" type="range" min="768" max="1600" step="16" value="1152"></div>`;
+  </style><section><button id="metrics" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="width-panel"><span>— tok/s</span><i>·</i><span>—%</span><i>·</i><span></span></button></section>
+  <div id="width-panel" role="dialog" hidden><div class="heading"><label for="width-range"></label><output for="width-range">1152 px</output></div><input id="width-range" type="range" min="768" max="1600" step="16" value="1152"></div>`;
   const metrics = shadow.querySelector('#metrics'), panel = shadow.querySelector('#width-panel');
   const range = shadow.querySelector('input'), output = shadow.querySelector('output');
   const fields = metrics.querySelectorAll('span');
   let pendingWidth = null, widthRevision = 0;
-  function showWidth(value) { range.value=String(value);output.textContent=value===768?'默认':`${value} px`;range.setAttribute('aria-valuetext',value===768?'默认宽度':`${value} 像素`); }
+  function showWidth(value) { range.value=String(value);output.textContent=value===768?t('default'):`${value} px`;range.setAttribute('aria-valuetext',value===768?t('defaultWidth'):t('pixels',{count:value})); }
   function closePanel(focus=false) { panel.hidden=true;metrics.setAttribute('aria-expanded','false');if(focus)metrics.focus({preventScroll:true}); }
   metrics.addEventListener('click',()=>{
     if(!panel.hidden){closePanel();return;}
@@ -39,6 +41,13 @@
   window.addEventListener('blur',closeOnBlur);
   function closeOnBlur(){closePanel();}
   let key = '', generation = 0, updated = 0, disposed = false;
+  let language='';
+  function localize() {
+    const next=i18n.locale();if(language===next)return;
+    language=next;host.lang=next;metrics.title=t('adjustWidth');
+    panel.setAttribute('aria-label',t('readingWidth'));shadow.querySelector('label').textContent=t('readingWidth');
+    showWidth(Number(range.value));if(!updated)fields[2].textContent=t('waiting');
+  }
   let resolved = null;
   let compatibility = {status:'pending',reason:'awaiting-chat'};
   const visible = e => { const r=e.getBoundingClientRect(); return r.width>0 && r.height>0 && getComputedStyle(e).visibility!=='hidden'; };
@@ -103,9 +112,10 @@
     compatibility={status:'compatible',reason:'composer-contract-passed'};
     return {id,x,y};
   }
-  function clear() { ['— tok/s','—%','等待统计'].forEach((s,i)=>{fields[i].textContent=s;}); updated=0; }
+  function clear() { ['— tok/s','—%',t('waiting')].forEach((s,i)=>{fields[i].textContent=s;}); updated=0; }
   function layout() {
     if (disposed) return null;
+    localize();
     const current=context(), next=current?.id || '';
     if (key!==next) { key=next; generation++; clear();closePanel(); }
     if (!current) { host.hidden=true;closePanel(); return null; }
@@ -122,16 +132,18 @@
   const timer=setInterval(()=>{layout();if(updated && Date.now()-updated>3000)clear();},250);
   const observer=new MutationObserver(records=>{if(records.some(r=>r.target!==host && !host.contains(r.target)))layout();});
   observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['data-above-composer-conversation-id','data-app-action-sidebar-thread-active','data-app-action-sidebar-thread-id','aria-hidden']});
+  observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   window.addEventListener('resize',layout);
+  window.addEventListener('languagechange',layout);
   window.__codexComposerHud={
     readingRequest(){return pendingWidth;},
     readingAck(value){if(pendingWidth?.revision===value.revision){pendingWidth=null;window.__codexReadingWidth?.settle(value.value);}},
     readingState(value){if(!pendingWidth && Number.isInteger(value?.maxWidth))showWidth(value.maxWidth);},
     bindingRequest(){layout();const selected=chat();return selected && selected.raw.startsWith('local:client-new-thread:')?{...selected,generation}:null;},
     bind(value){const selected=chat();if(!selected || value.raw!==selected.raw || value.title!==selected.title || value.generation!==generation)return false;resolved={...value,at:Date.now()};layout();return true;},
-    snapshot(){const current=layout();return {id:current?.id || null,generation,visible:host.isConnected&&!host.hidden,compatibility};},
-    render(value){const current=layout();if(!current || value.id!==current.id || value.generation!==generation)return false;[value.speed,value.cache,value.age].forEach((s,i)=>{fields[i].textContent=String(s);});updated=Date.now();return Boolean(layout());},
-    remove(){disposed=true;clearInterval(timer);observer.disconnect();window.removeEventListener('resize',layout);window.removeEventListener('blur',closeOnBlur);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);window.removeEventListener('keyup',escape,true);host.remove();delete window.__codexComposerHud;}
+    snapshot(){const current=layout();return {id:current?.id || null,generation,locale:i18n.locale(),visible:host.isConnected&&!host.hidden,compatibility};},
+    render(value){const current=layout();if(!current || value.id!==current.id || value.generation!==generation || value.locale && value.locale!==i18n.locale())return false;[value.speed,value.cache,value.age].forEach((s,i)=>{fields[i].textContent=String(s);});updated=Date.now();return Boolean(layout());},
+    remove(){disposed=true;clearInterval(timer);observer.disconnect();window.removeEventListener('resize',layout);window.removeEventListener('languagechange',layout);window.removeEventListener('blur',closeOnBlur);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);window.removeEventListener('keyup',escape,true);host.remove();delete window.__codexComposerHud;}
   };
   layout();return true;
 })()
