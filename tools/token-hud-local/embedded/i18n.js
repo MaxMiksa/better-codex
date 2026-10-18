@@ -3,7 +3,7 @@
   const node=typeof module==='object' && module.exports;
   const messages=node ? require('../shared/messages.json') : window.__codexHudMessages;
   const normalize = value => /^zh(?:$|-(?:cn|sg|hans)(?:-|$))/i.test(String(value).trim().replaceAll('_','-')) ? 'zh-CN' : 'en';
-  const locale = () => normalize(window.__codexHudLanguage);
+  const locale = () => normalize(document.documentElement.lang.trim() || window.__codexHudLanguage);
   function translate(language,key,values={}) {
     const message=messages[normalize(language)][key] ?? messages.en[key] ?? key;
     return message.replace(/\{(\w+)\}/g,(match,name)=>Object.hasOwn(values,name)?String(values[name]):match);

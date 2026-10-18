@@ -39,7 +39,7 @@ const fixture=()=>{
   try{
     const page=await browser.newPage();
     await page.setContent('<!doctype html><style>:root{--color-border:#555}.flex{display:flex}.flex-col{flex-direction:column}button{min-height:36px}section{margin:12px;background:#eee}[class~="group/turn-diff-file-row"]{height:36px}</style><main class="thread-scroll-container"></main>');
-    await page.evaluate(()=>document.documentElement.lang='en-US');
+    await page.evaluate(()=>document.documentElement.lang='zh-CN');
     await page.evaluate(i18nSource);await page.evaluate(fixture);await page.evaluate(source);
     const toggle=id=>page.locator(`#${id} [data-codex-hud-file-toggle]`);
     const visibleRows=id=>page.locator(`#${id} [class~="group/turn-diff-file-row"]`).evaluateAll(rows=>rows.filter(e=>e.getBoundingClientRect().height>0).length);
@@ -51,12 +51,12 @@ const fixture=()=>{
     await toggle('three').click();check('three-expand-all',await visibleRows('three')===3);
     await toggle('three').click();check('three-collapse-zero',await visibleRows('three')===0);
     await toggle('many').click();check('many-native-reveal-all',await visibleRows('many')===7);
-    await page.evaluate(()=>{window.__codexHudLanguage='en-US';window.dispatchEvent(new Event('languagechange'));});
+    await page.evaluate(()=>document.documentElement.lang='en-US');
     check('english-expanded-and-collapsed-labels',await toggle('many').innerText()==='Collapse files'&&await toggle('two').innerText()==='Show 2 files');
     check('language-change-preserves-expanded-files',await visibleRows('many')===7&&await page.evaluate(()=>window.actions.native)===1);
-    await page.evaluate(()=>{window.__codexHudLanguage='fr-FR';window.dispatchEvent(new Event('languagechange'));});
+    await page.evaluate(()=>document.documentElement.lang='fr-FR');
     check('unsupported-locale-uses-english',await toggle('three').innerText()==='Show 3 files');
-    await page.evaluate(()=>{window.__codexHudLanguage='zh-CN';window.dispatchEvent(new Event('languagechange'));});
+    await page.evaluate(()=>document.documentElement.lang='zh-CN');
     check('chinese-live-switch',await toggle('many').innerText()==='收起文件'&&await toggle('two').innerText()==='展开 2 个文件');
     check('native-footer-hidden',!await page.locator('#many [data-codex-hud-file-list]>button').isVisible());
     await page.evaluate(()=>{for(let i=0;i<4;i++)window.__codexFileChanges.snapshot();});

@@ -52,7 +52,7 @@ Tested on Windows 11 x64 with Codex desktop package `26.1013.4894.0`. Other app 
 
 Statistics need readable local Codex session records; cloud-only chats are not measured. Chat mode can share reading width but receives no Codex statistics.
 
-HUD labels, relative times, reading-width controls, file-list buttons, setup and launch messages default to the Windows display language. English and Simplified Chinese are supported; other languages use English. Changing Codex's own language does not change Better Codex's default language. Native Codex buttons and third-party setup tools keep their own language.
+Setup and launch messages default to the Windows display language. Once inside Codex, HUD labels, relative times, reading-width controls and file-list buttons follow Codex's interface language, including language changes. If Codex does not declare a language, they use the computer language selected at launch. English and Simplified Chinese are supported; other languages use English. Native Codex buttons and third-party setup tools keep their own language.
 
 This release has no model-quality/downgrade detector, plugin marketplace or automatic updater. It does not promise faster model generation. Keep its local display port on loopback; do not expose or forward it.
 
