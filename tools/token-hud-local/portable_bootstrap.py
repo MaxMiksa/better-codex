@@ -15,6 +15,7 @@ import psutil
 from desktop_package import discover
 from install_taskbar_entry import install
 from localization import language, text
+from settings_store import update_settings
 
 POWERSHELL = Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
 
@@ -63,8 +64,6 @@ def prepare():
                 'playwright': str(playwright),
                 'codexHome': current.get('codexHome') or os.environ.get('CODEX_HOME') or str(Path.home() / '.codex'),
                 'collectorDir': str(HERE / 'collector')}
-    if 'readingWidth' in current:
-        settings['readingWidth'] = current['readingWidth']
     RUNTIME.mkdir(parents=True, exist_ok=True)
     icon = RUNTIME / 'codex.ico'
     # Only installed-app metadata and an icon are read. No model settings change.
@@ -73,7 +72,7 @@ def prepare():
     subprocess.run([str(POWERSHELL), '-NoProfile', '-NonInteractive', '-Command', command],
                    check=True, capture_output=True, env=env, creationflags=subprocess.CREATE_NO_WINDOW)
     install(previous_root=previous, quiet=True)
-    write(RUNTIME / 'settings.json', settings)
+    update_settings(RUNTIME / 'settings.json', settings, allow_create=True)
     write(RUNTIME / 'portable-location.json', {'root': str(ROOT)})
     return settings
 

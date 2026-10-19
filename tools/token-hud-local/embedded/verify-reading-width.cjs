@@ -47,8 +47,44 @@ html{font-size:16px;--thread-content-max-width:48rem}body{margin:0}
   check('revealed-route-wide-on-first-frame-without-polling',revealedWidth===1152);
   await update('default');check('restore-default',await width('.transcript')===768 && await page.locator('#codex-hud-reading-width').count()===0);
   await update('wide');await page.evaluate(()=>document.body.append(document.querySelector('.thread-scroll-container').cloneNode(true)));
-  check('ambiguous-layout-clears',!(await update('wide')).applied && await page.locator('[data-codex-hud-reading-width]').count()===0);
-  await page.evaluate(()=>document.querySelectorAll('.thread-scroll-container')[1].remove());await update('wide');
+  check('side-chat-and-main-body-both-apply',(await update('wide')).targets===2 && await page.locator('[data-codex-hud-reading-width]').count()===2);
+  await page.evaluate(()=>document.querySelectorAll('.thread-scroll-container')[1].style.width='600px');
+  check('side-chat-shrinks-without-resetting-main',JSON.stringify((await update('wide')).widths)==='[1152,600]');
+  await page.locator('.thread-scroll-container').nth(1).locator('.composer').evaluate(e=>e.hidden=true);
+  check('read-only-subagent-body-without-composer-keeps-width',JSON.stringify((await update('wide')).widths)==='[1152,600]');
+  await page.locator('.thread-scroll-container').nth(1).locator('.composer').evaluate(e=>e.hidden=false);
+  check('width-setting-propagates-to-each-panel',JSON.stringify((await update(1280)).widths)==='[1280,600]');
+  await update('wide');
+  await page.evaluate(()=>{
+    document.querySelectorAll('.transcript').forEach(e=>e.setAttribute('data-thread-user-message-navigation-content','true'));
+    const auxiliary=document.createElement('div');auxiliary.className='auxiliary max-w-(--thread-body-max-width)';auxiliary.style.height='10px';
+    document.querySelector('.thread-scroll-container').append(auxiliary);
+  });
+  check('native-transcript-metadata-ignores-extra-wrapper',(await update('wide')).targets===2 && await page.locator('.auxiliary[data-codex-hud-reading-width]').count()===0);
+  await page.evaluate(()=>{
+    const empty=document.createElement('div');empty.className='thread-scroll-container blank-panel';
+    empty.innerHTML='<div class="max-w-(--thread-body-max-width)" style="height:0"></div>';
+    const doc=document.createElement('section');doc.className='document-panel';
+    doc.innerHTML='<div class="max-w-(--thread-body-max-width)" style="height:30px;max-width:var(--thread-content-max-width)">Document fixture</div>';
+    document.body.append(empty,doc);
+  });
+  check('blank-page-and-document-do-not-reset-chat',(await update('wide')).targets===2);
+  check('document-preview-not-modified',await page.locator('.document-panel [data-codex-hud-reading-width]').count()===0);
+  await page.evaluate(()=>{
+    const first=document.querySelector('.thread-scroll-container');const duplicate=first.querySelector('.transcript').cloneNode(true);
+    duplicate.classList.add('duplicate');first.append(duplicate);
+  });
+  check('ambiguous-panel-isolated-from-valid-side-chat',(await update('wide')).targets===1 && await page.locator('.thread-scroll-container').nth(1).locator('[data-codex-hud-reading-width]').count()===1);
+  const recovered=await page.evaluate(()=>new Promise(resolve=>{
+    document.querySelector('.duplicate').remove();requestAnimationFrame(()=>resolve(document.querySelector('.transcript').getBoundingClientRect().width));
+  }));
+  check('main-recovers-before-paint-without-polling',recovered===1152);
+  const sidebarClosed=await page.evaluate(()=>new Promise(resolve=>{
+    document.querySelectorAll('.thread-scroll-container')[1].remove();requestAnimationFrame(()=>resolve(document.querySelector('.transcript').getBoundingClientRect().width));
+  }));
+  check('closing-side-chat-keeps-main-width',sidebarClosed===1152);
+  await update('default');check('default-restores-all-panels',await page.locator('[data-codex-hud-reading-width]').count()===0);
+  await update('wide');
   await page.evaluate(()=>window.__codexReadingWidth.remove());
   check('stop-restores-layout',await width('.transcript')===768 && await page.locator('#codex-hud-reading-width').count()===0);
   console.log(JSON.stringify({scope:'synthetic Edge layout',passed:results.length,results}));

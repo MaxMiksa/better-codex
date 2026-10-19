@@ -73,17 +73,14 @@ if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.playwrightMissing
 [IO.Directory]::CreateDirectory($runtime) | Out-Null
 $codexHome = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' })
 $settings = @{port=$DisplayPort;python=$python;node=$node;playwright=[IO.Path]::GetFullPath($PlaywrightPath);codexHome=$codexHome;collectorDir=(Join-Path $workspace 'tools/token-hud-local/collector')}
-if (Test-Path -LiteralPath $settingsPath) {
-    $current = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($null -ne $current.readingWidth) { $settings.readingWidth = $current.readingWidth }
-}
 Add-Type -AssemblyName System.Drawing
 $icon = [Drawing.Icon]::ExtractAssociatedIcon($package.executable)
 if (-not $icon) { throw (Get-BetterCodexText 'install.iconFailed') }
 $iconStream = [IO.File]::Create((Join-Path $runtime 'codex.ico'))
 try { $icon.Save($iconStream) } finally { $iconStream.Dispose(); $icon.Dispose() }
-[IO.File]::WriteAllText("$settingsPath.next", ($settings | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
-Move-Item -LiteralPath "$settingsPath.next" -Destination $settingsPath -Force
+$encodedSettings = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($settings | ConvertTo-Json -Compress)))
+& $python -I -X utf8 (Join-Path $workspace 'tools/token-hud-local/shared/settings_store.py') --file $settingsPath --patch-base64 $encodedSettings --create
+if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'settings.saveFailed') }
 & $python -B -X utf8 (Join-Path $workspace 'tools/token-hud-local/install_taskbar_entry.py')
 if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.shortcutFailed') }
 Write-Output (Get-BetterCodexText 'install.complete')

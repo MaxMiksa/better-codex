@@ -46,7 +46,7 @@ def install(previous_root=None, quiet=False):
             continue
         link = shell_object.CreateShortcut(str(path))
         allowed = {COMPAT, wrapper}
-        if index == 0 or not previous_root.exists():
+        if index == 0 or not previous_root.exists() or previous_root.resolve() == ROOT.resolve():
             allowed.update((previous_wrapper, previous_compat))
         if Path(link.TargetPath) != wscript or Path(link.Arguments.strip('"')) not in allowed:
             if index != 0:

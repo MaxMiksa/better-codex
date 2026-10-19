@@ -1,7 +1,7 @@
-<h1 align="center">Better Codex</h1>
+<h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.1"><img alt="Version" src="https://img.shields.io/badge/version-v0.3.1-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.2"><img alt="Version" src="https://img.shields.io/badge/version-v0.3.2-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -16,7 +16,7 @@ A collection of small enhancements that make Codex more comfortable to use. It p
 
 ## 🎬 Preview
 
-<p align="center"><img src="Presentation/overview.png" alt="Better Codex: inline statistics, reading-width control and collapsed file changes" width="900" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better-Codex: inline statistics, reading-width control and collapsed file changes" width="900" /></p>
 
 *Inline statistics, reading-width control and collapsed file changes.*
 
@@ -25,7 +25,10 @@ A collection of small enhancements that make Codex more comfortable to use. It p
 | Feature | What you get |
 | --- | --- |
 | Inline statistics | Muted gray text shows the latest response's output speed, input cache percentage and sample age by the input box. |
-| Reading width | Click the statistics to adjust conversation width up to 1600px. Your choice is saved; the input box keeps its width. |
+| Reading width | Click the statistics to adjust conversation width up to 1600px. Main chats, side chats and subagents keep the saved limit within their own panels; the input box keeps its width. |
+| Stable HUD placement | Statistics stay with the main chat while switching panels, documents and subagents, and follow the input area's layout changes. |
+| Multiple windows | Each Codex window binds its own chat statistics; display settings are shared safely. |
+| Custom accent | Correct user-message and send-button colors when Codex uses a Custom accent, with readable foreground colors. |
 | Compact file changes | Multi-file lists start collapsed. Expand the full list when needed; review and undo remain accessible. |
 | English and Simplified Chinese | Interface labels, setup and launch messages select the language automatically. |
 | Familiar launch | Start Codex and the enhancements together with a shortcut. Login startup is optional. |
@@ -33,15 +36,17 @@ A collection of small enhancements that make Codex more comfortable to use. It p
 
 Speed is the **average of the latest completed response**, calculated from local recorded usage and timing. It is not a live per-token speed meter. Missing measurements stay missing.
 
+The width popup uses the same font size as the statistics and follows the native input controls. Chat mode shares the reading-width setting without displaying this HUD. A narrow panel can display less than the selected width; document and blank tabs keep their native layout.
+
 ## 🚀 Get started
 
 You need **Windows 11 x64 and the official Codex Store app**. The portable ZIP includes its own Python, Node.js and dependencies. No system runtime installation or first-run dependency download is needed.
 
-1. Download **`better-codex-v0.3.1-windows-x64-portable.zip`** from [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.1).
+1. Download **`better-codex-v0.3.2-windows-x64-portable.zip`** from [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.2).
 2. Extract the **entire ZIP** to a writable folder you plan to keep.
 3. Double-click **`BetterCodex.exe`**. Click the statistics to adjust reading width; use `Stop.cmd` to stop the enhancements.
 
-If the existing Codex window has no local display interface, save your work and **exit Codex normally when convenient**, then use the new shortcut. Better Codex never forces the app to restart.
+If the existing Codex window has no local display interface, save your work and **exit Codex normally when convenient**, then use the new shortcut. Better-Codex never forces the app to restart.
 
 ## 📚 More Info
 
@@ -78,7 +83,7 @@ If enabled, turn off official Codex login startup in its own settings so the app
 
 | Project | Main focus | Best fit |
 | --- | --- | --- |
-| **Better Codex** | Windows in-app statistics plus reading-width and file-list improvements | A compact set of enhancements inside the conversation interface |
+| **Better-Codex** | Windows in-app statistics plus reading-width and file-list improvements | A compact set of enhancements inside the conversation interface |
 | [codex-token-hud](https://github.com/drkang7/codex-token-hud) | Local response-speed/cache statistics, floating HUDs, history and range views | Richer standalone statistics; our collector derives from this project |
 | [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud) | Lightweight native Windows strip with usage, context, timing and quota | A small native .NET HUD without bundled Node.js or Python |
 | [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) | In-app stream-speed estimates, latency and cost views | Live output estimates; documented desktop validation is currently Linux |
@@ -90,7 +95,7 @@ Based on the projects' own documentation checked on 2026-10-18. Speed definition
 <details>
 <summary><b>🔐 Local data and privacy</b></summary>
 
-Model requests continue through Codex's existing connection. Better Codex reads local usage records and adjusts the local interface. It adds no model proxy and requires no extra API key. The portable launcher downloads no dependencies. Codex model requests still need their usual network connection; offline packaging does not make the model itself offline. The optional source installer contacts Python/npm registries.
+Model requests continue through Codex's existing connection. Better-Codex reads local usage records and adjusts the local interface. It adds no model proxy and requires no extra API key. The portable launcher downloads no dependencies. Codex model requests still need their usual network connection; offline packaging does not make the model itself offline. The optional source installer contacts Python/npm registries.
 
 Local state can include conversation identifiers, titles, file paths and usage metadata. Do not upload `.runtime/` or raw Codex logs with an issue. See [Privacy](docs/PRIVACY.md).
 
@@ -108,7 +113,7 @@ A dash means timing or usage is unavailable, not zero speed. New turns, uncertai
 <details>
 <summary><b>💻 Developer guide</b></summary>
 
-A separate `better-codex-v0.3.1-source.zip` remains available. Source installation requires Python 3.11+ and Node.js 20+; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1` from its extracted folder. Add `-Language en` or `-Language zh-CN` to choose setup messages explicitly; the default is automatic. The portable build already includes its runtimes and needs no browser download. See [Development](docs/DEVELOPMENT.md) for module boundaries, isolated checks and packaging. Runtime files, private research and local configuration are excluded from the public package.
+A separate `better-codex-v0.3.2-source.zip` remains available. Source installation requires Python 3.11+ and Node.js 20+; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1` from its extracted folder. Add `-Language en` or `-Language zh-CN` to choose setup messages explicitly; the default is automatic. The portable build already includes its runtimes and needs no browser download. See [Development](docs/DEVELOPMENT.md) for module boundaries, isolated checks and packaging. Runtime files, private research and local configuration are excluded from the public package.
 
 </details>
 

@@ -1,7 +1,7 @@
-<h1 align="center">Better Codex</h1>
+<h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.1"><img alt="版本" src="https://img.shields.io/badge/version-v0.3.1-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.2"><img alt="版本" src="https://img.shields.io/badge/version-v0.3.2-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -16,7 +16,7 @@
 
 ## 🎬 演示
 
-<p align="center"><img src="Presentation/overview.png" alt="Better Codex：内嵌统计、正文宽度调节与文件变更列表收起" width="900" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better-Codex：内嵌统计、正文宽度调节与文件变更列表收起" width="900" /></p>
 
 *内嵌统计、正文宽度调节与文件变更列表收起。*
 
@@ -25,7 +25,10 @@
 | 功能 | 使用体验 |
 | --- | --- |
 | 内嵌统计 | 用灰色文字在输入框旁显示最近一次响应的输出速度、输入缓存比例和统计时间。 |
-| 正文宽度 | 点击统计文字调整正文宽度，最大 1600px。自动保存偏好，输入框保持原宽度。 |
+| 正文宽度 | 点击统计文字调整正文宽度，最大 1600px。主聊天、侧边聊天与子代理在各自面板内沿用已保存的上限，输入框保持原宽度。 |
+| HUD 布局跟随 | 切换侧栏、文档与子代理时，统计保持关联主聊天，并跟随输入区布局变化。 |
+| 多窗口 | 每个 Codex 窗口独立关联自己的聊天统计，显示设置安全共享。 |
+| Custom 配色 | 使用 Custom 强调色时，修正用户消息与发送按钮的配色，并保持文字可读。 |
 | 文件列表收起 | 多文件变更列表默认收起，需要时展开全部；保留查看变更和撤销入口。 |
 | 中英文支持 | 界面标签、安装与启动提示自动选择英文或简体中文。 |
 | 联合启动 | 用快捷方式一起打开 Codex 和增强功能，登录启动可以单独开启。 |
@@ -33,11 +36,13 @@
 
 速度是根据本地用量和计时记录计算的**最近一次已完成响应均速**，不是逐 token 实时速度；缺失数据不会记成零。
 
+宽度弹出栏与统计文字使用相同字号，并跟随原生输入区控件。Chat 模式沿用正文宽度，不显示本项目 HUD。窄面板的实际宽度可能小于所选上限；文档与空白页保持原生布局。
+
 ## 🚀 开始使用
 
 需要 **Windows 11 x64 和官方 Codex 商店应用**。便携包已包含独立的 Python、Node.js 和依赖，不用安装系统运行环境，首次启动也不下载依赖。
 
-1. 从 [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.1) 下载 **`better-codex-v0.3.1-windows-x64-portable.zip`**。
+1. 从 [Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.3.2) 下载 **`better-codex-v0.3.2-windows-x64-portable.zip`**。
 2. 将 ZIP **完整解压**到可写且准备长期保留的目录。
 3. 双击 **`BetterCodex.exe`**。点击输入框底部的统计文字调节正文宽度；双击 `Stop.cmd` 可停止增强功能。
 
@@ -78,7 +83,7 @@
 
 | 项目 | 主要侧重 | 适合的需求 |
 | --- | --- | --- |
-| **Better Codex** | Windows 应用内统计，以及正文宽度和文件列表优化 | 希望在聊天界面内获得一组简洁增强功能 |
+| **Better-Codex** | Windows 应用内统计，以及正文宽度和文件列表优化 | 希望在聊天界面内获得一组简洁增强功能 |
 | [codex-token-hud](https://github.com/drkang7/codex-token-hud) | 本地速度与缓存统计、悬浮窗口、历史及区间统计 | 需要更丰富的独立统计工具；本项目采集器来自该项目 |
 | [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud) | Windows 原生轻量悬浮条，提供用量、上下文、用时和额度 | 希望使用不携带 Node.js/Python 的小型原生 .NET HUD |
 | [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) | 应用内流式估速、延迟和费用显示 | 需要实时输出估算；文档目前记录的桌面验收平台为 Linux |
@@ -108,7 +113,7 @@
 <details>
 <summary><b>💻 开发说明</b></summary>
 
-同时保留 `better-codex-v0.3.1-source.zip`。源码安装需要 Python 3.11+ 和 Node.js 20+，在解压目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`。可加 `-Language en` 或 `-Language zh-CN` 明确选择安装提示语言，默认自动选择。便携版已经包含运行环境，无需下载浏览器。[开发说明](docs/DEVELOPMENT.md)列出模块职责、隔离检查及打包方式。公开包不包含运行数据、私人探索记录或本机配置。
+同时保留 `better-codex-v0.3.2-source.zip`。源码安装需要 Python 3.11+ 和 Node.js 20+，在解压目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`。可加 `-Language en` 或 `-Language zh-CN` 明确选择安装提示语言，默认自动选择。便携版已经包含运行环境，无需下载浏览器。[开发说明](docs/DEVELOPMENT.md)列出模块职责、隔离检查及打包方式。公开包不包含运行数据、私人探索记录或本机配置。
 
 </details>
 

@@ -7,7 +7,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_FILES = [
     'README.md', 'README-zh.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
-    '.gitignore', 'VERSION', 'package.json', 'requirements.txt', 'Install.ps1', 'Start.cmd', 'Stop.cmd',
+    '.gitignore', 'VERSION', 'package.json', 'requirements.txt', 'Install.ps1', 'Start.cmd', 'Stop.cmd', 'Finish-Rename.cmd',
     'Presentation/overview.png', 'docs/PRIVACY.md', 'docs/DEVELOPMENT.md', 'scripts/package.py',
     'scripts/build-portable.py', 'scripts/portable-lock.json',
     'tools/token-hud-local/shared/messages.json',

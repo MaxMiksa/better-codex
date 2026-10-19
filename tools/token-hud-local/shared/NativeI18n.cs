@@ -26,7 +26,7 @@ public static class BetterCodexI18n {
             if (messages != null && (messages[Language()].TryGetValue(key, out message) || messages["en"].TryGetValue(key, out message))) return message;
         } catch (IOException) { } catch (UnauthorizedAccessException) { } catch (ArgumentException) { } catch (KeyNotFoundException) { } catch (InvalidOperationException) { }
         // A damaged package must still explain recovery and allow Codex activation.
-        return "Better Codex: extract the complete portable ZIP and try again.";
+        return "Better-Codex: extract the complete portable ZIP and try again.";
     }
 
     public static string OutputMessage(string output) {

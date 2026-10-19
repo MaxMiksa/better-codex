@@ -86,7 +86,7 @@ def build(work):
                     target(app / 'runtime/node_modules' / item['name'], path).write_bytes(bundle.extractfile(member).read())
     compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
     assembly = work / 'AssemblyInfo.cs'
-    assembly.write_text('using System.Reflection;\n[assembly: AssemblyTitle("Better Codex")]\n[assembly: AssemblyVersion("'+version+'.0")]\n[assembly: AssemblyFileVersion("'+version+'.0")]\n', encoding='utf-8')
+    assembly.write_text('using System.Reflection;\n[assembly: AssemblyTitle("Better-Codex")]\n[assembly: AssemblyVersion("'+version+'.0")]\n[assembly: AssemblyFileVersion("'+version+'.0")]\n', encoding='utf-8')
     subprocess.run([str(compiler), '/nologo', '/codepage:65001', '/target:winexe', '/platform:x64', '/optimize+',
                     '/reference:System.Windows.Forms.dll', '/reference:System.Web.Extensions.dll', '/out:'+str(app / 'BetterCodex.exe'),
                     str(ROOT / 'tools/token-hud-local/PortableLauncher.cs'),

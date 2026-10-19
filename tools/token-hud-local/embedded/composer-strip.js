@@ -9,15 +9,15 @@
   const shadow = host.attachShadow({mode:'open'});
   shadow.innerHTML = `<style>
     section{display:flex;align-items:center;justify-content:center;white-space:nowrap}
-    #metrics{display:flex;align-items:center;gap:10px;padding:0;margin:0;border:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;cursor:pointer;pointer-events:auto}
+    #metrics{display:flex;align-items:center;gap:6px;padding:0;margin:0;border:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;cursor:pointer;pointer-events:auto}
     #metrics:focus-visible{outline:2px solid currentColor;outline-offset:4px;border-radius:3px}i{font-style:inherit}
-    #width-panel{position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);width:280px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:14px 16px 12px;border:1px solid var(--color-border,#666);border-radius:12px;background:var(--color-surface,#292929);box-shadow:0 8px 28px #0003;pointer-events:auto;font-size:13px;line-height:20px}
+    #width-panel{position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);width:280px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:14px 16px 12px;border:1px solid var(--color-border,#666);border-radius:12px;background:var(--color-surface,#292929);box-shadow:0 8px 28px #0003;pointer-events:auto;font-size:inherit;line-height:20px}
     #width-panel[hidden]{display:none}.heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}output{font-variant-numeric:tabular-nums}
     input{display:block;box-sizing:border-box;width:100%;height:20px;margin:0;background:transparent;color:inherit;cursor:ew-resize;appearance:none}
     input::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:color-mix(in srgb,currentColor 25%,transparent)}
     input::-webkit-slider-thumb{appearance:none;width:14px;height:14px;margin-top:-5px;border-radius:50%;background:currentColor}
     input:focus-visible{outline:1px solid currentColor;outline-offset:3px;border-radius:4px}
-  </style><section><button id="metrics" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="width-panel"><span>— tok/s</span><i>·</i><span>—%</span><i>·</i><span></span></button></section>
+  </style><section><button id="metrics" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="width-panel"><span>- tok/s</span><i>·</i><span>-%</span><i>·</i><span></span></button></section>
   <div id="width-panel" role="dialog" hidden><div class="heading"><label for="width-range"></label><output for="width-range">1152 px</output></div><input id="width-range" type="range" min="768" max="1600" step="16" value="1152"></div>`;
   const metrics = shadow.querySelector('#metrics'), panel = shadow.querySelector('#width-panel');
   const range = shadow.querySelector('input'), output = shadow.querySelector('output');
@@ -50,14 +50,28 @@
   }
   let resolved = null;
   let compatibility = {status:'pending',reason:'awaiting-chat'};
+  let geometryNodes = [];
+  const geometryObserver = new ResizeObserver(()=>layout());
+  function watchGeometry(root,body) {
+    const next=[...new Set([root,body,root.closest('[data-app-shell-focus-area]')].filter(Boolean))];
+    if(next.length===geometryNodes.length && next.every((node,i)=>node===geometryNodes[i]))return;
+    geometryObserver.disconnect();geometryNodes=next;
+    for(const node of geometryNodes)geometryObserver.observe(node);
+  }
   const visible = e => { const r=e.getBoundingClientRect(); return r.width>0 && r.height>0 && getComputedStyle(e).visibility!=='hidden'; };
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   function refuse(reason) { compatibility={status:'pending',reason}; return null; }
-  function chat() {
+  function composer() {
     const roots=[...document.querySelectorAll('[data-codex-composer-root]')].filter(visible);
-    if(roots.length!==1)return refuse('ambiguous-or-missing-composer');
+    const main=roots.filter(e=>e.closest('[data-app-shell-focus-area]')?.getAttribute('data-app-shell-focus-area')==='main');
+    if(main.length===1)return main[0];
+    if(!main.length && roots.length===1 && !roots[0].closest('[data-app-shell-focus-area]'))return roots[0];
+    return refuse('ambiguous-or-missing-composer');
+  }
+  function chat() {
+    const root=composer();if(!root)return null;
     // This metadata node may have zero height. Its owning composer determines visibility.
-    const markers=[...roots[0].querySelectorAll('[data-above-composer-conversation-id]')];
+    const markers=[...root.querySelectorAll('[data-above-composer-conversation-id]')];
     if(markers.length){
       const ids=[...new Set(markers.map(e=>e.getAttribute('data-above-composer-conversation-id')))];
       if(ids.length!==1)return refuse('ambiguous-composer-chat');
@@ -77,17 +91,22 @@
     let id=/^local:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)?raw.slice(6):null;
     if(!id && resolved?.raw===raw && resolved.title===title && Date.now()-resolved.at<1500)id=resolved.id;
     if(!id)return refuse('awaiting-persistent-chat-id');
-    const roots=[...document.querySelectorAll('[data-codex-composer-root]')].filter(visible);
-    if (roots.length!==1) return refuse('ambiguous-or-missing-composer');
-    const root=roots[0], bounds=root.getBoundingClientRect();
-    const editors=[...root.querySelectorAll('[contenteditable="true"],textarea')].filter(visible);
+    const root=composer();if(!root)return null;
+    const bodies=[...root.querySelectorAll('[data-composer-body]')].filter(visible);
+    if(bodies.length>1)return refuse('ambiguous-composer-body');
+    const body=bodies[0] || root, bounds=body.getBoundingClientRect();
+    watchGeometry(root,body);
+    let editors=[...body.querySelectorAll('[contenteditable="true"],textarea')].filter(visible);
+    const primary=editors.filter(e=>e.getAttribute('data-codex-composer')==='true');
+    if(primary.length)editors=primary;
     if (editors.length!==1) return refuse('unknown-editor-contract');
-    const buttons=[...root.querySelectorAll('button,[role="button"],select')].filter(visible);
+    const buttons=[...body.querySelectorAll('button,[role="button"],select')].filter(visible);
     const controls=buttons.map(e=>e.getBoundingClientRect());
     if (controls.length<2) return refuse('missing-composer-controls');
     const bottom=Math.max(...controls.map(r=>(r.top+r.bottom)/2));
     const rowControls=controls.filter(r=>Math.abs((r.top+r.bottom)/2-bottom)<12);
-    if (rowControls.length<2 || bottom<editors[0].getBoundingClientRect().bottom-3) return refuse('unknown-footer-contract');
+    const compact=bottom<editors[0].getBoundingClientRect().bottom-3;
+    if (rowControls.length<2 || compact && !editors[0].closest('[data-composer-footer-responsive]')) return refuse('unknown-footer-contract');
     const x=(bounds.left+bounds.right)/2;
     // Match label typography; keep the muted theme color independent of menu state.
     const labels=buttons.filter(e=>{const r=e.getBoundingClientRect();return r.left>x && Math.abs((r.top+r.bottom)/2-bottom)<12;}).sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left);
@@ -105,14 +124,16 @@
     for(const property of ['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing'])host.style[property]=style[property];
     if(!host.isConnected)document.body.append(host);
     host.style.visibility='hidden';host.hidden=false;
-    const size=host.getBoundingClientRect(), y=bottom-size.height/2;
+    const size=host.getBoundingClientRect(), edge=Math.max(bounds.bottom,root.getBoundingClientRect().bottom);
+    const gap=Math.min(4,Math.max(1,innerHeight-edge-size.height-2));
+    const y=compact?edge+gap:bottom-size.height/2;
     const candidate={left:x-size.width/2,right:x+size.width/2,top:y,bottom:y+size.height};
-    if (candidate.left<bounds.left+12 || candidate.right>bounds.right-12 || candidate.top<bounds.top || candidate.bottom>bounds.bottom || candidate.bottom>innerHeight || candidate.top<0) return refuse('insufficient-space');
+    if (candidate.left<bounds.left+12 || candidate.right>bounds.right-12 || candidate.top<bounds.top || !compact && candidate.bottom>bounds.bottom || candidate.bottom>innerHeight-(compact?1:4) || candidate.top<0) return refuse('insufficient-space');
     if (controls.some(r=>r.left<candidate.right+12 && r.right>candidate.left-12 && r.top<candidate.bottom+4 && r.bottom>candidate.top-4)) return refuse('controls-overlap');
-    compatibility={status:'compatible',reason:'composer-contract-passed'};
+    compatibility={status:'compatible',reason:'composer-contract-passed',placement:compact?'below-composer':'footer'};
     return {id,x,y};
   }
-  function clear() { ['— tok/s','—%',t('waiting')].forEach((s,i)=>{fields[i].textContent=s;}); updated=0; }
+  function clear() { ['- tok/s','-%',t('waiting')].forEach((s,i)=>{fields[i].textContent=s;}); updated=0; }
   function layout() {
     if (disposed) return null;
     localize();
@@ -130,20 +151,24 @@
     return current;
   }
   const timer=setInterval(()=>{layout();if(updated && Date.now()-updated>3000)clear();},250);
-  const observer=new MutationObserver(records=>{if(records.some(r=>r.target!==host && !host.contains(r.target)))layout();});
-  observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['data-above-composer-conversation-id','data-app-action-sidebar-thread-active','data-app-action-sidebar-thread-id','aria-hidden']});
+  const observer=new MutationObserver(records=>{
+    if(records.some(r=>r.target!==host && !host.contains(r.target) &&
+      (r.type!=='attributes' || !['class','style','hidden'].includes(r.attributeName) ||
+       geometryNodes.some(node=>r.target.contains(node) || node.contains(r.target)))))layout();
+  });
+  observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['data-above-composer-conversation-id','data-app-action-sidebar-thread-active','data-app-action-sidebar-thread-id','aria-hidden','class','style','hidden','data-app-shell-active-page','data-app-shell-focus-area']});
   observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   window.addEventListener('resize',layout);
   window.addEventListener('languagechange',layout);
   window.__codexComposerHud={
     readingRequest(){return pendingWidth;},
-    readingAck(value){if(pendingWidth?.revision===value.revision){pendingWidth=null;window.__codexReadingWidth?.settle(value.value);}},
+    readingAck(value){if(pendingWidth?.revision===value.revision && pendingWidth.value===value.value){pendingWidth=null;window.__codexReadingWidth?.settle(value.value);}},
     readingState(value){if(!pendingWidth && Number.isInteger(value?.maxWidth))showWidth(value.maxWidth);},
     bindingRequest(){layout();const selected=chat();return selected && selected.raw.startsWith('local:client-new-thread:')?{...selected,generation}:null;},
     bind(value){const selected=chat();if(!selected || value.raw!==selected.raw || value.title!==selected.title || value.generation!==generation)return false;resolved={...value,at:Date.now()};layout();return true;},
     snapshot(){const current=layout();return {id:current?.id || null,generation,locale:i18n.locale(),visible:host.isConnected&&!host.hidden,compatibility};},
     render(value){const current=layout();if(!current || value.id!==current.id || value.generation!==generation || value.locale && value.locale!==i18n.locale())return false;[value.speed,value.cache,value.age].forEach((s,i)=>{fields[i].textContent=String(s);});updated=Date.now();return Boolean(layout());},
-    remove(){disposed=true;clearInterval(timer);observer.disconnect();window.removeEventListener('resize',layout);window.removeEventListener('languagechange',layout);window.removeEventListener('blur',closeOnBlur);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);window.removeEventListener('keyup',escape,true);host.remove();delete window.__codexComposerHud;}
+    remove(){disposed=true;clearInterval(timer);observer.disconnect();geometryObserver.disconnect();window.removeEventListener('resize',layout);window.removeEventListener('languagechange',layout);window.removeEventListener('blur',closeOnBlur);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);window.removeEventListener('keyup',escape,true);host.remove();delete window.__codexComposerHud;}
   };
   layout();return true;
 })()

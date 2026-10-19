@@ -45,18 +45,18 @@ internal static class PortableLauncher {
                 process.WaitForExit();
                 Console.Write(output);
                 if (process.ExitCode == 2 && normal) {
-                    MessageBox.Show(BetterCodexI18n.Text(root, "launch.restart-required"), "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(BetterCodexI18n.Text(root, "launch.restart-required"), "Better-Codex", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 } else if (process.ExitCode != 0 && normal) {
                     ActivateCodex();
                     string detail = BetterCodexI18n.OutputMessage(output);
-                    MessageBox.Show(BetterCodexI18n.Text(root, "portable.failed") + (String.IsNullOrEmpty(detail) ? "" : "\n\n" + detail), "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(BetterCodexI18n.Text(root, "portable.failed") + (String.IsNullOrEmpty(detail) ? "" : "\n\n" + detail), "Better-Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 return process.ExitCode;
             }
         } catch (Exception error) {
             if (normal) {
                 ActivateCodex();
-                MessageBox.Show(BetterCodexI18n.Text(AppDomain.CurrentDomain.BaseDirectory, "portable.extract") + "\n\n" + error.GetType().Name, "Better Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(BetterCodexI18n.Text(AppDomain.CurrentDomain.BaseDirectory, "portable.extract") + "\n\n" + error.GetType().Name, "Better-Codex", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             return 1;
         }

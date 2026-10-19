@@ -36,6 +36,28 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   const geometry=await page.evaluate(()=>{const c=document.querySelector('#composer').getBoundingClientRect(),h=document.querySelector('#codex-composer-hud').getBoundingClientRect();return {centerError:Math.abs((h.left+h.right-c.left-c.right)/2),inside:h.bottom<=c.bottom&&h.top>=c.top,pointerEvents:getComputedStyle(document.querySelector('#codex-composer-hud')).pointerEvents};});
   check('bottom-center-and-pass-through',geometry.centerError<1&&geometry.inside&&geometry.pointerEvents==='none'&&await page.locator('#metrics').evaluate(e=>getComputedStyle(e).pointerEvents)==='auto');
   check('native-composer-untouched',nativeBefore===await page.locator('#composer').innerHTML());
+  check('composer-style-move-follows-before-first-frame',await page.evaluate(()=>new Promise(resolve=>{
+    const root=document.querySelector('#composer');root.style.left='136px';
+    requestAnimationFrame(()=>{const c=root.getBoundingClientRect(),h=document.querySelector('#codex-composer-hud').getBoundingClientRect();resolve(Math.abs((h.left+h.right-c.left-c.right)/2)<1);});
+  })));
+  await page.evaluate(()=>document.querySelector('#composer').style.removeProperty('left'));
+  check('ancestor-class-move-follows-before-first-frame',await page.evaluate(()=>new Promise(resolve=>{
+    const root=document.querySelector('#composer'),main=document.createElement('div'),style=document.createElement('style');
+    main.id='main-area';main.setAttribute('data-app-shell-focus-area','main');main.style.cssText='position:relative;width:100%;height:253px';
+    style.textContent='#main-area.split #composer{left:196px}';document.head.append(style);root.before(main);main.append(root);
+    main.classList.add('split');
+    requestAnimationFrame(()=>{const c=root.getBoundingClientRect(),h=document.querySelector('#codex-composer-hud').getBoundingClientRect();resolve(Math.abs((h.left+h.right-c.left-c.right)/2)<1);});
+  })));
+  check('resize-without-dom-mutation-follows-main-area',await page.evaluate(()=>new Promise(resolve=>{
+    const main=document.querySelector('#main-area');main.classList.remove('split');
+    // CSS animation changes used geometry without emitting per-frame mutations.
+    const animation=main.animate([{width:'100%'},{width:'85%'}],{duration:100,fill:'forwards'});
+    animation.finished.then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      const c=document.querySelector('#composer').getBoundingClientRect(),h=document.querySelector('#codex-composer-hud').getBoundingClientRect();
+      animation.cancel();resolve(Math.abs((h.left+h.right-c.left-c.right)/2)<1);
+    })));
+  })));
+  await page.evaluate(()=>{const main=document.querySelector('#main-area');main.before(document.querySelector('#composer'));main.remove();});
   check('native-footer-typography-matched',await page.evaluate(()=>{
     const reference=getComputedStyle(document.querySelector('#model'));
     return [...document.querySelector('#codex-composer-hud').shadowRoot.querySelectorAll('span,i')].every(e=>{
@@ -50,6 +72,18 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.evaluate(readingSource);
   await page.evaluate(()=>window.__codexComposerHud.readingState(window.__codexReadingWidth.update('wide')));
   const metrics=page.locator('#metrics'),panel=page.locator('#width-panel'),range=page.locator('#width-range');
+  check('width-panel-font-size-follows-metrics',await panel.evaluate(e=>{
+    const size=getComputedStyle(e.getRootNode().querySelector('#metrics')).fontSize;
+    return [...e.querySelectorAll('label,output')].every(n=>getComputedStyle(n).fontSize===size);
+  }));
+  await page.locator('#model').evaluate(e=>e.style.fontSize='20px');
+  await page.waitForFunction(()=>{
+    const root=document.querySelector('#codex-composer-hud').shadowRoot;
+    return ['#metrics','label','output'].every(selector=>getComputedStyle(root.querySelector(selector)).fontSize==='20px');
+  },null,{polling:50,timeout:1500});
+  check('both-rows-follow-native-footer-size-without-manual-refresh',await metrics.evaluate(e=>getComputedStyle(e).fontSize)==='20px');
+  await page.locator('#model').evaluate(e=>e.removeAttribute('style'));
+  await page.evaluate(()=>window.__codexComposerHud.snapshot());
   check('width-panel-initially-hidden',!await panel.isVisible());
   await metrics.click();
   check('hud-click-opens-upward',await panel.isVisible()&&await page.evaluate(()=>{
@@ -133,6 +167,48 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('duplicate-markers-with-same-id-accepted',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).id===id);
   await page.evaluate(value=>document.querySelectorAll('[data-above-composer-conversation-id]')[1].setAttribute('data-above-composer-conversation-id',value),other);
   check('ambiguous-composer-id-hidden',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await reset();
+  await page.evaluate(({id,other})=>{
+    const root=document.querySelector('#composer'),main=document.createElement('div'),side=document.createElement('div');
+    main.setAttribute('data-app-shell-focus-area','main');side.setAttribute('data-app-shell-focus-area','auxiliary');
+    const marker=document.createElement('div');marker.setAttribute('data-above-composer-conversation-id',id);root.append(marker);
+    root.before(main);main.append(root);
+    const agent=root.cloneNode(true);agent.id='agent-composer';agent.style.cssText='position:absolute;left:0;top:0;width:300px;height:100px';
+    agent.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',other);
+    side.append(agent);document.body.append(side);
+  },{id,other});
+  snapshot=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('main-hud-survives-side-agent-composer',snapshot.visible&&snapshot.id===id);
+  check('side-agent-metrics-cannot-replace-main',!await page.evaluate(s=>window.__codexComposerHud.render({...s,speed:'other',cache:'other',age:'other'}),{...snapshot,id:other}));
+  await page.evaluate(()=>document.querySelector('#composer [data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id','invalid'));
+  check('invalid-main-never-borrows-side-agent',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.evaluate(()=>document.querySelector('#composer').remove());
+  check('side-agent-alone-does-not-get-main-hud',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await reset();
+  await page.evaluate(()=>{
+    const root=document.querySelector('#composer'),body=document.createElement('div');body.setAttribute('data-composer-body','');body.style.cssText='position:absolute;inset:18px';
+    const editor=root.querySelector('[contenteditable]');editor.setAttribute('data-codex-composer','true');
+    body.append(editor,root.querySelector('footer'));root.append(body);
+    const question=document.createElement('div');question.contentEditable='true';question.style.cssText='position:absolute;left:10px;top:0;width:120px;height:20px';root.prepend(question);
+  });
+  check('question-editor-outside-main-body-does-not-hide-hud',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.evaluate(()=>{
+    const footer=document.querySelector('#composer footer'),editor=document.querySelector('[data-codex-composer="true"]');
+    footer.setAttribute('data-composer-footer-responsive','');footer.append(editor);editor.style.cssText='position:absolute;left:160px;top:0;width:300px;height:36px';
+  });
+  await page.setViewportSize({width:1261,height:270});
+  snapshot=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('compact-footer-keeps-hud-below-composer',snapshot.visible&&snapshot.compatibility.placement==='below-composer');
+  check('compact-hud-does-not-cover-editor',await page.evaluate(()=>{
+    const h=document.querySelector('#codex-composer-hud').getBoundingClientRect(),r=document.querySelector('#composer').getBoundingClientRect();
+    return h.top>=r.bottom+4&&h.bottom<=innerHeight-4;
+  }));
+  await page.setViewportSize({width:1261,height:253});
+  const smallGap=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('compact-footer-uses-small-safe-bottom-gap: '+smallGap.compatibility.reason,smallGap.visible);
+  await page.setViewportSize({width:1261,height:240});
+  check('compact-footer-without-safe-space-still-hides',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.setViewportSize({width:1261,height:253});
   await reset();await page.setViewportSize({width:700,height:253});
   check('narrow-composer-hides-before-overlap',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
   await page.setViewportSize({width:1261,height:253});await reset();
@@ -144,7 +220,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.evaluate(()=>window.__codexComposerHud.remove());check('removal-cleans-view',await page.locator('#codex-composer-hud').count()===0);
   const now=1000000,data={binding:'ok',thread_id:id,updated_at_ms:now,source:{state:'ok'},metrics:{model:'fixture',stage:'idle',last:{model:'fixture',rate:52.9,cache_percent:97.5,measured_at_ms:now-31000}}};
   check('metadata-format',JSON.stringify(formatMetrics(data,id,now,'zh-CN'))===JSON.stringify({speed:'53 tok/s',cache:'98%',age:'31秒前'}));
-  check('wrong-chat-rejected',formatMetrics(data,other,now).speed==='— tok/s');
+  check('wrong-chat-rejected',formatMetrics(data,other,now).speed==='- tok/s');
   check('stale-heartbeat-rejected',formatMetrics({...data,updated_at_ms:now-6001},id,now,'zh-CN').age==='采集未连接');
   check('expired-sample-rejected',formatMetrics({...data,metrics:{...data.metrics,last:{...data.metrics.last,measured_at_ms:now-900000}}},id,now,'zh-CN').age==='数据已过期');
   check('english-relative-seconds',formatMetrics(data,id,now,'en-US').age==='31s ago');
@@ -153,7 +229,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   }
   check('english-disconnected',formatMetrics({...data,updated_at_ms:now-6001},id,now,'en').age==='Collector offline');
   check('english-empty-and-unsupported-fallback',formatMetrics(null,id,now,'de-DE').age==='Waiting for stats');
-  check('new-turn-clears-old-sample',formatMetrics({...data,metrics:{...data.metrics,stage:'generating',turn_started_at_ms:now}},id,now).speed==='— tok/s');
+  check('new-turn-clears-old-sample',formatMetrics({...data,metrics:{...data.metrics,stage:'generating',turn_started_at_ms:now}},id,now).speed==='- tok/s');
   fs.writeFileSync(path.join(evidence,'verification.json'),JSON.stringify({scope:'Synthetic Edge composer, not actual Codex renderer',results},null,2));console.log(JSON.stringify({passed:results.length}));
  }finally{await context.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

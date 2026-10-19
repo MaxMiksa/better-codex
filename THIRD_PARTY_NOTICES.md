@@ -1,16 +1,16 @@
 # Third-party notices and acknowledgements
 
-Better Codex is an independent community project and is not affiliated with OpenAI.
+Better-Codex is an independent community project and is not affiliated with OpenAI.
 
 ## Code reused
 
-Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hud) and its contributors. `tools/token-hud-local/collector/metrics.py` and `history.py` derive from its `v1.3.0-beta.8` sources at commit [`1c51c0a`](https://github.com/drkang7/codex-token-hud/tree/1c51c0aead8814a140b14cd33e7a2fa08453317c). The local adaptation removes the unused dashboard entry point. Its [MIT copyright and license](tools/token-hud-local/collector/LICENSE) are preserved. This substantial reuse is not presented as original Better Codex work.
+Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hud) and its contributors. `tools/token-hud-local/collector/metrics.py` and `history.py` derive from its `v1.3.0-beta.8` sources at commit [`1c51c0a`](https://github.com/drkang7/codex-token-hud/tree/1c51c0aead8814a140b14cd33e7a2fa08453317c). The local adaptation removes the unused dashboard entry point. Its [MIT copyright and license](tools/token-hud-local/collector/LICENSE) are preserved. This substantial reuse is not presented as original Better-Codex work.
 
 ## Related work
 
 Thank you to [flitfancy/codex-lite-hud](https://github.com/flitfancy/codex-lite-hud) for its local Windows HUD approach, and [Creative-developer-single/codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) for exploring in-app Codex metrics. These projects informed our research and comparison; their program code is not included.
 
-Thank you to [openai/codex](https://github.com/openai/codex) and its contributors. Better Codex does not ship Codex binaries or an alternative model client. The launcher icon is obtained from the user's installed app during setup, not bundled with this project.
+Thank you to [openai/codex](https://github.com/openai/codex) and its contributors. Better-Codex does not ship Codex binaries or an alternative model client. The launcher icon is obtained from the user's installed app during setup, not bundled with this project.
 
 ## Runtime dependencies
 
