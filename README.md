@@ -14,11 +14,9 @@
 
 A collection of small enhancements that make Codex more comfortable to use. It puts useful statistics by the input box and gives you more control over reading space. Independent community project; not affiliated with OpenAI.
 
-## 🎬 Preview
-
 <p align="center"><img src="Presentation/overview.png" alt="Better-Codex: inline statistics, reading-width control and collapsed file changes" width="900" /></p>
 
-*Inline statistics, reading-width control and collapsed file changes.*
+<p align="center"><em>Inline statistics, reading-width control and collapsed file changes.</em></p>
 
 ## ✨ Features
 

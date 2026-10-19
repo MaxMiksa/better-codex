@@ -14,11 +14,9 @@
 
 让 Codex 更好用的小功能合集。它把实用统计放在输入框旁，并让你按自己的习惯调整阅读空间。本项目由社区独立开发，与 OpenAI 没有隶属关系。
 
-## 🎬 演示
-
 <p align="center"><img src="Presentation/overview.png" alt="Better-Codex：内嵌统计、正文宽度调节与文件变更列表收起" width="900" /></p>
 
-*内嵌统计、正文宽度调节与文件变更列表收起。*
+<p align="center"><em>内嵌统计、正文宽度调节与文件变更列表收起。</em></p>
 
 ## ✨ 功能
 
