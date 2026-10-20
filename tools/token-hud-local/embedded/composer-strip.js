@@ -96,6 +96,9 @@
     if(bodies.length>1)return refuse('ambiguous-composer-body');
     const body=bodies[0] || root, bounds=body.getBoundingClientRect();
     watchGeometry(root,body);
+    if(root.closest('[data-right-panel-composer-overlay-content="true"]'))return refuse('floating-composer-hidden');
+    const questions=[...root.querySelectorAll('[data-codex-composer-request-navigation]')];
+    if(questions.some(e=>visible(e) && !e.closest('[aria-hidden="true"],[inert],[data-app-shell-active-page="false"]')))return refuse('question-card-hidden');
     let editors=[...body.querySelectorAll('[contenteditable="true"],textarea')].filter(visible);
     const primary=editors.filter(e=>e.getAttribute('data-codex-composer')==='true');
     if(primary.length)editors=primary;
@@ -156,7 +159,7 @@
       (r.type!=='attributes' || !['class','style','hidden'].includes(r.attributeName) ||
        geometryNodes.some(node=>r.target.contains(node) || node.contains(r.target)))))layout();
   });
-  observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['data-above-composer-conversation-id','data-app-action-sidebar-thread-active','data-app-action-sidebar-thread-id','aria-hidden','class','style','hidden','data-app-shell-active-page','data-app-shell-focus-area']});
+  observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['data-above-composer-conversation-id','data-app-action-sidebar-thread-active','data-app-action-sidebar-thread-id','aria-hidden','inert','class','style','hidden','data-app-shell-active-page','data-app-shell-focus-area','data-codex-composer-request-navigation','data-right-panel-composer-overlay-content']});
   observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   window.addEventListener('resize',layout);
   window.addEventListener('languagechange',layout);

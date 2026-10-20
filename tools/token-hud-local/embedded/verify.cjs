@@ -192,6 +192,60 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
     const question=document.createElement('div');question.contentEditable='true';question.style.cssText='position:absolute;left:10px;top:0;width:120px;height:20px';root.prepend(question);
   });
   check('question-editor-outside-main-body-does-not-hide-hud',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  const beforeQuestion=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  await page.locator('#metrics').click();
+  check('question-card-hides-before-first-frame',await page.evaluate(()=>new Promise(resolve=>{
+    const question=document.querySelector('#composer > [contenteditable]');question.id='question-card';
+    question.setAttribute('data-codex-composer-request-navigation','true');
+    requestAnimationFrame(()=>resolve(document.querySelector('#codex-composer-hud').hidden));
+  })));
+  snapshot=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('question-card-hides-even-with-multiline-editor',!snapshot.visible&&snapshot.id===null&&snapshot.compatibility.reason==='question-card-hidden');
+  check('question-card-closes-width-panel',await page.locator('#width-panel').evaluate(e=>e.hidden));
+  check('question-card-rejects-late-statistics',!await page.evaluate(s=>window.__codexComposerHud.render({...s,speed:'99 tok/s',cache:'99%',age:'now'}),beforeQuestion));
+  await page.evaluate(()=>document.querySelector('#question-card').hidden=true);
+  check('hidden-question-card-does-not-suppress-normal-chat',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.evaluate(()=>{const q=document.querySelector('#question-card');q.hidden=false;q.setAttribute('aria-hidden','true');});
+  check('aria-hidden-question-card-ignored',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.evaluate(()=>{const q=document.querySelector('#question-card');q.removeAttribute('aria-hidden');q.inert=true;});
+  check('inactive-question-card-ignored',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.evaluate(()=>document.querySelector('#question-card').inert=false);
+  check('question-card-reactivation-hides',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  check('question-removal-restores-before-first-frame',await page.evaluate(()=>new Promise(resolve=>{
+    document.querySelector('#question-card').remove();
+    requestAnimationFrame(()=>resolve(!document.querySelector('#codex-composer-hud').hidden));
+  })));
+  snapshot=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('question-return-binds-same-chat-with-fresh-generation',snapshot.id===id&&snapshot.generation>beforeQuestion.generation);
+  check('question-return-does-not-reuse-old-values',!await page.evaluate(s=>window.__codexComposerHud.render({...s,speed:'99 tok/s',cache:'99%',age:'now'}),beforeQuestion));
+  check('question-return-accepts-current-statistics',await page.evaluate(s=>window.__codexComposerHud.render({...s,speed:'53 tok/s',cache:'98%',age:'now'}),snapshot));
+  await page.evaluate(()=>{
+    const other=document.createElement('div');other.id='other-question';other.setAttribute('data-codex-composer-request-navigation','true');other.style.cssText='width:100px;height:40px';document.body.append(other);
+  });
+  check('question-outside-selected-composer-does-not-hide-main-hud',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.evaluate(()=>document.querySelector('#other-question').remove());
+  await page.evaluate(readingSource);
+  await page.evaluate(()=>window.__codexReadingWidth.update(1008));
+  await page.evaluate(()=>{
+    const root=document.querySelector('#composer'),overlay=document.createElement('div');overlay.id='overlay';
+    root.before(overlay);overlay.append(root);
+  });
+  check('floating-overlay-hides-before-first-frame',await page.evaluate(()=>new Promise(resolve=>{
+    document.querySelector('#overlay').setAttribute('data-right-panel-composer-overlay-content','true');
+    requestAnimationFrame(()=>resolve(document.querySelector('#codex-composer-hud').hidden));
+  })));
+  snapshot=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('floating-overlay-hides-multiline-editor',!snapshot.visible&&snapshot.compatibility.reason==='floating-composer-hidden');
+  check('floating-overlay-does-not-reset-reading-width',await page.evaluate(()=>{const s=window.__codexReadingWidth.update(1008);return s.applied&&s.maxWidth===1008;}));
+  await page.evaluate(()=>document.querySelector('#overlay').setAttribute('data-right-panel-composer-overlay-content','false'));
+  check('floating-overlay-attribute-change-restores',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  await page.evaluate(()=>document.querySelector('#overlay').setAttribute('data-right-panel-composer-overlay-content','true'));
+  check('floating-overlay-reentry-hides',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
+  check('leaving-floating-overlay-restores-before-first-frame',await page.evaluate(()=>new Promise(resolve=>{
+    const overlay=document.querySelector('#overlay');overlay.before(document.querySelector('#composer'));overlay.remove();
+    requestAnimationFrame(()=>resolve(!document.querySelector('#codex-composer-hud').hidden));
+  })));
+  check('leaving-floating-overlay-restores-binding',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).id===id);
   await page.evaluate(()=>{
     const footer=document.querySelector('#composer footer'),editor=document.querySelector('[data-codex-composer="true"]');
     footer.setAttribute('data-composer-footer-responsive','');footer.append(editor);editor.style.cssText='position:absolute;left:160px;top:0;width:300px;height:36px';
