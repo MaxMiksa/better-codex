@@ -1,3 +1,23 @@
+function Get-CodexDesktopPackage {
+    $packages = @(Get-AppxPackage -Name OpenAI.Codex | Where-Object { $_.PackageFamilyName -eq 'OpenAI.Codex_2p2nqsd0c76g0' })
+    if ($packages.Count -ne 1 -or $packages[0].Status -ne 'Ok' -or $packages[0].SignatureKind -ne 'Store') {
+        throw (Get-BetterCodexText 'launch.packageFailed')
+    }
+    $executable = Join-Path $packages[0].InstallLocation 'app/ChatGPT.exe'
+    if (-not (Test-Path -LiteralPath $executable)) { throw (Get-BetterCodexText 'launch.packageFailed') }
+    return @{executable=$executable;packageVersion=[string]$packages[0].Version}
+}
+
+function Invoke-CodexAdministratorActivation([string]$Arguments) {
+    if (-not (Test-BetterCodexAdministrator)) { throw (Get-BetterCodexText 'administrator.notElevated') }
+    # Resolve again at launch so Store updates never leave a versioned target behind.
+    $package = Get-CodexDesktopPackage
+    $parameters = @{FilePath=$package.executable;PassThru=$true}
+    if ($Arguments) { $parameters.ArgumentList = $Arguments }
+    $process = Start-Process @parameters
+    return $process.Id
+}
+
 function Invoke-CodexActivation([string]$Arguments) {
     if (!('HudApplicationActivator' -as [type])) {
         Add-Type -TypeDefinition @'

@@ -8,7 +8,7 @@ function formatMetrics(data,id,now=Date.now(),locale='en') {
   if(data.source?.state!=='ok')return empty(t('waiting'));
   const metrics=data.metrics,last=metrics?.last;
   if (!last || last.model && metrics.model && last.model!==metrics.model) return empty(t('waiting'));
-  if(metrics.stage!=='idle' && (metrics.turn_started_at_ms>last.measured_at_ms || metrics.turn_id && last.turn_id && metrics.turn_id!==last.turn_id))return empty(t('waiting'));
+  if(metrics.turn_started_at_ms>last.measured_at_ms || metrics.turn_id && last.turn_id && metrics.turn_id!==last.turn_id)return empty(t('waiting'));
   const age=now-last.measured_at_ms;
   if(!Number.isFinite(age)||age<0)return empty(t('waiting'));
   if(age>=900000)return empty(t('expired'));

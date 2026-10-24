@@ -7,6 +7,9 @@ The source package keeps the existing module boundaries:
 | `tools/token-hud-local/collector/` | MIT-derived local event measurements and session discovery |
 | `tools/token-hud-local/shared/` | Official app activation, Store package discovery and listener identity checks |
 | `tools/token-hud-local/embedded/` | Controller, chat binding, statistics display, reading width and file-list presentation |
+| `tools/token-hud-local/diagnostics/` | Startup diagnostics, redacted reports and bounded relaunch policy |
+| `shared/StartupCheckDialog.cs` | Native startup-check window, DPI/theme handling and cancellable countdown |
+| `embedded/update_recovery.py` | Optional future-update discovery and delegation to the unified check |
 | `Install.ps1` | Source setup, or offline preparation when bundled runtimes are present |
 | `PortableLauncher.cs` / `portable_bootstrap.py` | Double-click entry, bundled dependency checks, relocatable settings and launch |
 | `scripts/build-portable.py` | Verified upstream runtimes, Windows launcher build and offline ZIP |
@@ -20,6 +23,10 @@ Run from the repository root. The browser checks use installed Edge and syntheti
 
 ```powershell
 .\tools\token-hud-local\Verify-Launcher.ps1
+python -B -X utf8 tools/token-hud-local/collector/verify_metrics.py
+python -B -X utf8 tools/token-hud-local/diagnostics/verify_checks.py
+python -B -X utf8 tools/token-hud-local/diagnostics/verify_relaunch.py .validation-runtime/relaunch
+python -B -X utf8 tools/token-hud-local/embedded/verify_update_recovery.py .validation-runtime/update-recovery
 python -B -X utf8 tools/token-hud-local/embedded/verify_supervisor.py .validation-runtime/lock-check
 python -B -X utf8 tools/token-hud-local/shared/verify-i18n.py .validation-runtime/i18n/shared
 python -B -X utf8 tools/token-hud-local/verify-workspace-relocation.py .validation-runtime/workspace-rename-check
@@ -35,6 +42,8 @@ Use the Python interpreter prepared by setup if `psutil` or `pywin32` is unavail
 The version in root `VERSION` and `package.json` is the Better-Codex product version. `collector/VERSION` records the independent upstream collector version and intentionally differs. Upstream source is pinned in `THIRD_PARTY_NOTICES.md`.
 
 Page structure and the local display interface are not a stable extension API. Keep unknown layouts hidden rather than guessing; preserve program identity checks and Codex's ability to start when the HUD fails. New features should stay independent of model traffic.
+
+Collector timing uses one response's reported output divided by the interval from a known request boundary to its usage record. This includes waiting and reasoning, excludes known tool execution, and is not model decoding throughput. Item timestamps cannot time a whole response. Uncertain boundaries and legacy-only usage have no speed; there is no empirical rate cap. `verify_metrics.py` covers timing scope, tool boundaries, steering, restored counts, response deduplication, late records and missing history. Runtime snapshots identify the method as `response-request-average-v2`.
 
 The controller recognizes routed main pages and isolates page collectors, bindings and output directories. Cross-runtime settings patches serialize writes and retain the last valid preferences on read errors. Reading-width targets are selected independently per visible transcript, excluding composer containers. The HUD prefers the native main composer and its marked editor, ignores question-card editors, and follows main-panel geometry through resize and layout observations. Custom-accent handling is an independent, removable module; disabling it must leave statistics, width and file changes active.
 
@@ -64,3 +73,9 @@ For a source installation, run `tools/token-hud-local/Repair-WorkspacePaths.ps1 
 The migration rebases project dependency paths, rebuilds owned wrappers and updates existing shortcuts while preserving preferences and the login-startup choice. It creates an old-path directory junction to preserve running HUD paths and Explorer's cached entry. Keep that junction until its consumers have been checked separately; it contains no duplicate project data. Migration never activates or restarts Codex or stops the HUD. Original entry files and settings are saved locally before applying; a failed apply attempts to restore owned entries and dependency fields without reverting concurrent display preferences. Foreign shortcuts, changed wrappers and an occupied old path are refused. The isolated check uses real Windows links and junctions in synthetic folders; it does not establish real post-rename or next-login acceptance. Its icon fixture requires an already prepared local installation.
 
 After the Codex project association uses the new root and the entry files have been checked, `Repair-WorkspacePaths.ps1 -Mode Finalize` verifies current-user process paths and removes only the verified old junction with non-recursive `os.rmdir`. An old-path user or inaccessible relevant tool process prevents removal. The plan then stays `finalized`: Check, Apply and repeated Finalize accept the absent alias and never recreate it. Finalize refuses a foreign directory or a different reparse point and does not stop any live processes. The isolated check covers the in-use guard, target preservation, repeat calls and foreign-path rejection.
+
+## Startup diagnostics and recovery
+
+The combined entry opens the check asynchronously; internal administrator dispatch and read-only checks do not duplicate it. Checks use bounded local probes, read-only session access and a credential-free HTTPS HEAD request, never a model message or implicit legacy sandbox setup. Unknown conditions stay unknown. Native previews (`Show-StartupCheck.ps1 -Preview`) simulate recovery and must not execute real app actions. Native close/countdown scripts can validate only their own preview windows.
+
+Confirmed enhancement-loading failures or a confirmed new Codex version can arm the unified 15-second countdown after all checks finish. Cancellation is persistent for that reason/version; recovery revalidates package hash, PID/creation time, listener and dependencies before requesting a normal exit. A veto or timeout preserves the running app. The complete entry runs once after exit; failed recovery cannot loop. Future-update monitoring and administrator startup are optional and off for a new installation. Administrator notification activation has a known unresolved issue; keep that mode experimental. Future real-update recovery is not established by mock or preview checks.

@@ -44,7 +44,7 @@
   let language='';
   function localize() {
     const next=i18n.locale();if(language===next)return;
-    language=next;host.lang=next;metrics.title=t('adjustWidth');
+    language=next;host.lang=next;metrics.title=t('adjustWidth');fields[0].title=t('responseAverage');
     panel.setAttribute('aria-label',t('readingWidth'));shadow.querySelector('label').textContent=t('readingWidth');
     showWidth(Number(range.value));if(!updated)fields[2].textContent=t('waiting');
   }

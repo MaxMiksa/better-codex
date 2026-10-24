@@ -39,7 +39,7 @@ def write_plan(plan):
 def links():
     appdata = Path(os.environ['APPDATA'])
     return [ROOT / 'launchers/Codex.lnk',
-            appdata / 'Microsoft/Internet Explorer/Quick Launch/User Pinned/TaskBar/Codex.lnk',
+            *entries.pinned_shortcuts(),
             appdata / 'Microsoft/Windows/Start Menu/Programs/Startup/Codex with HUD.lnk']
 
 
@@ -63,7 +63,7 @@ def preflight(previous):
         identity = store.GetValue(pscon.PKEY_AppUserModel_ID).GetValue()
         del store
         if (Path(link.TargetPath) != Path(os.environ['WINDIR']) / 'System32/wscript.exe' or
-                Path(link.Arguments.strip('"')) not in allowed or identity != entries.APP_ID):
+                Path(link.Arguments.strip('"')) not in allowed or identity not in entries.MANAGED_APP_IDS):
             raise ValueError('shortcut-ownership-conflict')
         selected.append(path)
     template = (ROOT / 'tools/token-hud-local/start-composer.vbs').read_text(encoding='utf-8')

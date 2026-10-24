@@ -3,7 +3,8 @@ import ctypes
 import json
 from pathlib import Path
 import sys
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 import supervisor
 
 
@@ -49,5 +50,49 @@ def verify(runtime):
             kernel.CloseHandle(handle)
 
 
+def verify_desktop_exit(runtime):
+    runtime.mkdir(parents=True, exist_ok=False)
+    settings = runtime / 'settings.json'
+    settings.write_text('{"port":19163,"node":"fixture-node"}', encoding='utf-8')
+    child = MagicMock()
+    child.pid, child.returncode = 456, 0
+    child.poll.return_value = None
+    child.terminate.side_effect = lambda: setattr(child.poll, 'return_value', 0)
+    desktop = MagicMock()
+    desktop.create_time.return_value = 10
+    ticks = 0
+
+    def tick(_):
+        nonlocal ticks
+        ticks += 1
+        status = json.loads((runtime / 'supervisor.json').read_text())
+        if ticks == 1:
+            assert status['phase'] == 'controller-running'
+            desktop.create_time.return_value = 11  # PID reused by a different process.
+        else:
+            assert status['phase'] == 'waiting-desktop-connection'
+            assert status['desktopPid'] is None and status['controllerPid'] is None
+            assert status['childExits'] == 1
+            child.terminate.assert_called_once_with()
+            (runtime / 'stop').touch()
+
+    listener = SimpleNamespace(status=supervisor.psutil.CONN_LISTEN, laddr=SimpleNamespace(port=19163))
+    with patch.object(supervisor.psutil, 'Process', return_value=desktop), \
+            patch.object(supervisor.psutil, 'net_connections', side_effect=[[listener], []]), \
+            patch.object(supervisor, 'discover', return_value={'executable': 'fixture.exe', 'sha256': 'fixture'}), \
+            patch.object(supervisor, 'verified_listener', return_value=(123, 10)), \
+            patch.object(supervisor.subprocess, 'Popen', return_value=child), \
+            patch.object(supervisor.time, 'sleep', side_effect=tick):
+        assert supervisor.owner_alive((123, 10))
+        supervisor.run(settings, runtime)
+    assert ticks == 2
+    with patch.object(supervisor.psutil, 'Process', side_effect=supervisor.psutil.NoSuchProcess(123)):
+        assert not supervisor.owner_alive((123, 10))
+    print(json.dumps({'live_owner_preserved': True, 'reused_pid_refused': True,
+                      'missing_owner_refused': True, 'orphan_controller_retired': True}))
+
+
 if __name__ == '__main__':
-    verify(Path(sys.argv[1]).resolve())
+    root = Path(sys.argv[1]).resolve()
+    verify(root)
+    verify_desktop_exit(root / 'desktop-exit')

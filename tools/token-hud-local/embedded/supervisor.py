@@ -8,9 +8,11 @@ import time
 import psutil
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))  # Bundled Python omits the script directory.
 sys.path.insert(0, str(ROOT.parent / 'shared'))
 from desktop_package import discover
 from desktop_listener import verified_listener
+from update_recovery import UpdateRecovery
 
 
 def publish_status(status, receipt, diagnostics=None):
@@ -28,6 +30,15 @@ def publish_status(status, receipt, diagnostics=None):
         return False
 
 
+def owner_alive(owner):
+    if owner is None:
+        return False
+    try:
+        return psutil.Process(owner[0]).create_time() == owner[1]
+    except psutil.Error:
+        return False
+
+
 def run(settings_path, runtime):
     settings = json.loads(settings_path.read_text(encoding='utf-8-sig'))
     runtime.mkdir(parents=True, exist_ok=True)
@@ -35,15 +46,22 @@ def run(settings_path, runtime):
     child, owner, package = None, None, None
     writes = {'failures': 0, 'lastError': None}
     child_exits, last_child_exit = 0, None
+    recovery = UpdateRecovery(settings_path, runtime)
     try:
-        while not stop.exists():
+        while not stop.exists() or recovery.restarting:
             phase = 'waiting-desktop-connection'
             try:
+                if child and child.poll() is None and not owner_alive(owner):
+                    # A forcibly closed desktop can leave CDP connected with no
+                    # pages. Retire only our controller; collectors watch its PID.
+                    child.terminate()
+                    child.wait(timeout=5)
                 if child and child.poll() is not None:
                     child_exits += 1
                     last_child_exit = child.returncode
                     child = None
-                if child is None:
+                    owner = None
+                if child is None and not stop.exists():
                     owner = None
                     listeners = [c for c in psutil.net_connections('tcp')
                                  if c.status == psutil.CONN_LISTEN and c.laddr.port == settings['port']]
@@ -61,10 +79,12 @@ def run(settings_path, runtime):
             except (OSError, ValueError, KeyError, psutil.Error, subprocess.SubprocessError):
                 receipt = {'phase': 'connection-check-unavailable'}
             receipt['checkedAt'] = time.time()
+            receipt['updateRecovery'] = recovery.tick()
             receipt.update(writes=writes, childExits=child_exits, lastChildExit=last_child_exit)
             publish_status(status, receipt, writes)
             time.sleep(3)
     finally:
+        recovery.stop_dialog()
         stop.touch()
         if child and child.poll() is None:
             try:

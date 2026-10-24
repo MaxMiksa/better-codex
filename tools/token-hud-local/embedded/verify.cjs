@@ -24,8 +24,10 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   const page=context.pages()[0];
   const reset=async()=>{await page.evaluate(()=>{window.__codexReadingWidth?.remove();window.__codexComposerHud?.remove();});await page.setContent(html);await page.evaluate(i18nSource);await page.evaluate(source);return page.evaluate(()=>window.__codexComposerHud.snapshot());};
   let snapshot=await reset();check('unique-local-chat-and-composer: '+snapshot.compatibility.reason,snapshot.id===id&&snapshot.visible);
+  check('chinese-speed-tooltip-explains-average',await page.evaluate(()=>document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#metrics span').title.includes('不是模型实时解码速度')));
   await page.evaluate(()=>{document.documentElement.lang='en-US';Object.defineProperty(navigator,'language',{value:'en-US',configurable:true});});
   check('codex-language-overrides-computer',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).locale==='en');
+  check('english-speed-tooltip-explains-average',await page.evaluate(()=>document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#metrics span').title.includes('Not live model decoding speed')));
   await page.evaluate(()=>document.documentElement.removeAttribute('lang'));
   check('missing-codex-language-uses-computer-not-browser',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).locale==='zh-CN');
   await page.evaluate(()=>document.documentElement.lang='zh-CN');
@@ -284,6 +286,8 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('english-disconnected',formatMetrics({...data,updated_at_ms:now-6001},id,now,'en').age==='Collector offline');
   check('english-empty-and-unsupported-fallback',formatMetrics(null,id,now,'de-DE').age==='Waiting for stats');
   check('new-turn-clears-old-sample',formatMetrics({...data,metrics:{...data.metrics,stage:'generating',turn_started_at_ms:now}},id,now).speed==='- tok/s');
+  check('aborted-new-turn-does-not-restore-old-sample',formatMetrics({...data,metrics:{...data.metrics,stage:'idle',turn_started_at_ms:now}},id,now).speed==='- tok/s');
+  check('idle-turn-mismatch-does-not-restore-old-sample',formatMetrics({...data,metrics:{...data.metrics,turn_id:'new',last:{...data.metrics.last,turn_id:'old'}}},id,now).speed==='- tok/s');
   fs.writeFileSync(path.join(evidence,'verification.json'),JSON.stringify({scope:'Synthetic Edge composer, not actual Codex renderer',results},null,2));console.log(JSON.stringify({passed:results.length}));
  }finally{await context.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

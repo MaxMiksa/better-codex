@@ -21,6 +21,7 @@ def public_files():
     files.extend(p for p in code.rglob('*')
                  if p.is_file() and '__pycache__' not in p.parts and p.suffix in CODE_SUFFIXES)
     files.extend(code / 'collector' / p for p in ['LICENSE', 'VERSION'])
+    files.append(code / 'diagnostics/LUCIDE-LICENSE')
     for p in files:
         if not p.is_file() or not p.resolve().is_relative_to(ROOT):
             raise ValueError('Public file missing or outside root: '+str(p))

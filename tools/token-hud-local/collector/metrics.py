@@ -47,14 +47,17 @@ def cache_percent(usage: dict) -> float | None:
 
 
 class Measurements:
-    """One thread's samples, with generation timing separated from tool execution."""
+    """Response averages from request boundaries, including wait and reasoning."""
 
     def __init__(self, model: str | None = None):
         self.model = model
         self.turn_id: str | None = None
         self.last: dict | None = None
-        self.model_start: float | None = None
         self.request_boundary: float | None = None
+        self.response_boundary: float | None = None
+        self.response_open = False
+        self.response_tools_returned = False
+        self.turn_closed = False
         self.pending_calls: set[str] = set()
         self.stage = "idle"
         self.output_total = 0
@@ -65,10 +68,22 @@ class Measurements:
         self.recent_response_ids: collections.deque[str] = collections.deque(maxlen=256)
         self.last_usage_fingerprint: tuple | None = None
         self.legacy_total: tuple | None = None
-        self.expected_legacy: tuple | None = None
+        self.canonical_usage_seen = False
         self.last_usage_at: float = 0
         self.event_at: float = 0
         self.turn_started_at: float | None = None
+
+    def reset_timing(self) -> None:
+        self.request_boundary = None
+        self.response_boundary = None
+        self.response_open = False
+        self.response_tools_returned = False
+        self.pending_calls.clear()
+
+    def _begin_response(self) -> None:
+        if not self.response_open:
+            self.response_boundary = self.request_boundary if not self.pending_calls else None
+            self.response_open = True
 
     def feed(self, event: dict) -> None:
         kind = event.get("type")
@@ -80,15 +95,25 @@ class Measurements:
             self.event_at = max(self.event_at, at)
         event_type = p.get("type")
 
+        if kind == "session_meta":
+            # A resumed segment may begin halfway through a response.
+            self.reset_timing()
+            self.turn_id = None
+            self.turn_started_at = None
+            self.turn_closed = False
+            self.stage = "idle"
+            self.legacy_total = None
+            self.canonical_usage_seen = False
+            return
         if kind == "turn_context":
             self.model = p.get("model") or self.model
             return
         if kind == "event_msg" and event_type in ("task_started", "turn_started"):
+            self.reset_timing()
             self.turn_id = p.get("turn_id")
             self.turn_started_at = at
             self.request_boundary = at
-            self.model_start = None
-            self.pending_calls.clear()
+            self.turn_closed = False
             self.stage = "generating"
             self.turn_output = 0
             self.turn_generation_ms = 0
@@ -96,47 +121,56 @@ class Measurements:
             return
         if kind == "event_msg" and event_type in ("task_complete", "task_completed", "turn_complete", "turn_aborted"):
             self.stage = "idle"
-            self.pending_calls.clear()
+            self.turn_closed = True
+            self.reset_timing()
             return
 
-        if kind == "event_msg" and event_type == "item_completed":
-            item = p.get("item") or {}
-            if not isinstance(item, dict):
-                return
-            model_item = str(item.get("type", "")).replace("_", "").lower()
-            if model_item in ("reasoning", "agentmessage", "assistantmessage"):
-                start = p.get("started_at_ms")
-                if isinstance(start, (int, float)) and at is not None and 0 < start <= at:
-                    # Item timings can arrive late; never attach an old item to the next response.
-                    if start >= self.last_usage_at:
-                        self.model_start = min(self.model_start or start, start)
-                        self.stage = "generating"
+        if kind == "compacted":
+            self.reset_timing()
+            self.request_boundary = at
             return
 
         if kind == "response_item":
             call_id = p.get("call_id")
             if event_type in ("function_call", "custom_tool_call") and call_id:
+                self._begin_response()
                 self.pending_calls.add(call_id)
                 self.stage = "tools"
             elif event_type in ("function_call_output", "custom_tool_call_output"):
+                known_call = call_id in self.pending_calls
                 self.pending_calls.discard(call_id)
-                if not self.pending_calls:
-                    self.request_boundary = at
+                if known_call and not self.pending_calls and not self.turn_closed:
+                    if self.response_open:
+                        # A tool can finish before its response's usage is persisted.
+                        # Never move that response's start forward to the tool result.
+                        self.response_tools_returned = True
+                    else:
+                        self.request_boundary = at
                     self.stage = "generating"
             elif event_type == "message" and p.get("role") == "user":
-                self.request_boundary = at
+                if self.stage == "idle":
+                    self.request_boundary = at
+                    self.turn_id = None
+                    self.turn_closed = False
+                    self.stage = "generating"
+            elif event_type == "reasoning" or event_type == "message" and p.get("role") == "assistant":
+                self._begin_response()
             return
 
         if kind == "token_usage_record":
+            usage = p.get("usage")
+            if not isinstance(usage, dict) or at is None or self.turn_closed:
+                return
+            if self.turn_id and p.get("turn_id") and self.turn_id != p["turn_id"]:
+                return
             response_id = p.get("response_id")
             if response_id and response_id in self.recent_response_ids:
                 return
             if response_id:
                 self.recent_response_ids.append(response_id)
-            usage = p.get("usage")
-            if isinstance(usage, dict):
-                self._sample(usage, at, "response", p.get("thread_token_usage"), p.get("turn_token_usage"))
-                self.expected_legacy = self._fingerprint(usage)
+            self.canonical_usage_seen = True
+            self.turn_id = p.get("turn_id") or self.turn_id
+            self._sample(usage, at, "response", p.get("thread_token_usage"), p.get("turn_token_usage"))
             return
 
         if kind == "event_msg" and event_type == "token_count":
@@ -146,17 +180,15 @@ class Measurements:
             usage = info.get("last_token_usage")
             total = info.get("total_token_usage") or {}
             if isinstance(usage, dict) and at is not None:
-                fp = self._fingerprint(usage)
                 # The two streams have DIFFERENT cumulative totals after resume/compaction.
                 # Compare legacy totals to legacy totals, never to billing-record totals.
                 cumulative = self._fingerprint(total) if isinstance(total, dict) and total else None
-                repeated_total = cumulative is not None and cumulative == self.legacy_total
+                previous = self.legacy_total
                 self.legacy_total = cumulative
-                record_duplicate = fp == self.expected_legacy
-                if record_duplicate:
-                    self.expected_legacy = None
-                if not repeated_total and not record_duplicate:
-                    self.expected_legacy = None
+                # Initial legacy counts may restore a previous turn's usage. Once
+                # response IDs are available, legacy mirrors must not create samples.
+                if not self.canonical_usage_seen and not self.turn_closed and previous and cumulative and \
+                        cumulative[2] - previous[2] == integer(usage.get("output_tokens")) > 0:
                     self._sample(usage, at, "legacy", total, None)
 
     @staticmethod
@@ -169,11 +201,13 @@ class Measurements:
         if at is None:
             return
         output = integer(usage.get("output_tokens"))
-        basis = "stream" if self.model_start is not None else "request"
-        start = self.model_start if self.model_start is not None else self.request_boundary
+        # Item start times describe only one visible item, sometimes just the
+        # reasoning summary. They cannot time the response's full output usage.
+        start = self.response_boundary if self.response_open else self.request_boundary
+        basis = "request" if start is not None and source == "response" and not self.response_tools_returned else "unknown"
         duration = at - start if start is not None else None
         # Old history may start halfway through a response. Preserve usage without inventing speed.
-        rate = output * 1000 / duration if duration is not None and duration >= 50 and output else None
+        rate = output * 1000 / duration if basis == "request" and duration >= 50 and output else None
         self.last = {
             "rate": rate, "duration_ms": duration if duration is not None and duration > 0 else None,
             "basis": basis, "input_tokens": integer(usage.get("input_tokens")),
@@ -196,11 +230,14 @@ class Measurements:
             self.sample_count += 1
         self.last_usage_fingerprint = self._fingerprint(usage)
         self.last_usage_at = at
-        self.model_start = None
-        self.request_boundary = at
+        self.request_boundary = at if not self.pending_calls and not self.response_tools_returned else None
+        self.response_boundary = None
+        self.response_open = False
+        self.response_tools_returned = False
 
     def snapshot(self) -> dict:
         return {"model": self.model, "stage": self.stage, "last": self.last,
+                "timing_method": "response-request-average-v2",
                 "turn_id": self.turn_id, "turn_output_tokens": self.turn_output,
                 "sample_count": self.sample_count, "output_total": self.output_total,
                 "turn_started_at_ms": self.turn_started_at,

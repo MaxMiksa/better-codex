@@ -106,8 +106,11 @@ def main():
     if mode == 'prepare-only':
         print(json.dumps({'status': 'prepared', 'downloads': False, 'locale': language(), 'message': text('portable.prepared')}, ensure_ascii=False))
         return 0
-    result = subprocess.run([str(POWERSHELL), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-                             str(HERE / 'Start-ComposerHud.ps1')], check=True, capture_output=True,
+    launch = [str(POWERSHELL), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+              str(HERE / 'Start-ComposerHud.ps1')]
+    if os.environ.get('BETTER_CODEX_STARTUP_CHECK_STARTED') == '1':
+        launch.append('-StartupCheckStarted')
+    result = subprocess.run(launch, check=True, capture_output=True,
                             encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
     receipt = json.loads(result.stdout.lstrip('\ufeff'))
     print(json.dumps({'status': receipt['hudReason'], 'activated': receipt['activationSucceeded'], 'locale': receipt['locale'], 'message': receipt['message']}, ensure_ascii=False))

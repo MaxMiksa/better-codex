@@ -170,11 +170,6 @@ class History:
                 p = e.get("payload") or {}
                 if not isinstance(p, dict):
                     continue
-                if e.get("type") == "session_meta":
-                    # A resumed segment can begin halfway through a response. Do not time the gap.
-                    measurements.request_boundary = None
-                    measurements.model_start = None
-                    measurements.pending_calls.clear()
                 text = user_text(e)
                 at = timestamp_ms(e.get("timestamp"))
                 if text and at is not None:

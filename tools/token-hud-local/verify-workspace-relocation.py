@@ -142,6 +142,37 @@ rename_fixture(old, new)
 invoke(new, env, 'apply')
 check('absent-startup-not-enabled', not (Path(env['APPDATA']) / 'Microsoft/Windows/Start Menu/Programs/Startup/Codex with HUD.lnk').exists())
 
+old, new, env, external = fixture('administrator-identity')
+numbered_pin = external[0].with_name('Codex (2).lnk')
+external[0].rename(numbered_pin)
+external[0] = numbered_pin
+settings_path = old / '.runtime/token-hud/embedded/settings.json'
+settings = json.loads(settings_path.read_text())
+entry_paths = [old / 'launchers/Codex.lnk', *external]
+entry_targets = [shell.CreateShortcut(str(path)).Arguments for path in entry_paths]
+for enabled, identity in [(True, 'com.openai.codex'), (False, 'OpenAI.Codex_2p2nqsd0c76g0!App'),
+                          (True, 'com.openai.codex')]:
+    settings['runAsAdministrator'] = enabled
+    settings_path.write_text(json.dumps(settings), encoding='utf-8')
+    result = subprocess.run([sys.executable, '-B', '-X', 'utf8', str(old / 'tools/token-hud-local/install_taskbar_entry.py')],
+                            env=env, capture_output=True, check=True, encoding='utf-8')
+    identities = []
+    for path in entry_paths:
+        store = propsys.SHGetPropertyStoreFromParsingName(str(path), None, shellcon.GPS_DEFAULT)
+        identities.append(store.GetValue(pscon.PKEY_AppUserModel_ID).GetValue())
+        del store
+    check('mode-switch-matches-all-shortcuts-' + str(enabled), identities == [identity] * len(entry_paths) and
+          [shell.CreateShortcut(str(path)).Arguments for path in entry_paths] == entry_targets and
+          json.loads(result.stdout)['appId'] == identity and json.loads(settings_path.read_text()) == settings)
+invoke(old, env, 'prepare')
+rename_fixture(old, new)
+check('administrator-identity-allows-folder-migration', invoke(new, env, 'apply')['status'] == 'applied')
+for path in [new / 'launchers/Codex.lnk', *external]:
+    store = propsys.SHGetPropertyStoreFromParsingName(str(path), None, shellcon.GPS_DEFAULT)
+    check('administrator-identity-preserved-after-migration-' + path.name,
+          store.GetValue(pscon.PKEY_AppUserModel_ID).GetValue() == 'com.openai.codex')
+    del store
+
 old, new, env, external = fixture('foreign-shortcut')
 invoke(old, env, 'prepare')
 link = shell.CreateShortcut(str(external[0]))

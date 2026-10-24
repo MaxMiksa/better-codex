@@ -14,6 +14,19 @@ internal static class PortableLauncher {
         } catch { }
     }
 
+    private static bool StartDiagnostics(string root) {
+        try {
+            string script = Path.Combine(root, "tools", "token-hud-local", "Show-StartupCheck.ps1");
+            if (!File.Exists(script)) return false;
+            string powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+            using (var process = Process.Start(new ProcessStartInfo(powershell,
+                "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File " + Quote(script)) {
+                    UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden
+                })) return process != null;
+        } catch { return false; }
+    }
+
     [STAThread]
     private static int Main(string[] args) {
         using (var mutex = new Mutex(false, "Local\\BetterCodexPortableBootstrap")) {
@@ -31,6 +44,7 @@ internal static class PortableLauncher {
             string mode = normal ? "--launch" : args[0];
             if (args.Length > 1 || (mode != "--launch" && mode != "--check" && mode != "--prepare-only" && mode != "--stop")) return 1;
             string root = AppDomain.CurrentDomain.BaseDirectory;
+            bool diagnosticsStarted = mode == "--launch" && StartDiagnostics(root);
             string python = Path.Combine(root, "runtime", "python", "python.exe");
             string script = Path.Combine(root, "tools", "token-hud-local", "portable_bootstrap.py");
             if (!File.Exists(python) || !File.Exists(script)) throw new FileNotFoundException();
@@ -39,6 +53,7 @@ internal static class PortableLauncher {
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
             };
+            if (diagnosticsStarted) start.EnvironmentVariables["BETTER_CODEX_STARTUP_CHECK_STARTED"] = "1";
             using (var process = Process.Start(start)) {
                 var errors = process.StandardError.ReadToEndAsync();
                 string output = process.StandardOutput.ReadToEnd();
