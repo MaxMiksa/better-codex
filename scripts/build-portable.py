@@ -64,7 +64,7 @@ def build(work):
         raise ValueError('Version mismatch')
     app = work / 'app'
     app.mkdir(exist_ok=True)
-    product = source.public_files()
+    product = source.public_files(include_tests=False)
     for path in product:
         target(app, path.relative_to(ROOT)).write_bytes(path.read_bytes())
     python = app / 'runtime/python'
@@ -89,8 +89,8 @@ def build(work):
     assembly.write_text('using System.Reflection;\n[assembly: AssemblyTitle("Better-Codex")]\n[assembly: AssemblyVersion("'+version+'.0")]\n[assembly: AssemblyFileVersion("'+version+'.0")]\n', encoding='utf-8')
     subprocess.run([str(compiler), '/nologo', '/codepage:65001', '/target:winexe', '/platform:x64', '/optimize+',
                     '/reference:System.Windows.Forms.dll', '/reference:System.Web.Extensions.dll', '/out:'+str(app / 'BetterCodex.exe'),
-                    str(ROOT / 'tools/token-hud-local/PortableLauncher.cs'),
-                    str(ROOT / 'tools/token-hud-local/shared/NativeI18n.cs'), str(assembly)], check=True)
+                    str(ROOT / 'src/app/PortableLauncher.cs'),
+                    str(ROOT / 'src/platform/i18n/NativeI18n.cs'), str(assembly)], check=True)
     runtime_files = [p for p in (app / 'runtime').rglob('*') if p.is_file() and p.name != 'manifest.json']
     manifest = {'productVersion': version, 'architecture': 'windows-x64', 'dependencies': lock,
                 'files': {p.relative_to(app).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in runtime_files}}

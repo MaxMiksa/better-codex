@@ -4,11 +4,11 @@ Better-Codex is an independent community project and is not affiliated with Open
 
 ## Code reused
 
-Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hud) and its contributors. `tools/token-hud-local/collector/metrics.py` and `history.py` derive from its `v1.3.0-beta.8` sources at commit [`1c51c0a`](https://github.com/drkang7/codex-token-hud/tree/1c51c0aead8814a140b14cd33e7a2fa08453317c). The local adaptation removes the unused dashboard entry point and corrects response timing and restored-usage handling. Its [MIT copyright and license](tools/token-hud-local/collector/LICENSE) are preserved. This substantial reuse is not presented as original Better-Codex work.
+Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hud) and its contributors. `src/interface/statistics/collector/metrics.py` and `history.py` derive from its `v1.3.0-beta.8` sources at commit [`1c51c0a`](https://github.com/drkang7/codex-token-hud/tree/1c51c0aead8814a140b14cd33e7a2fa08453317c). The local adaptation removes the unused dashboard entry point and corrects response timing and restored-usage handling. Its [MIT copyright and license](src/interface/statistics/collector/LICENSE) are preserved, including the original compatibility location under tools/token-hud-local/collector/. This substantial reuse is not presented as original Better-Codex work.
 
 ## Related work
 
-The startup-check status symbols reproduce the geometry of Lucide's circle-check, circle-x, loader-circle and circle-ellipsis icons using native drawing. Copyright (c) 2026 Lucide Icons and Contributors. The [ISC license and upstream notices](tools/token-hud-local/diagnostics/LUCIDE-LICENSE) are preserved. No icon runtime or font is added.
+The startup-check status symbols reproduce the geometry of Lucide's circle-check, circle-x, loader-circle and circle-ellipsis icons using native drawing. Copyright (c) 2026 Lucide Icons and Contributors. The [ISC license and upstream notices](src/lifecycle/diagnostics/LUCIDE-LICENSE) are preserved. No icon runtime or font is added.
 
 Thank you to [flitfancy/codex-lite-hud](https://github.com/flitfancy/codex-lite-hud) for its local Windows HUD approach, and [Creative-developer-single/codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) for exploring in-app Codex metrics. These projects informed our research and comparison; their program code is not included.
 

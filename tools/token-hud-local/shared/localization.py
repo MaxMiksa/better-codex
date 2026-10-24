@@ -1,26 +1,12 @@
-"""Shared user-facing messages; never write Codex settings to select a language."""
-import ctypes
-import json
-import locale
-import os
+"""Compatibility entry; implementation lives under src/."""
+import importlib
 from pathlib import Path
-import re
+import runpy
+import sys
 
-
-def normalize(value):
-    return 'zh-CN' if re.match(r'^zh($|-(cn|sg|hans)(-|$))', str(value).strip().replace('_', '-'), re.I) else 'en'
-
-
-def language():
-    override = os.environ.get('BETTER_CODEX_LANGUAGE', '')
-    if override and override.lower() != 'auto':
-        return normalize(override)
-    return normalize(locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage(), 'en'))
-
-
-MESSAGES = json.loads(Path(__file__).with_name('messages.json').read_text(encoding='utf-8'))
-
-
-def text(key, **values):
-    message = MESSAGES[language()].get(key, MESSAGES['en'].get(key, key))
-    return re.sub(r'\{(\w+)\}', lambda match: str(values.get(match[1], match[0])), message)
+root = next(p for p in Path(__file__).resolve().parents if (p / 'src').is_dir() and (p / 'VERSION').is_file())
+sys.path.insert(0, str(root))
+if __name__ == '__main__':
+    runpy.run_module('src.platform.i18n.localization', run_name='__main__')
+else:
+    sys.modules[__name__] = importlib.import_module('src.platform.i18n.localization')

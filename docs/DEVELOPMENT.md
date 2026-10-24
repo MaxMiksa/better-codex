@@ -1,81 +1,69 @@
 # Development
 
-The source package keeps the existing module boundaries:
+This guide describes the src/ layout of this source revision. Published v0.4.0 ZIPs retain their bundled layout; use the guide shipped with the source version you are editing.
+
+## Find the owner
 
 | Location | Responsibility |
 | --- | --- |
-| `tools/token-hud-local/collector/` | MIT-derived local event measurements and session discovery |
-| `tools/token-hud-local/shared/` | Official app activation, Store package discovery and listener identity checks |
-| `tools/token-hud-local/embedded/` | Controller, chat binding, statistics display, reading width and file-list presentation |
-| `tools/token-hud-local/diagnostics/` | Startup diagnostics, redacted reports and bounded relaunch policy |
-| `shared/StartupCheckDialog.cs` | Native startup-check window, DPI/theme handling and cancellable countdown |
-| `embedded/update_recovery.py` | Optional future-update discovery and delegation to the unified check |
-| `Install.ps1` | Source setup, or offline preparation when bundled runtimes are present |
-| `PortableLauncher.cs` / `portable_bootstrap.py` | Double-click entry, bundled dependency checks, relocatable settings and launch |
-| `scripts/build-portable.py` | Verified upstream runtimes, Windows launcher build and offline ZIP |
-| `scripts/package.py` | Explicit public-file allowlist, ZIP and SHA-256 generation |
+| src/app/ | Combined launch, portable preparation and the single supervisor |
+| src/interface/ | Per-window statistics, reading width, file changes and appearance |
+| src/lifecycle/ | Activation, installation, diagnostics, update detection and recovery |
+| src/platform/ | Identity, paths, Windows primitives, settings and localization |
+| src/prompts/ and root prompts/ | Local-only prompt implementation and its content/approval owner |
+| tools/token-hud-local/ | Stable command and import bridges for registered entries and live helpers |
+| tests/, scripts/, release/ | Isolated checks, build commands and explicit shipping scope |
 
-Run setup with Python 3.11+, Node.js 20+ and the official Windows Store app installed. Production attaches to the app; it does not launch a separate browser or download browser binaries. `Install.ps1 -CheckOnly` checks prerequisites without writing files. For an existing development environment, `-SkipDependencies -PlaywrightPath <absolute module path>` uses the supplied Python and Playwright instead of installing private dependencies.
+Dependencies point from app to capabilities to platform. Platform does not import a capability. Recovery reenters a stable command rather than importing app internals. Python internal modules use src package imports; external commands use the stable bridges.
 
-## Isolated checks
+Source copies include module READMEs and tests/README.md. Local maintenance copies also have PROJECT.md and AGENTS.md; public exports exclude those files and all private prompt content.
 
-Run from the repository root. The browser checks use installed Edge and synthetic pages, not your real conversation. `HUD_PLAYWRIGHT` and `HUD_BROWSER` can override their module/browser paths.
+## Set up a source copy
 
-```powershell
-.\tools\token-hud-local\Verify-Launcher.ps1
-python -B -X utf8 tools/token-hud-local/collector/verify_metrics.py
-python -B -X utf8 tools/token-hud-local/diagnostics/verify_checks.py
-python -B -X utf8 tools/token-hud-local/diagnostics/verify_relaunch.py .validation-runtime/relaunch
-python -B -X utf8 tools/token-hud-local/embedded/verify_update_recovery.py .validation-runtime/update-recovery
-python -B -X utf8 tools/token-hud-local/embedded/verify_supervisor.py .validation-runtime/lock-check
-python -B -X utf8 tools/token-hud-local/shared/verify-i18n.py .validation-runtime/i18n/shared
-python -B -X utf8 tools/token-hud-local/verify-workspace-relocation.py .validation-runtime/workspace-rename-check
-node tools/token-hud-local/embedded/verify.cjs .validation-runtime/view/evidence .validation-runtime/view/browser
-node tools/token-hud-local/embedded/verify-reading-width.cjs .validation-runtime/width/browser
-node tools/token-hud-local/embedded/verify-file-changes.cjs .validation-runtime/files/browser
-node tools/token-hud-local/embedded/verify-custom-accent.cjs .validation-runtime/accent/browser
-python scripts/package.py
-```
-
-Use the Python interpreter prepared by setup if `psutil` or `pywin32` is unavailable in your default interpreter. Clean only your newly created validation directories after checking their absolute paths. Do not delete a running HUD's `.runtime/`.
-
-The version in root `VERSION` and `package.json` is the Better-Codex product version. `collector/VERSION` records the independent upstream collector version and intentionally differs. Upstream source is pinned in `THIRD_PARTY_NOTICES.md`.
-
-Page structure and the local display interface are not a stable extension API. Keep unknown layouts hidden rather than guessing; preserve program identity checks and Codex's ability to start when the HUD fails. New features should stay independent of model traffic.
-
-Collector timing uses one response's reported output divided by the interval from a known request boundary to its usage record. This includes waiting and reasoning, excludes known tool execution, and is not model decoding throughput. Item timestamps cannot time a whole response. Uncertain boundaries and legacy-only usage have no speed; there is no empirical rate cap. `verify_metrics.py` covers timing scope, tool boundaries, steering, restored counts, response deduplication, late records and missing history. Runtime snapshots identify the method as `response-request-average-v2`.
-
-The controller recognizes routed main pages and isolates page collectors, bindings and output directories. Cross-runtime settings patches serialize writes and retain the last valid preferences on read errors. Reading-width targets are selected independently per visible transcript, excluding composer containers. The HUD prefers the native main composer and its marked editor, ignores question-card editors, and follows main-panel geometry through resize and layout observations. Custom-accent handling is an independent, removable module; disabling it must leave statistics, width and file changes active.
-
-All owned UI, installer and launcher messages live in `shared/messages.json`. Node and injected page modules use `embedded/i18n.js`; inject its `pageSource()` before the composer and file-list modules. Setup and launch messages default to Windows display language, passed through `BETTER_CODEX_LANGUAGE` to the supervisor and controller. Inside the app, `document.documentElement.lang` takes precedence; the injected launch language is used only when the page declares no language. Browser language does not override this fallback. Page language changes update controls without resetting width or expansion state. Simplified Chinese variants use Chinese and other languages fall back to English. The composer snapshot passes the resolved page locale to the metrics formatter; native Codex labels remain owned by Codex.
-
-PowerShell, Python and the native launcher default to Windows UI language; `auto` uses this default. `BETTER_CODEX_LANGUAGE` can explicitly override it for a process, and `Install.ps1 -Language en` or `-Language zh-CN` selects setup messages without changing Codex configuration or persistent system preferences. JSON status codes remain stable; localized `message` and `locale` fields are additive. Windows owns native dialog button labels; third-party tools own their installation output. The cross-runtime check compiles the launcher, checks language selection including conflicting Codex preferences, and exercises the installer only with `-CheckOnly`; it does not show dialogs, activate Codex or install dependencies.
-
-## Portable build
-
-On Windows x64 with Python 3.11+ and the Windows .NET Framework compiler:
+Use Windows 11 x64, the official Codex Store app, Python 3.11+ and Node.js 20+. From the source root:
 
 ```powershell
-python -B scripts/package.py
-python -B scripts/build-portable.py
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 ```
 
-The builder downloads archives from scripts/portable-lock.json and verifies their pinned SHA-256 or npm SHA-512 integrity before assembly. It includes CPython's embeddable runtime, architecture-matching wheels, Node.exe, Playwright and their license files; pip, npm and extra browsers are not needed on the user's machine. Source and portable ZIPs plus SHA256SUMS.txt are written to dist/. Build staging remains under .validation-runtime/.
+Source installation may download Python/npm dependencies. Install.ps1 accepts -PythonExecutable, -NodeExecutable and -PlaywrightPath for existing tools, -Language en / zh-CN for messages, and -CheckOnly for dependency checks. Portable users already have their runtimes and do not need this source setup.
 
-Use BetterCodex.exe for normal portable startup. `--check` verifies bundled dependencies and the installed Codex app without creating settings; `--prepare-only` creates local settings/shortcuts without activating Codex; `--stop` requests this copy's normal stop. Repeated launcher calls are serialized. A stopped folder can be moved; settings are regenerated from its current path, while width preferences are preserved. External shortcuts from another installation are not adopted. Stop the old copy before an upgrade or move.
+Browser checks use installed Edge and Playwright; no browser download is needed. Optional native preview checks also need Pillow in the development interpreter.
 
-Do not describe a restricted-PATH test as a clean Windows installation test. Portable acceptance should check bundled module paths, no external downloads, full startup/stop, repeat reuse, Unicode/space paths and relocation. Do not stop or restart the user's Codex for packaging tests.
+## Run the affected checks
 
-## Prepared source-folder rename
+```powershell
+python -B -X utf8 scripts/check.py --list
+python -B -X utf8 scripts/check.py metrics --work .validation-runtime/metrics
+python -B -X utf8 scripts/check.py collector-session --work .validation-runtime/collector --dependencies .runtime/token-hud/embedded/settings.json
+python -B -X utf8 scripts/check.py composer --work .validation-runtime/composer --dependencies .runtime/token-hud/embedded/settings.json
+python -B -X utf8 scripts/check.py relaunch --work .validation-runtime/relaunch
+```
 
-For a source installation, run `tools/token-hud-local/Repair-WorkspacePaths.ps1 -Mode Prepare` before manually renaming its folder to `Better-Codex` in the same parent directory. Preparation saves a local plan without changing the running launchers. After the user renames the folder, run `Finish-Rename.cmd` from the new root before using the existing shortcuts. `-Mode Check` is read-only.
+The registry is tests/cases.json. The runner hides cases missing from a public source copy and only reads python/node/playwright from the dependency JSON. It does not alter that file. Work stays inside this copy's .validation-runtime/. Choose cases for the actual change; stop widening the scope once they pass without new concerns.
 
-The migration rebases project dependency paths, rebuilds owned wrappers and updates existing shortcuts while preserving preferences and the login-startup choice. It creates an old-path directory junction to preserve running HUD paths and Explorer's cached entry. Keep that junction until its consumers have been checked separately; it contains no duplicate project data. Migration never activates or restarts Codex or stops the HUD. Original entry files and settings are saved locally before applying; a failed apply attempts to restore owned entries and dependency fields without reverting concurrent display preferences. Foreign shortcuts, changed wrappers and an occupied old path are refused. The isolated check uses real Windows links and junctions in synthetic folders; it does not establish real post-rename or next-login acceptance. Its icon fixture requires an already prepared local installation.
+Registered checks use mocks, synthetic pages or explicit native previews. They do not send real model messages or restart the user's Codex/HUD. Real-model prompt scripts are local-only, outside the registry, and require separate authorization. Document-only changes need link, command and content checks, not GUI or runtime restarts.
 
-After the Codex project association uses the new root and the entry files have been checked, `Repair-WorkspacePaths.ps1 -Mode Finalize` verifies current-user process paths and removes only the verified old junction with non-recursive `os.rmdir`. An old-path user or inaccessible relevant tool process prevents removal. The plan then stays `finalized`: Check, Apply and repeated Finalize accept the absent alias and never recreate it. Finalize refuses a foreign directory or a different reparse point and does not stop any live processes. The isolated check covers the in-use guard, target preservation, repeat calls and foreign-path rejection.
+## Build and inspect candidates
 
-## Startup diagnostics and recovery
+[release/public-files.json](../release/public-files.json) defines runtime and sourceExtras. Source packaging combines both; portable packaging adds pinned runtimes to runtime only. [scripts/portable-lock.json](../scripts/portable-lock.json) fixes dependency versions and integrity hashes. runtime/ is shipped content; .runtime/ is installation state.
 
-The combined entry opens the check asynchronously; internal administrator dispatch and read-only checks do not duplicate it. Checks use bounded local probes, read-only session access and a credential-free HTTPS HEAD request, never a model message or implicit legacy sandbox setup. Unknown conditions stay unknown. Native previews (`Show-StartupCheck.ps1 -Preview`) simulate recovery and must not execute real app actions. Native close/countdown scripts can validate only their own preview windows.
+Run candidate builds in an isolated source copy. The builders write version-named files in dist/ and can replace an existing candidate of the same name; preserve released artifacts in the main workspace.
 
-Confirmed enhancement-loading failures or a confirmed new Codex version can arm the unified 15-second countdown after all checks finish. Cancellation is persistent for that reason/version; recovery revalidates package hash, PID/creation time, listener and dependencies before requesting a normal exit. A veto or timeout preserves the running app. The complete entry runs once after exit; failed recovery cannot loop. Future-update monitoring and administrator startup are optional and off for a new installation. Administrator notification activation has a known unresolved issue; keep that mode experimental. Future real-update recovery is not established by mock or preview checks.
+```powershell
+python -B -X utf8 scripts/package.py
+python -B -X utf8 scripts/build-portable.py --work .validation-runtime/portable-build
+python -B -X utf8 scripts/verify-package.py --source dist/better-codex-v0.4.1-source.zip --portable dist/better-codex-v0.4.1-windows-x64-portable.zip --work .validation-runtime/package-check
+```
+
+Use the version named by package.json/VERSION in the verification arguments. The verification work directory must not already exist. It checks actual ZIP file sets and bytes, runtime hashes, native --check / --prepare-only, restricted PATH, and relocation through a Unicode/space path with synthetic APPDATA/home. It never invokes launch or stop; it is not clean-machine or real-upgrade acceptance.
+
+Neither package contains local state, private research or prompt customization. New files and documentation links must be classified against the actual exported set. Building a candidate does not publish it.
+
+## Preserve installed contracts
+
+Keep settings flat, preserve unknown fields, and use the existing cross-runtime lock. Installation paths, durable cancellation records, prompt owner/approvals and restoration chains retain their locations. Existing task parameters, wrapper validation and PID/creation-time checks are contracts; keep every bridge a live process or external registration can still call.
+
+Collector failure must stay local to statistics and retain other page enhancements. Recovery policy belongs to lifecycle, identity mechanisms to platform. A normal-exit/relaunch operation that has already started must complete once even if its window or background host closes; generic cleanup must not terminate it.
+
+For a layout migration, make canonical files available before replacing bridges. Source checks, actual backend loading and public release are separate facts. Keep dated sanitized evidence, recycle temporary fixtures after checking junction targets, and do not restart active Codex for development validation.

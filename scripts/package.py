@@ -5,26 +5,18 @@ from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PUBLIC_FILES = [
-    'README.md', 'README-zh.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
-    '.gitignore', 'VERSION', 'package.json', 'requirements.txt', 'Install.ps1', 'Start.cmd', 'Stop.cmd', 'Finish-Rename.cmd',
-    'Presentation/overview.png', 'docs/PRIVACY.md', 'docs/DEVELOPMENT.md', 'scripts/package.py',
-    'scripts/build-portable.py', 'scripts/portable-lock.json',
-    'tools/token-hud-local/shared/messages.json',
-]
-CODE_SUFFIXES = {'.py', '.ps1', '.vbs', '.cjs', '.js', '.cs'}
+MANIFEST = ROOT / 'release/public-files.json'
 
 
-def public_files():
-    files = [ROOT / p for p in PUBLIC_FILES]
-    code = ROOT / 'tools/token-hud-local'
-    files.extend(p for p in code.rglob('*')
-                 if p.is_file() and '__pycache__' not in p.parts and p.suffix in CODE_SUFFIXES)
-    files.extend(code / 'collector' / p for p in ['LICENSE', 'VERSION'])
-    files.append(code / 'diagnostics/LUCIDE-LICENSE')
-    for p in files:
-        if not p.is_file() or not p.resolve().is_relative_to(ROOT):
-            raise ValueError('Public file missing or outside root: '+str(p))
+def public_files(include_tests=True):
+    manifest = json.loads(MANIFEST.read_text(encoding='utf-8'))
+    names = manifest['runtime'] + (manifest['sourceExtras'] if include_tests else [])
+    files = []
+    for name in names:
+        path = ROOT / name
+        if not path.is_file() or not path.resolve().is_relative_to(ROOT):
+            raise ValueError('Public file missing or outside root: ' + name)
+        files.append(path)
     return sorted(set(files))
 
 

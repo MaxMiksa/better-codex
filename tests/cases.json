@@ -1,0 +1,120 @@
+{
+  "metrics": {
+    "kind": "python",
+    "path": "tests/interface/verify_metrics.py"
+  },
+  "composer": {
+    "kind": "node",
+    "path": "tests/interface/verify.cjs",
+    "args": [
+      "{evidence}",
+      "{browser}"
+    ]
+  },
+  "width": {
+    "kind": "node",
+    "path": "tests/interface/verify-reading-width.cjs",
+    "args": [
+      "{browser}"
+    ]
+  },
+  "files": {
+    "kind": "node",
+    "path": "tests/interface/verify-file-changes.cjs",
+    "args": [
+      "{browser}"
+    ]
+  },
+  "accent": {
+    "kind": "node",
+    "path": "tests/interface/verify-custom-accent.cjs",
+    "args": [
+      "{browser}"
+    ]
+  },
+  "diagnostics": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_checks.py"
+  },
+  "relaunch": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_relaunch.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "updates": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_update_recovery.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "supervisor": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_supervisor.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "launcher-5": {
+    "kind": "powershell",
+    "path": "tests/lifecycle/Verify-Launcher.ps1"
+  },
+  "launcher-7": {
+    "kind": "pwsh",
+    "path": "tests/lifecycle/Verify-Launcher.ps1"
+  },
+  "native-close": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_close.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "native-countdown": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_countdown_ui.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "i18n": {
+    "kind": "python",
+    "path": "tests/integration/verify-i18n.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "relocation": {
+    "kind": "python",
+    "path": "tests/integration/verify-workspace-relocation.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "multi-window": {
+    "kind": "node",
+    "path": "tests/integration/verify-multi-window.cjs",
+    "args": [
+      "{work}",
+      "{evidence}"
+    ]
+  },
+  "prompt-manager": {
+    "kind": "python",
+    "path": "tests/prompts/verify_manager.py"
+  },
+  "prompt-updates": {
+    "kind": "python",
+    "path": "tests/prompts/verify_updates.py"
+  },
+  "collector-session": {
+    "kind": "node",
+    "path": "tests/interface/verify-collector-session.cjs"
+  },
+  "structure": {
+    "kind": "python",
+    "path": "tests/integration/verify_structure.py"
+  }
+}

@@ -1,32 +1,12 @@
-"""Resolve the current registered Store package; never trust a process name alone."""
-import hashlib
-import json
-import os
+"""Compatibility entry; implementation lives under src/."""
+import importlib
 from pathlib import Path
-import subprocess
+import runpy
 import sys
 
-# Embedded Python omits the script directory from sys.path on direct invocation.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from localization import text
-
-FAMILY = 'OpenAI.Codex_2p2nqsd0c76g0'
-
-
-def discover():
-    command = "$p=@(Get-AppxPackage -Name OpenAI.Codex | Where-Object {$_.PackageFamilyName -eq 'OpenAI.Codex_2p2nqsd0c76g0'}); if($p.Count -ne 1){exit 1}; $p[0] | Select-Object InstallLocation,Version,PackageFamilyName,SignatureKind,Status | ConvertTo-Json -Compress"
-    powershell = Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-    result = subprocess.run([str(powershell), '-NoProfile', '-NonInteractive', '-Command', command],
-                            check=True, capture_output=True, text=True, timeout=20,
-                            creationflags=subprocess.CREATE_NO_WINDOW)
-    package = json.loads(result.stdout)
-    # Enum values in Get-AppxPackage JSON: Store=3, Ok=0.
-    if package['PackageFamilyName'] != FAMILY or package['SignatureKind'] not in (3, 'Store') or package['Status'] not in (0, 'Ok'):
-        raise ValueError(text('package.unhealthy'))
-    executable = Path(package['InstallLocation']) / 'app/ChatGPT.exe'
-    return {'executable': str(executable), 'sha256': hashlib.sha256(executable.read_bytes()).hexdigest(),
-            'packageVersion': str(package['Version']), 'packageFamily': FAMILY}
-
-
+root = next(p for p in Path(__file__).resolve().parents if (p / 'src').is_dir() and (p / 'VERSION').is_file())
+sys.path.insert(0, str(root))
 if __name__ == '__main__':
-    print(json.dumps(discover()))
+    runpy.run_module('src.platform.codex.desktop_package', run_name='__main__')
+else:
+    sys.modules[__name__] = importlib.import_module('src.platform.codex.desktop_package')
