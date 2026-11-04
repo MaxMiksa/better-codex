@@ -1,5 +1,5 @@
 param([switch]$Preview, [switch]$AfterUpdate,
-    [ValidateSet('Healthy','Failed','Checking','Partial','Enhancements','Updated')][string]$PreviewState = 'Healthy',
+    [ValidateSet('Healthy','Failed','Checking','Partial','Enhancements','Updated','Busy','UnknownActivity')][string]$PreviewState = 'Healthy',
     [ValidateSet('auto','light','dark')][string]$PreviewTheme = 'auto',
     [string]$SettingsPath)
 $ErrorActionPreference = 'Stop'

@@ -14,7 +14,7 @@ async function main(){
   const sources={i18n:require('../../platform/i18n/i18n.js').pageSource()};
   const readThemes=createThemeReader(path.join(settings.codexHome,'config.toml'));
   try{
-    for(const [key,file] of Object.entries({hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
+    for(const [key,file] of Object.entries({hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
       sources[key]=fs.readFileSync(path.join(__dirname,file),'utf8');
     }
     while(browser.isConnected()&&!fs.existsSync(stop)){
@@ -33,14 +33,14 @@ async function main(){
           .finally(()=>{state.done=true;});
       }
       // Window workers poll independently: a slow or reloading page cannot block its peers.
-      write(path.join(runtime,'view-status.json'),{schemaVersion:2,windows:[...windows.values()]
+      write(path.join(runtime,'view-status.json'),{schemaVersion:2,controllerPid:process.pid,windows:[...windows.values()]
         .filter(state=>!state.stopped).map(state=>({windowId:state.id,...state.status})),writes:writer.diagnostics(),checkedAt:Date.now()});
       await sleep(350);
     }
   }finally{
     for(const state of windows.values())state.stopped=true;
     await Promise.allSettled([...windows.values()].map(state=>state.task));
-    write(path.join(runtime,'view-status.json'),{schemaVersion:2,windows:[],reason:'disconnected',writes:writer.diagnostics(),checkedAt:Date.now()});
+    write(path.join(runtime,'view-status.json'),{schemaVersion:2,controllerPid:process.pid,windows:[],reason:'disconnected',writes:writer.diagnostics(),checkedAt:Date.now()});
     // Never invoke Browser.close on the user's app. Process exit disconnects CDP.
   }
 }

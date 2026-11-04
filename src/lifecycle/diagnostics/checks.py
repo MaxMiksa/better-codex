@@ -25,39 +25,30 @@ import psutil
 HERE = Path(__file__).resolve().parent
 from src.platform.codex.desktop_package import discover
 from src.platform.codex.desktop_listener import verified_listener
+from src.platform.codex.processes import desktops
 from src.platform.i18n.localization import text
 from src.platform.codex.recovery_appearance import appearance
 from src.lifecycle.recovery.relaunch import prepare
 
+from src.lifecycle.diagnostics.results import t, row, summarize, report
+from src.lifecycle.diagnostics import management
+from src.lifecycle.startup import model_gateway
+
 IDS = ('app', 'sessions', 'sandbox', 'network', 'enhancements', 'permissions')
+MANAGEMENT_IDS = ('prompts', 'updates', 'entries', 'runtime')
+SEVERITY = {'fail': 5, 'warning': 4, 'unknown': 3, 'pass': 2, 'notApplicable': 1}
 
 
-def t(key, **values):
-    return text('check.' + key, **values)
-
-
-def row(key, state, detail='', suggestion='', status=None, summary=None):
-    return {'id': key, 'label': t(key), 'state': state, 'status': status or t('unknownStatus' if state == 'unknown' else state),
-            'detail': detail, 'summary': summary, 'suggestion': suggestion}
-
-
-def summarize(rows):
-    if any(r['state'] == 'pending' for r in rows):
-        return 'checking'
-    if any(r['state'] == 'fail' and r['id'] in ('app', 'sessions', 'sandbox', 'network') for r in rows):
-        return 'failed'
-    if any(r['state'] in ('fail', 'warning') for r in rows):
-        return 'partial'
-    if any(r['state'] == 'unknown' for r in rows):
-        return 'unknown'
-    return 'healthy'
-
-
-def report(rows, version=None):
-    state = summarize(rows)
-    return {'state': state, 'title': t(state), 'description': t(state + 'Description'),
-            'rows': rows, 'checkedAt': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
-            'packageVersion': version or '', 'note': t('note'), 'modelMessageSent': False}
+def with_gateway(result, gateway):
+    """Fold loopback gateway evidence into the single displayed network item."""
+    if not gateway:
+        return result
+    clauses = [value.rstrip('.。') for value in (result['detail'], gateway['detail']) if value]
+    detail = '\n'.join(clause for clause in clauses if clause)
+    if SEVERITY.get(gateway['state'], 3) > SEVERITY.get(result['state'], 2):
+        return {**result, 'state': gateway['state'], 'status': gateway['status'], 'detail': detail,
+                'suggestion': gateway['suggestion']}
+    return {**result, 'detail': detail, 'suggestion': result['suggestion'] or gateway['suggestion']}
 
 
 def read_json(path):
@@ -97,7 +88,7 @@ def process_elevated(pid):
         kernel.CloseHandle(handle)
 
 
-def responsive_window(pid):
+def window_state(pid):
     user = ctypes.WinDLL('user32', use_last_error=True)
     user.IsWindowVisible.argtypes = [wintypes.HWND]
     user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
@@ -112,23 +103,40 @@ def responsive_window(pid):
     def visit(hwnd, unused):
         owner = wintypes.DWORD()
         user.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid and user.IsWindowVisible(hwnd):
+        if owner.value == pid:
+            if not user.IsWindowVisible(hwnd):
+                found.append('hidden')
+                return True
             result = ctypes.c_size_t()
             # WM_NULL only, bounded; never switch, close, or write to the window.
             if user.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 300, ctypes.byref(result)):
-                found.append(True)
+                found.append('ready')
+            else:
+                found.append('unresponsive')
         return True
 
-    user.EnumWindows(visit, 0)
-    return bool(found)
+    if not user.EnumWindows(visit, 0):
+        return 'unknown'
+    return next((state for state in ('ready', 'unresponsive', 'hidden') if state in found), 'missing')
 
 
 class Checks:
-    def __init__(self, settings_path, package=None):
-        self.settings = read_json(settings_path)
+    def __init__(self, settings_path, package=None, extra_checks=None):
+        self.settings_path = Path(settings_path)
+        self.extra_checks = extra_checks or {}
+        self.settings_error = self.config_error = False
+        try:
+            self.settings = read_json(settings_path)
+            if not isinstance(self.settings, dict):
+                raise ValueError('Invalid settings')
+        except (OSError, ValueError):
+            self.settings, self.settings_error = {}, True
         self.runtime = Path(settings_path).parent / 'runtime'
         self.home = Path(self.settings.get('codexHome') or Path.home() / '.codex')
-        self.config = tomllib.loads((self.home / 'config.toml').read_text(encoding='utf-8-sig'))
+        try:
+            self.config = tomllib.loads((self.home / 'config.toml').read_text(encoding='utf-8-sig'))
+        except (OSError, ValueError):
+            self.config, self.config_error = {}, True
         self.package = package
         self.started = time.time()
         self.package_ready = threading.Event()
@@ -154,6 +162,7 @@ class Checks:
             self.app_ready.set()
             return row('app', 'unknown', t('packageUnavailable'), t('appHint'))
         self.package_ready.set()
+        desktop, state = None, 'missing'
         while time.monotonic() < deadline:
             candidates = []
             other_instances = False
@@ -166,19 +175,31 @@ class Checks:
                     other_instances = True
             ids = {p['pid'] for p in candidates}
             roots = [p for p in candidates if p['ppid'] not in ids]
-            ready = [p for p in roots if responsive_window(p['pid'])]
-            if len(ready) == 1:
-                self.desktop = ready[0]
-                self.app_ready.set()
-                return row('app', 'pass', t('appReady'), summary=t('previewApp'))
-            if len(ready) > 1 or other_instances:
+            if len(roots) > 1 or other_instances:
                 self.app_ready.set()
                 return row('app', 'unknown', t('packageUnavailable'), t('appHint'))
+            desktop = roots[0] if len(roots) == 1 else None
+            state = window_state(desktop['pid']) if desktop else 'missing'
+            if desktop and state == 'ready':
+                if process_matches(desktop['pid'], desktop['create_time'], self.package['executable']):
+                    self.desktop = desktop
+                    self.app_ready.set()
+                    return row('app', 'pass', t('appReady'), summary=t('previewApp'))
             if not candidates and self.launch_reason() == 'activation-failed':
                 self.app_ready.set()
                 return row('app', 'fail', text('launch.activation-failed'), t('appHint'), summary=t('activationFailed'))
             time.sleep(.5)
+        # Window visibility is not process identity. Keep verified process facts
+        # available to token/interface probes even when the window stays hidden.
+        if desktop and process_matches(desktop['pid'], desktop['create_time'], self.package['executable']):
+            self.desktop = desktop
         self.app_ready.set()
+        if self.desktop:
+            if state == 'hidden':
+                return row('app', 'notApplicable', t('appHidden'), status=t('appBackground'))
+            if state == 'unresponsive':
+                return row('app', 'fail', t('appUnresponsive'), t('appHint'))
+            return row('app', 'unknown', t('appWindowUnknown'), t('appHint'))
         return row('app', 'fail', t('appMissing'), t('appHint'))
 
     def sessions(self):
@@ -284,6 +305,85 @@ class Checks:
         return proxy if not proxy or '://' in proxy else 'http://' + proxy
 
     def network(self):
+        started = datetime.datetime.now().astimezone().isoformat(timespec='seconds')
+        attempts = []
+        for attempt in range(3):
+            result = self.network_attempt()
+            attempts.append({'checkedAt': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+                             'state': result['state'], 'detail': result['detail']})
+            if result['state'] not in ('fail', 'warning') or result['detail'] == t('tlsFailed'):
+                break
+            if attempt < 2:
+                time.sleep(8)
+        gateway = None
+        try:
+            gateway = self.gateway()
+        except (OSError, ValueError, TypeError, psutil.Error):
+            gateway = None  # A local gateway probe must not turn reachability into a failure.
+        result = with_gateway(result, gateway)
+        # Keep only sanitized outcomes, never target/proxy URLs or raw exceptions.
+        try:
+            self.runtime.mkdir(parents=True, exist_ok=True)
+            path = self.runtime / 'last-network-check.json'
+            temporary = path.with_suffix('.next')
+            temporary.write_text(json.dumps({'startedAt': started, 'attempts': attempts,
+                'gateway': gateway['state'] if gateway else 'notApplicable'}, ensure_ascii=False), encoding='utf-8')
+            temporary.replace(path)
+        except OSError:
+            pass  # Evidence persistence must not turn a completed check into a failure.
+        return result
+
+    @staticmethod
+    def gateway_owner(address):
+        """Name of the process listening on a loopback port; empty when unconfirmed."""
+        host, port = address
+        hosts = {'::1', '::'} if host == '::1' else {'127.0.0.1', '0.0.0.0'}
+        if host == 'localhost':
+            hosts |= {'::1', '::'}
+        try:
+            for connection in psutil.net_connections('tcp'):
+                if (connection.status != psutil.CONN_LISTEN or not connection.laddr or
+                        connection.laddr.port != port or connection.laddr.ip not in hosts):
+                    continue
+                try:
+                    return (psutil.Process(connection.pid).name() or '').lower()
+                except (psutil.Error, TypeError):
+                    return ''
+        except psutil.Error:
+            return ''
+        return ''
+
+    @staticmethod
+    def gateway_reachable(address):
+        # A gateway that is still booting is the known cause of the settings-load
+        # failure, so allow a bounded number of short attempts before reporting it down.
+        for attempt in range(3):
+            if model_gateway.reachable(address):
+                return True
+            if attempt < 2:
+                time.sleep(1)
+        return False
+
+    def gateway(self):
+        """Read-only check of the local magpie gateway that Codex sends model traffic to.
+
+        Returns None when this configuration does not route model traffic to a
+        loopback gateway, so installations without magpie keep the plain network row.
+        """
+        address = model_gateway.endpoint(self.config)
+        catalog = str(self.config.get('model_catalog_json') or '')
+        if address is None:
+            return None
+        if not self.gateway_reachable(address):
+            return row('gateway', 'fail', t('gatewayDown'), t('gatewayHint'))
+        owner = self.gateway_owner(address)
+        if owner and 'magpie' not in owner:
+            return row('gateway', 'warning', t('gatewayForeign'), t('gatewayHint'))
+        if catalog and not (self.home / catalog).is_file():
+            return row('gateway', 'warning', t('gatewayCatalogMissing'), t('gatewayHint'))
+        return row('gateway', 'pass', t('gatewayReady'))
+
+    def network_attempt(self):
         provider = self.config.get('model_provider', 'openai')
         url = self.config.get('model_providers', {}).get(provider, {}).get('base_url') or self.config.get('chatgpt_base_url') or 'https://chatgpt.com/'
         target = urllib.parse.urlsplit(url)
@@ -292,17 +392,6 @@ class Checks:
         # No authentication, no inference request, no prompt, no redirects.
         url = urllib.parse.urlunsplit(('https', target.netloc.split('@')[-1], '/', '', ''))
         proxy = self.proxy()
-        vpn_kernel, vpn_helper, vpn_installed = False, False, False
-        try:
-            service = psutil.win_service_get('luyucloudHelperService')
-            vpn_installed = True
-            vpn_helper = service.status() == 'running'
-        except psutil.Error:
-            pass
-        for p in psutil.process_iter(['name', 'exe', 'ppid']):
-            name = (p.info['name'] or '').lower()
-            if name == 'luyucloudcore.exe':
-                vpn_kernel = True
         if proxy:
             address = urllib.parse.urlsplit(proxy)
             if address.scheme not in ('http', 'https') or not address.hostname:
@@ -332,14 +421,25 @@ class Checks:
             reason = getattr(error, 'reason', error)
             detail = 'tlsFailed' if isinstance(reason, ssl.SSLCertVerificationError) else 'networkFailed'
             return row('network', 'fail', t(detail), t('networkHint'))
+        vpn_kernel, vpn_helper, vpn_installed = False, False, False
+        try:
+            service = psutil.win_service_get('luyucloudHelperService')
+            vpn_installed = True
+            vpn_helper = service.status() == 'running'
+        except psutil.Error:
+            pass
+        for p in psutil.process_iter(['name', 'exe', 'ppid']):
+            name = (p.info['name'] or '').lower()
+            if name == 'luyucloudcore.exe':
+                vpn_kernel = True
         known_vpn = vpn_installed or vpn_kernel or vpn_helper
         if known_vpn and not (vpn_kernel and vpn_helper):
             return row('network', 'warning', t('vpnDown'), t('networkHint'))
         return row('network', 'pass', t('vpnReady' if vpn_kernel and vpn_helper else 'networkReady'))
 
     def enhancements(self):
-        self.app_ready.wait(30)
-        if not self.desktop:
+        self.app_ready.wait(32)
+        if not self.desktop or not process_matches(self.desktop['pid'], self.desktop['create_time'], self.package['executable']):
             return row('enhancements', 'unknown', t('hudUnavailable'), t('hudHint'))
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
@@ -362,12 +462,23 @@ class Checks:
                         if loaded and any(w.get('visible') and w.get('readingWidth', {}).get('applied') for w in windows):
                             return row('enhancements', 'pass', t('hudReady'), summary=t('previewEnhancements'))
                         if loaded:
-                            return row('enhancements', 'notApplicable', t('hudWaiting'))
+                            return row('enhancements', 'notApplicable', t('hudWaiting'), status=t('pass'))
                         return {**row('enhancements', 'warning', t('hudPartial'), t('hudHint')), 'restartRecommended': True}
             except (OSError, ValueError, KeyError, TypeError, psutil.Error):
                 pass
             time.sleep(.5)
+        if not process_matches(self.desktop['pid'], self.desktop['create_time'], self.package['executable']):
+            return row('enhancements', 'unknown', t('hudUnavailable'), t('hudHint'))
         reason = self.launch_reason()
+        try:
+            # An orphan/foreign listener must not hide a confirmed missing
+            # interface on the identified current desktop behind "unknown".
+            mains = [p for p in desktops(self.package) if p['main']]
+            if (len(mains) == 1 and mains[0]['pid'] == self.desktop['pid'] and
+                    abs(mains[0]['started'] - self.desktop['create_time']) < .01 and not mains[0]['debuggingRequested']):
+                reason = 'restart-required'
+        except (OSError, ValueError, KeyError, TypeError, psutil.Error):
+            pass
         if reason in ('restart-required', 'unverified-listener', 'hud-preparation-failed'):
             summary = {'restart-required': 'hudNoInterface', 'unverified-listener': 'hudIdentityUnverified',
                        'hud-preparation-failed': 'hudDependencies'}[reason]
@@ -390,22 +501,50 @@ class Checks:
         elevated = process_elevated(self.desktop['pid'])
         if elevated is None:
             return row('permissions', 'unknown', t('permissionUnknown'))
-        state = 'warning' if self.settings.get('runAsAdministrator') and not elevated else 'pass'
-        return row('permissions', state, t('permissionMismatch' if state == 'warning' else 'permissionReady'),
+        return row('permissions', 'pass', t('permissionReady'),
                    status=t('admin' if elevated else 'ordinary'))
 
+    def prompts(self):
+        if self.config_error:
+            return row('prompts', 'unknown', t('runtimeConfigInvalid'))
+        probe = self.extra_checks.get('prompts')
+        return probe(self) if probe else row('prompts', 'notApplicable', t('promptUnavailable'))
 
-def run(settings, output, after_update=False):
+    def updates(self):
+        self.app_ready.wait(32)
+        return management.updates(self.settings, self.runtime)
+
+    def entries(self):
+        return management.entries(self.settings_path)
+
+    def runtime_check(self):
+        if not self.settings_error:
+            self.app_ready.wait(24)  # Leave room for 4s + 4s + 8s probes inside the 48s UI budget.
+        return management.runtime(self)
+
+
+def run(settings, output, after_update=False, extra_checks=None, observer=None):
     output = Path(output)
-    rows = {key: row(key, 'pending') for key in IDS}
+    rows = {key: row(key, 'pending') for key in IDS + MANAGEMENT_IDS}
     checks = None
 
     def publish():
         data = report(list(rows.values()), (checks.package or {}).get('packageVersion') if checks else None)
+        data['rows'] = [rows[key] for key in IDS]
+        data['managementRows'] = [rows[key] for key in MANAGEMENT_IDS]
         if checks:
             if data['state'] != 'checking' and checks.package:
                 try:
                     data['relaunch'] = prepare(settings, checks.package, rows['enhancements'], after_update)
+                    activity = data['relaunch'].get('activity', {})
+                    if activity.get('state') in ('busy', 'unknown'):
+                        key = 'sessionBusy' if activity['state'] == 'busy' else 'sessionUnknown'
+                        rows['app']['summary'] = t(key + 'Cancelled' if data['relaunch'].get('cancelledForActivity') else key)
+                        if rows['app']['state'] == 'pass':
+                            rows['app'].update(state='warning', status=t('sessionBusyStatus' if activity['state'] == 'busy' else 'unknownStatus'))
+                        if data['state'] == 'healthy':
+                            data.update(state='partial', title=t('partial'))
+                    rows['updates'] = management.apply_plan(rows['updates'], data['relaunch'])
                     if data['relaunch'].get('automatic') and data['relaunch'].get('reason') == 'updated':
                         rows['app']['summary'] = t('updatedSummary')
                         rows['app']['status'] = t('updatedStatus')
@@ -419,19 +558,41 @@ def run(settings, output, after_update=False):
             except OSError:
                 dark = False
             data['appearance'] = appearance(checks.home / 'config.toml', dark)
+        data['managementRows'] = [rows[key] for key in MANAGEMENT_IDS]
+        if observer:
+            try:
+                observer(data)
+            except Exception:
+                pass  # Best effort history cannot interrupt report publication.
         temporary = output.with_suffix('.next')
         temporary.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
-        temporary.replace(output)
+        # The Windows dialog can briefly hold the destination while reading it.
+        # Keep the previous complete report until replacement succeeds.
+        for attempt in range(6):
+            try:
+                temporary.replace(output)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(.05)
 
     try:
-        checks = Checks(settings)
+        checks = Checks(settings, extra_checks=extra_checks)
     except (OSError, ValueError, TypeError):
-        rows = {key: row(key, 'unknown', t('workerUnavailable')) for key in IDS}
+        rows = {key: row(key, 'unknown', t('workerUnavailable')) for key in IDS + MANAGEMENT_IDS}
         publish()
         return
     publish()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        pending = {pool.submit(getattr(checks, key)): key for key in IDS}
+    def probe(key):
+        if checks.settings_error and key != 'runtime':
+            return row(key, 'unknown', t('runtimeSettingsInvalid'))
+        if checks.config_error and key in ('sandbox', 'network'):
+            return row(key, 'unknown', t('runtimeConfigInvalid'))
+        return getattr(checks, 'runtime_check' if key == 'runtime' else key)()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        pending = {pool.submit(probe, key): key for key in IDS + MANAGEMENT_IDS}
         for future in concurrent.futures.as_completed(pending):
             key = pending[future]
             try:

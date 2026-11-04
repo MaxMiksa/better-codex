@@ -2,6 +2,7 @@
 param(
     [string]$PythonExecutable = 'python',
     [string]$NodeExecutable = 'node',
+    [string]$PnpmExecutable = 'pnpm',
     [ValidateRange(1024,65535)][int]$DisplayPort = 19163,
     [switch]$CheckOnly,
     [switch]$SkipDependencies,
@@ -57,15 +58,8 @@ if ($SkipDependencies) {
     }
     & $python -m pip install --disable-pip-version-check -r (Join-Path $workspace 'requirements.txt')
     if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.pythonFailed') }
-    $npm = Join-Path (Split-Path -Parent $node) 'npm.cmd'
-    if (-not (Test-Path -LiteralPath $npm)) {
-        try { $npm = (Get-Command npm.cmd -CommandType Application -ErrorAction Stop).Source }
-        catch { throw (Get-BetterCodexText 'install.npmMissing') }
-    }
     $nodeHome = Join-Path $workspace '.runtime/token-hud/node'
-    $packageInfo = Get-Content -LiteralPath (Join-Path $workspace 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    & $npm install --prefix $nodeHome --ignore-scripts --no-audit --no-fund --package-lock=false "playwright@$($packageInfo.dependencies.playwright)"
-    if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.playwrightFailed') }
+    & (Join-Path $workspace 'scripts/Install-NodeDependencies.ps1') -NodeExecutable $node -PnpmExecutable $PnpmExecutable -NodeHome $nodeHome
     $PlaywrightPath = Join-Path $nodeHome 'node_modules/playwright'
 }
 & $node -e 'require(process.argv[1]).chromium || process.exit(1)' $PlaywrightPath

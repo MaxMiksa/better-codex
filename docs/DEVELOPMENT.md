@@ -9,7 +9,7 @@ This guide describes the src/ layout of this source revision. Published v0.4.0 Z
 | src/app/ | Combined launch, portable preparation and the single supervisor |
 | src/interface/ | Per-window statistics, reading width, file changes and appearance |
 | src/lifecycle/ | Activation, installation, diagnostics, update detection and recovery |
-| src/platform/ | Identity, paths, Windows primitives, settings and localization |
+| src/platform/ | Identity, paths, Windows primitives, settings, localization and local runtime history |
 | src/prompts/ and root prompts/ | Local-only prompt implementation and its content/approval owner |
 | tools/token-hud-local/ | Stable command and import bridges for registered entries and live helpers |
 | tests/, scripts/, release/ | Isolated checks, build commands and explicit shipping scope |
@@ -20,13 +20,21 @@ Source copies include module READMEs and tests/README.md. Local maintenance copi
 
 ## Set up a source copy
 
-Use Windows 11 x64, the official Codex Store app, Python 3.11+ and Node.js 20+. From the source root:
+Use Windows 11 x64, the official Codex Store app, Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1. From the source root:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 ```
 
-Source installation may download Python/npm dependencies. Install.ps1 accepts -PythonExecutable, -NodeExecutable and -PlaywrightPath for existing tools, -Language en / zh-CN for messages, and -CheckOnly for dependency checks. Portable users already have their runtimes and do not need this source setup.
+Source installation may download Python/Node dependencies. Install.ps1 accepts -PythonExecutable, -NodeExecutable, -PnpmExecutable and -PlaywrightPath for existing tools, -Language en / zh-CN for messages, and -CheckOnly for dependency checks. Portable users already have their runtimes and do not need this source setup.
+
+The root package.json describes the product; do not install dependencies at the root. The [Node runtime manifest and lock](../scripts/node/README.md) supply a dedicated `.runtime/token-hud/node` prefix. Its pnpm install uses a frozen lock, ordinary directories and disabled lifecycle scripts. To prepare only Node dependencies without invoking Python setup:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-NodeDependencies.ps1 -PnpmExecutable <pnpm-12.16.1-path>
+```
+
+Add `-NodeHome <isolated-prefix>` for verification and `-Offline` to rebuild from a populated pnpm store. This command does not change installed settings, global tools or PATH. Existing explicit Playwright paths continue to work. The portable builder keeps its pinned archive-based layout in `runtime/node_modules`; its contents do not reference pnpm's store.
 
 Browser checks use installed Edge and Playwright; no browser download is needed. Optional native preview checks also need Pillow in the development interpreter.
 
@@ -38,11 +46,14 @@ python -B -X utf8 scripts/check.py metrics --work .validation-runtime/metrics
 python -B -X utf8 scripts/check.py collector-session --work .validation-runtime/collector --dependencies .runtime/token-hud/embedded/settings.json
 python -B -X utf8 scripts/check.py composer --work .validation-runtime/composer --dependencies .runtime/token-hud/embedded/settings.json
 python -B -X utf8 scripts/check.py relaunch --work .validation-runtime/relaunch
+python -B -X utf8 scripts/check.py observability --work .validation-runtime/history
 ```
 
 The registry is tests/cases.json. The runner hides cases missing from a public source copy and only reads python/node/playwright from the dependency JSON. It does not alter that file. Work stays inside this copy's .validation-runtime/. Choose cases for the actual change; stop widening the scope once they pass without new concerns.
 
 Registered checks use mocks, synthetic pages or explicit native previews. They do not send real model messages or restart the user's Codex/HUD. Real-model prompt scripts are local-only, outside the registry, and require separate authorization. Document-only changes need link, command and content checks, not GUI or runtime restarts.
+
+The product's [runtime history contract](../src/platform/observability/README.md) documents the read-only `tools/token-hud-local/Get-RuntimeHistory.ps1` command, event schema, five-day retention and recording gaps. Lifecycle/interface own event meanings; platform owns the one SQLite implementation. Do not add probes, a second event service, or local databases to release manifests.
 
 ## Build and inspect candidates
 

@@ -1,7 +1,6 @@
 param([ValidateSet('Enable','Disable','Status')][string]$Mode = 'Status')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../../platform/i18n/i18n.ps1')
-. (Join-Path $PSScriptRoot '../startup/administrator_launch.ps1')
 . (Join-Path $PSScriptRoot '../../platform/settings/settings_store.ps1')
 $workspace = $script:BetterCodexRoot
 $settingsPath = Join-Path $workspace '.runtime/token-hud/embedded/settings.json'
@@ -19,12 +18,8 @@ if ($Mode -eq 'Enable') {
 $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $result = @{enabled=$settings.recoverAfterUpdate -eq $true;countdownSeconds=15;message=(Get-BetterCodexText "recovery.$($Mode.ToLowerInvariant())")}
 if ($Mode -eq 'Enable') {
-    if ($settings.runAsAdministrator -eq $true) {
-        $result.monitorRequest = Invoke-BetterCodexAdministratorTask 'Monitor'
-    } else {
-        $monitor = & (Join-Path $workspace 'tools/token-hud-local/Start-ComposerHud.ps1') -TaskMode Monitor | ConvertFrom-Json
-        $result.supervisorPid = $monitor.supervisorPid
-    }
+    $monitor = & (Join-Path $workspace 'tools/token-hud-local/Start-ComposerHud.ps1') -TaskMode Monitor | ConvertFrom-Json
+    $result.supervisorPid = $monitor.supervisorPid
 }
 $statePath = Join-Path $runtime 'update-recovery.json'
 if (Test-Path -LiteralPath $statePath) { $result.state = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json }

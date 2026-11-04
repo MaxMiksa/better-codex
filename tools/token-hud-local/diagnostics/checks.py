@@ -7,6 +7,6 @@ import sys
 root = next(p for p in Path(__file__).resolve().parents if (p / 'src').is_dir() and (p / 'VERSION').is_file())
 sys.path.insert(0, str(root))
 if __name__ == '__main__':
-    runpy.run_module('src.lifecycle.diagnostics.checks', run_name='__main__')
+    runpy.run_module('src.app.startup_diagnostics', run_name='__main__')
 else:
     sys.modules[__name__] = importlib.import_module('src.lifecycle.diagnostics.checks')

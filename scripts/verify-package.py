@@ -80,7 +80,7 @@ def main():
         check('prepare-' + str(number), invoke(app, '--prepare-only')['status'] == 'prepared')
     settings = app / '.runtime/token-hud/embedded/settings.json'
     data = json.loads(settings.read_text(encoding='utf-8-sig'))
-    check('optional-modes-default-off', not data.get('recoverAfterUpdate') and not data.get('runAsAdministrator'))
+    check('optional-modes-default-off', not data.get('recoverAfterUpdate') and 'runAsAdministrator' not in data)
     data.update(readingWidth=1280, customAccent=False)
     settings.write_text(json.dumps(data), encoding='utf-8')
     moved = work / '移动后的 portable'

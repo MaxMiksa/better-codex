@@ -5,17 +5,6 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace BetterCodex {
-    public class RecoveryBody : Label {
-        protected override void OnPaint(PaintEventArgs e) {
-            int top = 0;
-            foreach (string line in Text.Split('\n')) {
-                TextRenderer.DrawText(e.Graphics, line, Font, new Rectangle(0, top, Width, Height - top),
-                    ForeColor, TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
-                top += (int)(26 * DeviceDpi / 96f);
-            }
-        }
-    }
-
     public class RecoveryButton : Button {
         public bool Primary { get; set; }
         public bool CloseGlyph { get; set; }

@@ -16,6 +16,8 @@ HERE = Path(__file__).resolve().parent
 from src.platform.codex.desktop_package import discover
 from src.lifecycle.recovery.desktop_restart import desktops, port_status, preflight, powershell
 from src.platform.windows.desktop_windows import request_close
+from src.lifecycle.recovery.session_activity import assess as session_activity
+from src.lifecycle import runtime_events
 
 
 class RelaunchBusy(ValueError):
@@ -68,10 +70,10 @@ def prepare(settings_path, package, enhancement, after_update=False):
     """Called once after all probes finish, never while results are pending."""
     with locked(settings_path):
         settings = read(settings_path)
-        preflight(settings, elevated=False)
+        preflight(settings)
         running = desktops(package)
         mains = [p for p in running if p['main']]
-        if len(mains) > 1 or (running and not mains) or port_status(settings, package) == 'unverified':
+        if len(mains) > 1 or (running and not mains):
             return {'allowed': False}
         state = load_state(settings_path)
         current = package['packageVersion']
@@ -85,9 +87,19 @@ def prepare(settings_path, package, enhancement, after_update=False):
             state.pop('pendingUpdate', None)
         updated = state.get('pendingUpdate') == current
         key = update_key if updated else fault_key
+        needed = updated or enhancement.get('restartRecommended') is True
         automatic = (updated or enhancement.get('restartRecommended') is True) and key not in state['attempted']
         save(state_path(settings_path), state)
-        return {'allowed': True, 'automatic': automatic, 'key': key,
+        activity = session_activity(settings, mains[0] if mains else None)
+        cancelled = automatic and activity['state'] != 'idle'
+        if cancelled:
+            remember_cancel(settings_path, key)
+            if enhancement.get('restartRecommended') is True:
+                remember_cancel(settings_path, fault_key)
+        return {'allowed': activity['state'] == 'idle', 'needed': needed,
+                'automatic': automatic and not cancelled, 'cancelledForActivity': cancelled,
+                'pluginFailure': enhancement.get('restartRecommended') is True,
+                'activity': activity, 'key': key,
                 'reason': 'updated' if updated else 'plugins', 'packageVersion': current,
                 'packageHash': package['sha256'], 'target': mains[0] if mains else None}
 
@@ -100,11 +112,16 @@ def mark_attempt(settings_path, plan):
     save(state_path(settings_path), state)
 
 
-def cancel(settings_path, key):
+def cancel(settings_path, key, plugin_failure=False, correlation_id=None, activity_block=False):
     if not re.fullmatch(r'(plugins|update):\d+(\.\d+){3}', key):
         raise ValueError('Invalid recovery key')
     with locked(settings_path):
         remember_cancel(settings_path, key)
+        if plugin_failure:
+            remember_cancel(settings_path, 'plugins:' + key.split(':', 1)[1])
+    runtime_events.recovery(settings_path, 'recovery-blocked' if activity_block else 'recovery-cancelled',
+        'blocked' if activity_block else 'cancelled', {'correlation_id': correlation_id, 'packageVersion': key.split(':', 1)[1]},
+        reason='sessionProtection' if activity_block else 'userCancelled')
 
 
 def remember_cancel(settings_path, key):
@@ -119,7 +136,7 @@ def remember_cancel(settings_path, key):
     save(state_path(settings_path), state)
 
 
-def cancel_check(settings_path, version_hint=None, after_update=False):
+def cancel_check(settings_path, version_hint=None, after_update=False, correlation_id=None):
     current = version_hint or discover()['packageVersion']
     if not re.fullmatch(r'\d+(\.\d+){3}', current):
         raise ValueError('Invalid package version')
@@ -127,9 +144,11 @@ def cancel_check(settings_path, version_hint=None, after_update=False):
         state = load_state(settings_path)
         if after_update or newer(current, state.get('observedVersion')) or state.get('pendingUpdate') == current:
             remember_cancel(settings_path, 'update:' + current)
+    runtime_events.recovery(settings_path, 'recovery-cancelled', 'cancelled',
+        {'correlation_id': correlation_id, 'packageVersion': current}, reason='checkCancelled')
 
 
-def execute(settings_path, plan, nonce=None):
+def _execute(settings_path, plan, nonce=None):
     """Revalidate the exact instance before normal exit, then use the full entry."""
     with locked(settings_path):
         state = load_state(settings_path)
@@ -140,40 +159,79 @@ def execute(settings_path, plan, nonce=None):
             save(state_path(settings_path), state)
         if plan.get('key') not in ('update:' + plan['packageVersion'], 'plugins:' + plan['packageVersion']):
             raise ValueError('Invalid relaunch plan')
+        try:
+            settings = read(settings_path)
+            preflight(settings)
+            package = discover()
+            running = desktops(package)
+            mains = [p for p in running if p['main']]
+            target = plan.get('target')
+            valid = (plan.get('allowed') and
+                     (package['packageVersion'], package['sha256']) == (plan['packageVersion'], plan['packageHash']) and
+                     mains == ([target] if target else []) and not (running and not target))
+            # Recheck immediately before the close call; never act on a replacement PID.
+            valid = valid and discover() == package and sorted(desktops(package), key=lambda p: p['pid']) == sorted(running, key=lambda p: p['pid'])
+        except (OSError, ValueError, KeyError, TypeError, psutil.Error):
+            mark_attempt(settings_path, plan)  # Preserve failure suppression before any exit request.
+            raise
+        if not valid:
+            mark_attempt(settings_path, plan)
+            return {'success': False, 'reason': 'instanceChanged'}
+        activity = session_activity(settings, target)
+        if activity['state'] != 'idle':
+            if plan.get('automatic'):
+                remember_cancel(settings_path, plan['key'])
+                if plan.get('pluginFailure'):
+                    remember_cancel(settings_path, 'plugins:' + plan['packageVersion'])
+            return {'success': False, 'reason': 'sessionBusy' if activity['state'] == 'busy' else 'sessionUnknown',
+                    'activity': activity}
         mark_attempt(settings_path, plan)
-        settings = read(settings_path)
-        preflight(settings)
-        package = discover()
-        if not plan.get('allowed') or (package['packageVersion'], package['sha256']) != (plan['packageVersion'], plan['packageHash']):
-            return {'success': False, 'reason': 'instanceChanged'}
-        running = desktops(package)
-        mains = [p for p in running if p['main']]
-        target = plan.get('target')
-        if mains != ([target] if target else []) or (running and not target) or port_status(settings, package) == 'unverified':
-            return {'success': False, 'reason': 'instanceChanged'}
-        # Recheck immediately before the close call; never act on a replacement PID.
-        if discover() != package or sorted(desktops(package), key=lambda p: p['pid']) != sorted(running, key=lambda p: p['pid']):
-            return {'success': False, 'reason': 'instanceChanged'}
         if target:
+            runtime_events.recovery(settings_path, 'desktop-exit-requested', 'observed', plan, instance=nonce)
             if not request_close(target['pid'], target['started']) and desktops(package):
+                runtime_events.recovery(settings_path, 'desktop-exit-result', 'failed', plan, reason='closeFailed', instance=nonce)
                 return {'success': False, 'reason': 'closeFailed'}
             deadline = time.monotonic() + 20
             while desktops(package):
                 if time.monotonic() >= deadline:
+                    runtime_events.recovery(settings_path, 'desktop-exit-result', 'failed', plan, reason='closeFailed', instance=nonce)
                     return {'success': False, 'reason': 'closeFailed'}
                 time.sleep(.25)
+            runtime_events.recovery(settings_path, 'desktop-exit-result', 'success', plan, instance=nonce)
         # Complete this launch even if the diagnostic window is closed meanwhile.
         # Normal entry prepares the supervisor and all enabled enhancements.
-        launch = powershell('Start-ComposerHud.ps1', '-StartupCheckStarted')
+        launch = powershell('Start-ComposerHud.ps1', '-StartupCheckStarted', '-CorrelationId',
+                            runtime_events.correlation(plan.get('correlation_id')))
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
             current = discover()
+            # The cold-start entry can persist a new port around a stale listener.
+            settings = read(settings_path)
             if port_status(settings, current) == 'verified':
                 return {'success': True, 'reason': 'relaunchComplete'}
             if launch.poll() not in (None, 0):
                 break
             time.sleep(.5)
         return {'success': False, 'reason': 'relaunchFailed'}
+
+
+def execute(settings_path, plan, nonce=None):
+    # Observation is outside the protected action; it cannot change its result.
+    plan = dict(plan, correlation_id=runtime_events.correlation(plan.get('correlation_id')))
+    runtime_events.recovery(settings_path, 'recovery-execution', 'started', plan, instance=nonce)
+    try:
+        result = _execute(settings_path, plan, nonce)
+    except RelaunchBusy:
+        runtime_events.recovery(settings_path, 'recovery-blocked', 'blocked', plan, reason='actionInProgress', instance=nonce)
+        raise
+    except Exception:
+        runtime_events.recovery(settings_path, 'recovery-result', 'failed', plan, reason='executionUnavailable', instance=nonce)
+        raise
+    if result is not None:
+        blocked = result.get('reason') in ('sessionBusy', 'sessionUnknown', 'instanceChanged')
+        runtime_events.recovery(settings_path, 'recovery-result', 'success' if result.get('success') else 'blocked' if blocked else 'failed',
+                               plan, reason=result.get('reason'), instance=nonce)
+    return result
 
 
 def execute_request(settings_path):
@@ -193,6 +251,11 @@ def execute_request(settings_path):
         save(output, result)
 
 
+def check_activity(settings_path, output, pid=None, started=None):
+    target = {'pid': pid, 'started': started} if pid is not None else None
+    save(output, session_activity(read(settings_path), target))
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--settings', type=Path, required=True)
@@ -200,12 +263,23 @@ if __name__ == '__main__':
     operation.add_argument('--execute', action='store_true')
     operation.add_argument('--cancel')
     operation.add_argument('--cancel-check', action='store_true')
+    operation.add_argument('--activity', action='store_true')
+    parser.add_argument('--output', type=Path)
+    parser.add_argument('--target-pid', type=int)
+    parser.add_argument('--target-started', type=float)
     parser.add_argument('--version')
     parser.add_argument('--after-update', action='store_true')
+    parser.add_argument('--plugin-failure', action='store_true')
+    parser.add_argument('--activity-block', action='store_true')
+    parser.add_argument('--correlation-id')
     args = parser.parse_args()
     if args.execute:
         execute_request(args.settings)
     elif args.cancel:
-        cancel(args.settings, args.cancel)
+        cancel(args.settings, args.cancel, args.plugin_failure, args.correlation_id, args.activity_block)
+    elif args.activity:
+        if not args.output:
+            parser.error('--activity requires --output')
+        check_activity(args.settings, args.output, args.target_pid, args.target_started)
     else:
-        cancel_check(args.settings, args.version, args.after_update)
+        cancel_check(args.settings, args.version, args.after_update, args.correlation_id)

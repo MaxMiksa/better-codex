@@ -6,6 +6,7 @@
   const marker = 'data-codex-hud-file-list';
   const toggleMarker = 'data-codex-hud-file-toggle';
   const records = new Map();
+  let defaultCollapsed = true;
   const style = document.createElement('style');
   style.id = 'codex-hud-file-changes';
   style.textContent = `[${marker}="closed"]{display:none!important}
@@ -62,7 +63,7 @@
     if (footer?.getAttribute('aria-expanded')==='true') record.pendingFooter=null;
   }
 
-  function create(header, info, expanded=false) {
+  function create(header, info, expanded=!defaultCollapsed, manual=false) {
     const button = document.createElement('button');
     button.type='button';
     button.setAttribute(toggleMarker,'');
@@ -77,11 +78,12 @@
     path.setAttribute('d','m4 6 4 4 4-4');path.setAttribute('fill','none');
     path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.5');
     svg.append(path);button.append(label,svg);
-    const record = {header,body:info.body,button,label,expanded,openedNative:false,pendingFooter:null};
+    const record = {header,body:info.body,button,label,expanded,manual,openedNative:false,pendingFooter:null};
     button.addEventListener('click',event=>{
       event.stopPropagation();
       const current=inspect(header);
       if (!current || current.body!==record.body) { scan();return; }
+      record.manual=true;
       record.expanded=!record.expanded;
       record.pendingFooter=null;
       sync(record,current);
@@ -98,14 +100,27 @@
       if (!info) continue;
       let record=records.get(header);
       if (record && record.body!==info.body) {
-        const expanded=record.expanded,openedNative=record.openedNative;
-        release(record);record=create(header,info,expanded);records.set(header,record);
+        const expanded=record.expanded,manual=record.manual,openedNative=record.openedNative;
+        release(record);record=create(header,info,expanded,manual);records.set(header,record);
         record.openedNative=openedNative;
       }
       if (!record) { record=create(header,info);records.set(header,record); }
       sync(record,info);
     }
-    return {cards:records.size,expanded:[...records.values()].filter(r=>r.expanded).length};
+    return {cards:records.size,expanded:[...records.values()].filter(r=>r.expanded).length,defaultCollapsed};
+  }
+
+  function setDefaultCollapsed(value) {
+    if (typeof value!=='boolean' || value===defaultCollapsed) return scan();
+    defaultCollapsed=value;
+    for (const record of records.values()) {
+      if (record.manual) continue;
+      record.expanded=!value;
+      record.pendingFooter=null;
+      const current=inspect(record.header);
+      if(current && current.body===record.body)sync(record,current);
+    }
+    return scan();
   }
 
   const own = node => (node.nodeType===1 ? node : node.parentElement)?.closest(`[${toggleMarker}],#codex-composer-hud`);
@@ -118,6 +133,7 @@
   window.addEventListener('languagechange',scan);
   window.__codexFileChanges = {
     snapshot:scan,
+    setDefaultCollapsed,
     remove() {
       observer.disconnect();
       window.removeEventListener('languagechange',scan);

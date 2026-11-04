@@ -8,11 +8,22 @@
   <a href="README.md"><img alt="[English]" src="https://img.shields.io/badge/%5BEnglish%5D-2f3640.svg" /></a>
 </p>
 
-让 Windows Codex 的聊天界面更方便阅读：在输入框旁查看统计，调整正文宽度，收起多文件变更。社区独立项目，与 OpenAI 没有隶属关系。
+让 Windows Codex 的聊天界面更方便阅读：在输入框旁查看统计，调整正文宽度，收起多文件变更。最新源码还提供统一设置面板与表格排序。社区独立项目，与 OpenAI 没有隶属关系。
 
 **Windows 11 x64 · 官方 Codex 商店应用 · 英文 / 简体中文 · 便携包自带运行环境**
 
-<p align="center"><img src="Presentation/overview.png" alt="Better-Codex：内嵌统计、正文宽度调节与文件变更列表收起" width="900" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better-Codex 最新源码：表格排序、文件列表收起、界面设置与四项内嵌统计" width="900" /></p>
+
+图中使用 **main 分支最新源码**，内容与统计为演示数据。现有 **v0.4.1 下载包**尚不包含这些新增能力；体验图中界面请按下方说明安装最新源码。
+
+## 最新源码
+
+- **四项统计**：本轮首次响应耗时（TTFT）、输出速度、缓存比例与统计时间。点击统计条打开设置，各项可单独显隐，也可拖动调整顺序。
+- **统一设置面板**：正文宽度可在 768–1600px 间调整，可设置文件列表默认收起、开关 Custom 配色修正。修改自动保存，支持撤销、重做与恢复默认。
+- **表格阅读与排序**：按内容分配列宽，可独立于正文宽度整体居中。点击表头循环切换排序方向与原始顺序；按住 Ctrl 依次选择多列，先选的优先；Alt 可预设或反转方向。设置中可选择首次点击采用智能、升序或降序。排序仅改变当前页面的视觉顺序，复制仍保留原始顺序。
+- **本地运行历史**：通过 `tools/token-hud-local/Get-RuntimeHistory.ps1` 查询近期启动、增强与恢复事件；记录仅留本机、保留五天，不记录聊天正文。
+
+TTFT 取本轮首次模型响应。速度优先使用 magpie 提供的本轮最近有效原生值；确认连接不可用后，从后续轮次改用本地请求均速，包含等待与推理、排除已知工具执行。缺少计时依据时不补值，同一轮不混用速度来源。统计不代表能加快生成。
 
 ## 开始使用
 
@@ -24,7 +35,7 @@
 
 随时双击 `Stop.cmd` 停止增强、恢复原生布局；Codex 和聊天历史保留。再次运行联合入口可恢复增强。
 
-## 功能
+## v0.4.1 功能
 
 | 使用场景 | 能力 |
 | --- | --- |
@@ -40,7 +51,7 @@
 
 ## 常用设置
 
-以下命令在已初始化的解压目录运行。新安装默认关闭登录启动、Codex 更新监测和管理员启动。
+以下命令在已初始化的解压目录运行。新安装默认关闭登录启动和 Codex 更新监测。日常使用普通权限启动入口。
 
 | 任务 | PowerShell 命令 |
 | --- | --- |
@@ -55,20 +66,13 @@
 需要固定任务栏时使用 `launchers/Codex.lnk`。已固定原 Codex 图标时先取消固定，再固定联合入口；Windows 缓存路径或应用身份后可能需要重新固定。
 
 <details>
-<summary>可选管理员启动</summary>
-
-运行 `.\tools\token-hud-local\Set-AdministratorLaunch.ps1 -Mode Enable`，首次请求一次 UAC，后续复用核实后的当前用户任务；`-Mode Disable` 取消入口，不停止 Codex。
-
-这是默认关闭的实验功能，只在全新启动时生效，不能将现有实例原地提权。管理员模式下，Codex 原生通知点击可能无法返回对应聊天；依赖该行为时使用普通启动。
-
-</details>
-
-<details>
 <summary>升级、移动与卸载</summary>
 
-升级或移动前先取消旧副本的管理员入口及已启用的登录启动，再用 Stop.cmd 停止旧副本的增强。完整解压新包或整体移动目录，运行新位置的 BetterCodex.exe；路径重建保留原目录中的宽度偏好，必要时重新固定快捷方式，再按需启用开关。其他安装副本的快捷方式不会被接管。
+旧版 v0.4.1 如启用过管理员启动，先在旧副本运行 `Set-AdministratorLaunch.ps1 -Mode Disable`（位于 `tools/token-hud-local/`），再升级、移动或卸载；该命令仅属于旧版。
 
-卸载时先取消已启用的登录启动和管理员入口，运行 Stop.cmd、取消固定，最后删除解压目录。Codex 本身和聊天历史保留。
+升级或移动前先取消旧副本已启用的登录启动，再用 Stop.cmd 停止旧副本的增强。完整解压新包或整体移动目录，运行新位置的 BetterCodex.exe；路径重建保留原目录中的宽度偏好，必要时重新固定快捷方式，再按需启用开关。其他安装副本的快捷方式不会被接管。
+
+卸载时先取消已启用的登录启动，运行 Stop.cmd、取消固定，最后删除解压目录。Codex 本身和聊天历史保留。
 
 </details>
 
@@ -95,7 +99,7 @@ Codex 页面更新可能需要适配；不同版本、全部窗口布局和显�
 
 ## 开发与来源
 
-另有 `better-codex-v0.4.1-source.zip`。源码安装需要 Python 3.11+、Node.js 20+，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`；可选 `-Language en` / `-Language zh-CN`。开发时使用所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)，避免混用不同版本路径。
+体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；另行提供的 `better-codex-v0.4.1-source.zip` 是旧版发行源码。当前源码安装需要 Python 3.11+、Node.js 24.11.1 及以上的 24.x 版本和 pnpm 12.16.1，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`；该 pnpm 不在 PATH 时加 `-PnpmExecutable <路径>`，语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
 
 本地采集器复用自 [codex-token-hud](https://github.com/drkang7/codex-token-hud)。感谢 [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud)、[codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) 与 [openai/codex](https://github.com/openai/codex)。复用范围、版本和许可见[第三方声明](THIRD_PARTY_NOTICES.md)。
 

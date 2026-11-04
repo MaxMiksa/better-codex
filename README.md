@@ -8,11 +8,22 @@
   <a href="README-zh.md"><img alt="[中文说明]" src="https://img.shields.io/badge/%5B%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E%5D-2f3640.svg" /></a>
 </p>
 
-Make Windows Codex conversations easier to read: see statistics by the input box, adjust reading width, and collapse multi-file changes. Independent community project; not affiliated with OpenAI.
+Make Windows Codex conversations easier to read, with statistics beside the input box, adjustable reading width and compact file changes. The latest source adds a unified settings panel and sortable tables. Independent community project; not affiliated with OpenAI.
 
 **Windows 11 x64 · Official Codex Store app · English / 简体中文 · Bundled portable runtimes**
 
-<p align="center"><img src="Presentation/overview.png" alt="Better-Codex: inline statistics, reading-width control and collapsed file changes" width="900" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Latest Better-Codex source: sortable tables, collapsed file changes, interface settings and four inline statistics" width="900" /></p>
+
+The image shows the **latest source on main**, rendered with sample content and statistics. The downloadable **v0.4.1** packages predate these additions; use the source setup below for the current interface.
+
+## Latest source
+
+- **Four statistics:** time to first response (TTFT), output speed, cache percentage and sample age. Click the statistics to open settings; toggle individual fields or drag to reorder them.
+- **One settings panel:** adjust reading width from 768 to 1600px, choose whether file lists start collapsed, and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
+- **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle through sorting directions and the original order; hold Ctrl to select multiple columns in priority order, or Alt to preset/reverse a direction. Choose Smart, Ascending or Descending as the first-click direction in settings. Sorting changes only the current visual order; copying retains the source order.
+- **Local runtime history:** inspect recent startup, enhancement and recovery events with `tools/token-hud-local/Get-RuntimeHistory.ps1`. Records stay local and expire after five days; chat text is not recorded.
+
+TTFT uses the first model response in the current turn. Speed uses magpie's latest valid native value for that turn when available; after a confirmed disconnection, subsequent turns use the local request average. That local average includes waiting and reasoning and excludes known tool execution. Missing timing stays unavailable, and a turn keeps one speed source. These statistics do not promise faster generation.
 
 ## Get started
 
@@ -24,7 +35,7 @@ The combined entry opens a startup check asynchronously. When missing enhancemen
 
 Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
 
-## Features
+## v0.4.1 features
 
 | Task | What you get |
 | --- | --- |
@@ -40,7 +51,7 @@ If a collector exits, only statistics become unavailable; reading width, file ch
 
 ## Common settings
 
-Run these commands from the initialized extracted folder. Login startup, Codex update monitoring and administrator launch are off by default.
+Run these commands from the initialized extracted folder. Login startup and Codex update monitoring are off by default. Use the ordinary Codex launch entry.
 
 | Task | PowerShell command |
 | --- | --- |
@@ -55,20 +66,13 @@ Keep a single login entry: turn off Codex's own login startup when enabling this
 Use `launchers/Codex.lnk` for taskbar pinning. Unpin the original Codex entry first, then pin the combined shortcut. Windows may require repinning after caching a path or app identity.
 
 <details>
-<summary>Optional administrator launch</summary>
-
-Run `.\tools\token-hud-local\Set-AdministratorLaunch.ps1 -Mode Enable`. The first setup requests UAC; later launches reuse the verified current-user task. `-Mode Disable` removes that entry without stopping Codex.
-
-This experimental mode is off by default and applies to a fresh start; it cannot elevate an existing instance. Native Codex notification clicks may fail to return to their chat in administrator mode. Use ordinary launch if you depend on that behavior.
-
-</details>
-
-<details>
 <summary>Upgrade, move or uninstall</summary>
 
-Before upgrading or moving, disable the old copy's administrator entry and any enabled login entry, then stop its enhancements with Stop.cmd. Extract the complete new package or move the whole folder, and run BetterCodex.exe from the new location. Path rebuilding preserves width preferences present in that folder. Repin if needed, then enable the switches you want. Shortcuts owned by another installation are not taken over.
+If administrator launch was enabled in v0.4.1, first run `Set-AdministratorLaunch.ps1 -Mode Disable` from the old copy's `tools/token-hud-local/` folder before upgrading, moving or uninstalling. This is a legacy-version command.
 
-To uninstall, disable login startup and administrator launch, run Stop.cmd, unpin the shortcut, and delete the extracted folder. Codex and chat history remain.
+Before upgrading or moving, disable any enabled login entry, then stop its enhancements with Stop.cmd. Extract the complete new package or move the whole folder, and run BetterCodex.exe from the new location. Path rebuilding preserves width preferences present in that folder. Repin if needed, then enable the switches you want. Shortcuts owned by another installation are not taken over.
+
+To uninstall, disable login startup, run Stop.cmd, unpin the shortcut, and delete the extracted folder. Codex and chat history remain.
 
 </details>
 
@@ -95,7 +99,7 @@ Local state can contain chat identifiers, titles, paths and usage. **Do not uplo
 
 ## Development and credits
 
-A separate `better-codex-v0.4.1-source.zip` is available. Source installation needs Python 3.11+ and Node.js 20+; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. Optional `-Language en` / `-Language zh-CN` selects setup messages. Use the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version to avoid mixing paths between versions.
+For the latest interface shown above, clone or download the **main branch** of this repository. The separate `better-codex-v0.4.1-source.zip` contains the older release. Current source installation needs Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. Use `-PnpmExecutable <path>` if that pnpm version is outside PATH. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
 
 The local collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions and licenses.
 

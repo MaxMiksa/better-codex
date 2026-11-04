@@ -12,6 +12,7 @@ import psutil
 from src.platform.paths import ROOT
 from src.platform.codex.desktop_package import discover
 from src.lifecycle.recovery.desktop_restart import desktops, powershell
+from src.lifecycle import runtime_events
 
 
 def version(value):
@@ -45,6 +46,10 @@ class UpdateRecovery:
         save_state(self.path, state)
         self.state = state
         self.status = dict(state)
+        if patch.get('previousVersion') and patch.get('observedVersion') != patch['previousVersion']:
+            rec = runtime_events.recorder(self.settings_path, 'update-monitor', state.get('correlation_id'))
+            rec.emit('version-change-observed', 'observed', {'previous_version': patch['previousVersion'],
+                'package_version': patch['observedVersion'], 'phase': phase})
 
     def tick(self):
         try:
@@ -67,7 +72,8 @@ class UpdateRecovery:
             if current != previous:
                 pending = current if version(current) > version(previous) else None
                 self.record('waiting-updated-desktop' if pending else 'baseline',
-                            observedVersion=current, pendingVersion=pending)
+                            observedVersion=current, previousVersion=previous, pendingVersion=pending,
+                            correlation_id=runtime_events.correlation())
             if self.state.get('pendingVersion') != current:
                 return self.status
             if self.state.get('attemptedVersion') == current:

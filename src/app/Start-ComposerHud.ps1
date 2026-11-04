@@ -1,19 +1,22 @@
-param([switch]$CheckOnly, [switch]$FunctionsOnly, [switch]$AdministratorTask, [switch]$RecoveryActivation, [switch]$StartupCheckStarted,
-    [ValidateSet('Launch','Check','Monitor','Reload')][string]$TaskMode = 'Launch')
+param([switch]$CheckOnly, [switch]$FunctionsOnly, [switch]$RecoveryActivation, [switch]$StartupCheckStarted, [string]$CorrelationId,
+    [ValidateSet('Launch','Monitor','Reload')][string]$TaskMode = 'Launch')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../platform/i18n/i18n.ps1')
+. (Join-Path $PSScriptRoot '../platform/settings/settings_store.ps1')
+. (Join-Path $PSScriptRoot '../platform/settings/runtime_stamp.ps1')
 . (Join-Path $PSScriptRoot '../lifecycle/startup/codex_activation.ps1')
-. (Join-Path $PSScriptRoot '../lifecycle/startup/administrator_launch.ps1')
 $promptMonitor = Join-Path $PSScriptRoot '../prompts/monitoring/Start-Monitor.ps1'
 if (Test-Path -LiteralPath $promptMonitor) { . $promptMonitor }
 else { function Start-InstructionReviewCheck { } }
 
 function Start-ComposerStartupCheck {
+    param([switch]$AfterUpdate)
     try {
         $dialog = Join-Path $PSScriptRoot '../lifecycle/diagnostics/Show-StartupCheck.ps1'
         if (-not (Test-Path -LiteralPath $dialog)) { return }
         $powershell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
         $arguments = '-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f $dialog
+        if ($AfterUpdate) { $arguments += ' -AfterUpdate' }
         Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden | Out-Null
     } catch { } # An independent diagnostic window must never prevent activation.
 }
@@ -21,12 +24,8 @@ function Start-ComposerStartupCheck {
 function Invoke-ComposerRelaunch {
     $settingsPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../.runtime/token-hud/embedded/settings.json'))
     $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($settings.runAsAdministrator -eq $true -and -not (Test-BetterCodexAdministrator)) {
-        $null = Invoke-BetterCodexAdministratorTask -Mode Reload
-    } else {
-        & $settings.python -B -X utf8 (Join-Path $PSScriptRoot '../../tools/token-hud-local/diagnostics/relaunch.py') --settings $settingsPath --execute
-        if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'check.relaunchFailed') }
-    }
+    & $settings.python -B -X utf8 (Join-Path $PSScriptRoot '../../tools/token-hud-local/diagnostics/relaunch.py') --settings $settingsPath --execute
+    if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'check.relaunchFailed') }
 }
 
 function Get-ComposerLaunchPlan($Package, $Settings, $Desktops, $Listeners) {
@@ -43,9 +42,28 @@ function Get-ComposerLaunchPlan($Package, $Settings, $Desktops, $Listeners) {
     return @{arguments="--remote-debugging-address=127.0.0.1 --remote-debugging-port=$($Settings.port)";reason='connecting';attach=$true}
 }
 
+function Resolve-ComposerLaunchPlan($Package, $Settings, $Desktops, $Listeners, [string]$SettingsPath, [switch]$CheckOnly) {
+    $plan = Get-ComposerLaunchPlan $Package $Settings $Desktops $Listeners
+    if (-not $CheckOnly -and -not $Desktops.Count -and $plan.reason -eq 'unverified-listener') {
+        # Bypass the occupied port; never contact or stop its unverified owner.
+        $port = Get-CodexAvailableDisplayPort
+        Update-BetterCodexSettings $SettingsPath @{port=$port} | Out-Null
+        $previousPort = $Settings.port
+        $Settings.port = $port
+        $plan = Get-ComposerLaunchPlan $Package $Settings @() @()
+        $plan.previousPort = $previousPort
+    }
+    return $plan
+}
+
+function Get-ComposerSupervisorStamp($Settings) {
+    return Get-BetterCodexRuntimeStamp $Settings
+}
+
 function Start-ComposerSupervisor($Settings, [string]$SettingsPath, [string]$Runtime) {
     [IO.Directory]::CreateDirectory($Runtime) | Out-Null
     $pidPath = Join-Path $Runtime 'launcher.json'
+    $stamp = Get-ComposerSupervisorStamp $Settings
     $alreadyRunning = $false
     if (Test-Path -LiteralPath $pidPath) {
         try {
@@ -57,8 +75,11 @@ function Start-ComposerSupervisor($Settings, [string]$SettingsPath, [string]$Run
         } catch { }
     }
     $stop = Join-Path $Runtime 'stop'
-    if ($alreadyRunning -and (Test-Path -LiteralPath $stop)) {
-        Wait-Process -Id $process.Id -Timeout 10 -ErrorAction Stop
+    if ($alreadyRunning -and ($previous.stamp -ne $stamp -or (Test-Path -LiteralPath $stop))) {
+        Set-Content -LiteralPath $stop -Value '' -Encoding utf8
+        # Only the verified enhancement host exits; Codex and independent recovery
+        # executors are not children to clean up. A timeout must not spawn a duplicate.
+        Wait-Process -InputObject $process -Timeout 15 -ErrorAction Stop
         $alreadyRunning = $false
     }
     if (Test-Path -LiteralPath $stop) { Remove-Item -LiteralPath $stop }
@@ -66,7 +87,7 @@ function Start-ComposerSupervisor($Settings, [string]$SettingsPath, [string]$Run
         $arguments = '-X utf8 "{0}" --settings "{1}" --runtime "{2}"' -f (Join-Path $PSScriptRoot '../../tools/token-hud-local/embedded/supervisor.py'),$SettingsPath,$Runtime
         $env:BETTER_CODEX_LANGUAGE = $script:BetterCodexLanguage
         $process = Start-Process -FilePath $Settings.python -ArgumentList $arguments -WindowStyle Hidden -PassThru
-        @{supervisorPid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath $pidPath -Encoding utf8
+        @{supervisorPid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().ToString('o');stamp=$stamp} | ConvertTo-Json | Set-Content -LiteralPath $pidPath -Encoding utf8
     }
     return $process.Id
 }
@@ -81,20 +102,36 @@ function Write-ComposerLaunchReceipt([string]$Runtime, $Receipt, [string]$Name =
     } catch { } # Reporting must not block official activation.
 }
 
+function Write-ComposerLaunchEvent($Settings, [string]$Runtime, $Receipt, [string]$Kind = 'launch-request-result') {
+    if (-not $Settings.python) { return }
+    $previousExitCode = $global:LASTEXITCODE
+    try {
+        $id = $Receipt.correlation_id
+        if ($id -notmatch '^[a-f0-9]{32,64}$') { $id = [Guid]::NewGuid().ToString('N') }
+        $event = @{kind=$Kind;status=$(if ($Kind -eq 'launch-requested') {'observed'} elseif ($Receipt.activationSucceeded) {'success'} else {'failed'});
+            source='launcher';correlation_id=$id;instance=$id;
+            context=@{reason=$Receipt.hudReason;package_version=$Receipt.packageVersion}}
+        $event | ConvertTo-Json -Depth 4 -Compress | & $Settings.python -B -X utf8 -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from src.platform.observability.cli import main; raise SystemExit(main())' $script:BetterCodexRoot --runtime $Runtime append 2>$null | Out-Null
+    } catch { } # Neither storage nor serialization failure may block activation.
+    finally { $global:LASTEXITCODE = $previousExitCode }
+}
+
 function Invoke-ComposerMonitor {
-    if ($AdministratorTask -and -not (Test-BetterCodexAdministrator)) { throw (Get-BetterCodexText 'administrator.notElevated') }
     $settingsPath = Join-Path $script:BetterCodexRoot '.runtime/token-hud/embedded/settings.json'
     $runtime = Join-Path (Split-Path -Parent $settingsPath) 'runtime'
     $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($settings.runAsAdministrator -eq $true -and -not (Test-BetterCodexAdministrator)) {
-        return @{monitorRequest=(Invoke-BetterCodexAdministratorTask 'Monitor');activationSucceeded=$false}
-    }
     if ($settings.recoverAfterUpdate -eq $true) {
         $supervisorPid = Start-ComposerSupervisor $settings $settingsPath $runtime
-        if ($AdministratorTask) { Start-InstructionReviewCheck $settings $supervisorPid (Join-Path $runtime 'stop') }
         return @{supervisorPid=$supervisorPid;activationSucceeded=$false}
     }
     return @{activationSucceeded=$false}
+}
+
+function Wait-ComposerModelGateway($Settings, [string]$SettingsPath) {
+    if ($env:MAGPIE_SKIP_WAIT -or -not $Settings.python) { return }
+    try {
+        & $Settings.python -B -X utf8 (Join-Path $PSScriptRoot '../lifecycle/startup/model_gateway.py') --settings $SettingsPath 2>$null | Out-Null
+    } catch { } # Gateway/configuration failures must not prevent official activation.
 }
 
 function Invoke-ComposerLaunch([switch]$CheckOnly) {
@@ -103,29 +140,12 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
     $runtime = Join-Path (Split-Path -Parent $settingsPath) 'runtime'
     $plan = @{arguments='';reason='hud-preparation-failed';attach=$false}
     $package = $null
-    $receipt = @{source='Start-ComposerHud.ps1';checkedAtUtc=[DateTime]::UtcNow.ToString('o');activationSucceeded=$false}
-    $receipt.launcherElevated = Test-BetterCodexAdministrator
+    $correlation = $env:BETTER_CODEX_CORRELATION_ID
+    if ($correlation -notmatch '^[a-f0-9]{32,64}$') { $correlation = [Guid]::NewGuid().ToString('N') }
+    $receipt = @{source='Start-ComposerHud.ps1';checkedAtUtc=[DateTime]::UtcNow.ToString('o');activationSucceeded=$false;correlation_id=$correlation}
     $settings = $null
+    $coldStart = $false
     try { $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
-    $receipt.administratorRequested = $settings.runAsAdministrator -eq $true -or [bool]$AdministratorTask
-    if ($receipt.administratorRequested -and -not $receipt.launcherElevated -and -not $CheckOnly) {
-        # Return normally even on dispatch failure: the legacy wrapper must not
-        # silently fall back to launching an ordinary-permission Codex.
-        try {
-            if ($AdministratorTask) { throw (Get-BetterCodexText 'administrator.notElevated') }
-            $receipt.administratorInstance = Invoke-BetterCodexAdministratorTask
-            $receipt.administratorDispatched = $true
-            $receipt.message = Get-BetterCodexText 'administrator.dispatched'
-        } catch {
-            $receipt.administratorDispatched = $false
-            $receipt.errorType = $_.Exception.GetType().Name
-            $receipt.message = $_.Exception.Message
-            $popup = New-Object -ComObject WScript.Shell
-            $popup.Popup($receipt.message, 0, 'Better-Codex', 16) | Out-Null
-        }
-        Write-ComposerLaunchReceipt $runtime $receipt 'administrator-request.json'
-        return $receipt
-    }
     try {
         foreach ($dependency in @($settings.python,$settings.node,(Join-Path $settings.playwright 'package.json'),(Join-Path $settings.collectorDir 'metrics.py'))) {
             if (-not $dependency -or -not (Test-Path -LiteralPath $dependency)) { throw (Get-BetterCodexText 'launch.dependencyMissing') }
@@ -133,34 +153,30 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
         $package = & $settings.python (Join-Path $PSScriptRoot '../../tools/token-hud-local/shared/desktop_package.py') | ConvertFrom-Json
         if ($LASTEXITCODE -ne 0 -or -not $package.executable) { throw (Get-BetterCodexText 'launch.packageFailed') }
         $desktops = @(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)
+        $coldStart = -not $desktops.Count
         $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $settings.port -ErrorAction SilentlyContinue)
-        $plan = Get-ComposerLaunchPlan $package $settings $desktops $listeners
+        $plan = Resolve-ComposerLaunchPlan $package $settings $desktops $listeners $settingsPath -CheckOnly:$CheckOnly
+        $receipt.displayPort = $settings.port
+        if ($plan.previousPort) { $receipt.previousDisplayPort = $plan.previousPort }
         if (($plan.attach -or $settings.recoverAfterUpdate -eq $true) -and -not $CheckOnly -and -not $RecoveryActivation) {
             $receipt.supervisorPid = Start-ComposerSupervisor $settings $settingsPath $runtime
         }
     } catch {
-        $plan = @{arguments='';reason='hud-preparation-failed';attach=$false}
+        # Preserve valid cold-start flags if only the enhancement host failed.
+        $plan.reason = 'hud-preparation-failed'
+        $plan.attach = $false
         $receipt.errorType = $_.Exception.GetType().Name
     }
     $receipt.hudReason = $plan.reason
     $receipt.packageVersion = $package.packageVersion
     $receipt.locale = $script:BetterCodexLanguage
-    $desktops = @(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)
-    try { $receipt.desktopElevated = @(Get-BetterCodexDesktopElevation $desktops) }
-    catch { $receipt.desktopElevated = @($null) } # Diagnostics must not block activation.
-    if ($receipt.administratorRequested) {
-        $receipt.administratorState = if (-not $desktops.Count) { 'next-start' } elseif (-not $receipt.desktopElevated.Count -or $receipt.desktopElevated -contains $false -or $receipt.desktopElevated -contains $null) { 'restart-required' } else { 'active' }
-    }
     if ($CheckOnly) { $receipt.message = Get-BetterCodexText 'launch.checked'; return $receipt }
+    if ($coldStart) { Wait-ComposerModelGateway $settings $settingsPath }
+    Write-ComposerLaunchReceipt $runtime $receipt 'launch-request.json'
+    Write-ComposerLaunchEvent $settings $runtime $receipt 'launch-requested'
     # Every normal click activates the app, including HUD failure and existing instances.
     try {
-        if ($receipt.administratorRequested -and -not $desktops.Count) {
-            $receipt.activationProcessId = Invoke-CodexAdministratorActivation $plan.arguments
-            $receipt.administratorState = 'launched'
-        } else {
-            # Preserve existing sessions, even if they predate elevation or an update.
-            $receipt.activationProcessId = Invoke-CodexActivation $plan.arguments
-        }
+        $receipt.activationProcessId = Invoke-CodexActivation $plan.arguments
         $receipt.activationSucceeded = $true
     } catch {
         $receipt.hudReason = 'activation-failed'
@@ -168,23 +184,22 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
     }
     $receipt.message = Get-BetterCodexText "launch.$($receipt.hudReason)"
     Write-ComposerLaunchReceipt $runtime $receipt
+    Write-ComposerLaunchEvent $settings $runtime $receipt
     if ($receipt.activationSucceeded -and -not $RecoveryActivation) { Start-InstructionReviewCheck $settings $receipt.supervisorPid (Join-Path $runtime 'stop') }
     return $receipt
 }
 
 if (-not $FunctionsOnly) {
+    if (-not $CheckOnly) {
+        if ($CorrelationId -match '^[a-f0-9]{32,64}$') { $env:BETTER_CODEX_CORRELATION_ID = $CorrelationId }
+        elseif ($env:BETTER_CODEX_CORRELATION_ID -notmatch '^[a-f0-9]{32,64}$') { $env:BETTER_CODEX_CORRELATION_ID = [Guid]::NewGuid().ToString('N') }
+    }
     if ($TaskMode -eq 'Reload') {
         Invoke-ComposerRelaunch
         return
     }
-    if (-not $CheckOnly -and -not $AdministratorTask -and -not $RecoveryActivation -and
+    if (-not $CheckOnly -and -not $RecoveryActivation -and
         -not $StartupCheckStarted -and $TaskMode -eq 'Launch') { Start-ComposerStartupCheck }
-    if ($AdministratorTask -and $TaskMode -eq 'Check') {
-        $result = Invoke-ComposerLaunch -CheckOnly
-        $runtime = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../.runtime/token-hud/embedded/runtime'))
-        Write-ComposerLaunchReceipt $runtime $result 'administrator-check.json'
-        return
-    }
     $mutex = [Threading.Mutex]::new($false, 'Local\CodexComposerHudLauncher')
     $held = $false
     try {
@@ -196,7 +211,7 @@ if (-not $FunctionsOnly) {
         }
         $result = Invoke-ComposerLaunch -CheckOnly:$CheckOnly
         $result | ConvertTo-Json
-        if (-not $CheckOnly -and -not $result.activationSucceeded -and ($AdministratorTask -or -not $result.administratorRequested)) { exit 1 }
+        if (-not $CheckOnly -and -not $result.activationSucceeded) { exit 1 }
     } finally {
         if ($held) { $mutex.ReleaseMutex() }
         $mutex.Dispose()

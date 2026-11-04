@@ -18,6 +18,11 @@
       "{browser}"
     ]
   },
+  "table-sort": {
+    "kind": "node",
+    "path": "tests/interface/verify-table-sort.cjs",
+    "args": ["{browser}", "{evidence}"]
+  },
   "files": {
     "kind": "node",
     "path": "tests/interface/verify-file-changes.cjs",
@@ -36,9 +41,21 @@
     "kind": "python",
     "path": "tests/lifecycle/verify_checks.py"
   },
+  "diagnostic-worker": {
+    "kind": "powershell",
+    "path": "tests/lifecycle/Verify-CheckWorker.ps1",
+    "args": ["{work}"]
+  },
   "relaunch": {
     "kind": "python",
     "path": "tests/lifecycle/verify_relaunch.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "session-activity": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_session_activity.py",
     "args": [
       "{work}"
     ]
@@ -72,9 +89,23 @@
       "{work}"
     ]
   },
+  "native-exit": {
+    "kind": "python",
+    "path": "tests/integration/verify_desktop_exit.py",
+    "args": [
+      "{work}"
+    ]
+  },
   "native-countdown": {
     "kind": "python",
     "path": "tests/lifecycle/verify_countdown_ui.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "native-recovery-guard": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_recovery_guard_ui.py",
     "args": [
       "{work}"
     ]
@@ -116,5 +147,30 @@
   "structure": {
     "kind": "python",
     "path": "tests/integration/verify_structure.py"
+  },
+  "management": {
+    "kind": "python",
+    "path": "tests/lifecycle/verify_management_checks.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "prompt-diagnostics": {
+    "kind": "python",
+    "path": "tests/prompts/verify_diagnostics.py",
+    "args": [
+      "{work}"
+    ]
+  },
+  "entry-wrappers": {
+    "kind": "powershell",
+    "path": "tests/lifecycle/Verify-EntryWrappers.ps1"
+  },
+  "observability": {
+    "kind": "python",
+    "path": "tests/integration/verify-observability.py",
+    "args": [
+      "{work}"
+    ]
   }
 }

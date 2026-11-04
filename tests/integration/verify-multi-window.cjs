@@ -75,12 +75,15 @@ function logs(home,id,output,cached){
 }
 async function snapshot(page){
   return page.evaluate(()=>{
-    const host=document.querySelector('#codex-composer-hud'),spans=host?.shadowRoot.querySelectorAll('span');
+    const root=document.querySelector('#codex-composer-hud')?.shadowRoot;
+    const value=key=>root?.querySelector('[data-metric-key="'+key+'"]')?.textContent;
+    const preferences=window.__codexComposerHud?.snapshot().preferences;
     return {id:document.querySelector('[data-above-composer-conversation-id]')?.getAttribute('data-above-composer-conversation-id'),
-      speed:spans?.[0].textContent,cache:spans?.[1].textContent,
+      ttft:value('ttft'),speed:value('speed'),cache:value('cache'),
+      tableEnabled:preferences?.tableEnabled,tableCentered:preferences?.tableCentered,tableSortMode:preferences?.tableSortMode,
       accent:Boolean(window.__codexCustomAccent),accentStyle:Boolean(document.getElementById('codex-hud-custom-accent')),
       width:Math.round(document.querySelector('[class~="max-w-(--thread-body-max-width)"]')?.getBoundingClientRect().width||0),
-      modules:['__codexComposerHud','__codexReadingWidth','__codexFileChanges'].every(key=>Boolean(window[key]))};
+      modules:['__codexComposerHud','__codexReadingWidth','__codexTableSort','__codexFileChanges'].every(key=>Boolean(window[key]))};
   });
 }
 async function finish(child){
@@ -123,23 +126,30 @@ async function finish(child){
     const view=()=>read(path.join(runtime,'view-status.json'));
     const track=()=>{for(const entry of view()?.windows||[]){const data=read(path.join(runtime,'windows',entry.windowId,'metrics.json'));if(data?.collector_pid)collectors.add(data.collector_pid);}};
     const matching=async(page,id,speed,cache)=>{const s=await snapshot(page);return s.id===id&&s.speed===speed&&s.cache===cache;};
-    await until(async()=>await matching(p1,A,'110 tok/s','13%')&&await matching(p2,B,'370 tok/s','83%'),'two independent rendered statistics');
-    track();check('production-controller-and-collectors-render-two-distinct-chats',view().windows.length===2&&collectors.size===2);
+    await until(async()=>await matching(p1,A,'- tok/s','13%')&&await matching(p2,B,'- tok/s','83%'),'two independent rendered statistics');
+    track();check('native-fallback-preserves-distinct-chat-caches-with-missing-tps',view().windows.length===2&&collectors.size===2);
+    check('native-fallback-keeps-ttft-missing-in-both-windows',(await snapshot(p1)).ttft==='-s'&&(await snapshot(p2)).ttft==='-s');
     check('route-parameter-window-supported-without-accepting-other-documents',isMainPageUrl('app://-/index.html?initialRoute=fixture')&&!isMainPageUrl('app://-/detached-window.html?initialRoute=fixture')&&!isMainPageUrl('https://example.invalid/index.html'));
     check('all-enhancements-coexist-in-both-pages',(await snapshot(p1)).modules&&(await snapshot(p2)).modules&&(await snapshot(p1)).accentStyle&&(await snapshot(p2)).accentStyle&&(await snapshot(p1)).width===1232&&(await snapshot(p2)).width===1232);
+    await store.patch({tableEnabled:false,tableCentered:false,tableSortMode:'ascending'});
+    await until(async()=>{const [one,two]=await Promise.all([snapshot(p1),snapshot(p2)]);return one.tableEnabled===false&&two.tableEnabled===false&&one.tableCentered===false&&two.tableCentered===false&&one.tableSortMode==='ascending'&&two.tableSortMode==='ascending';},'table preferences in both windows');
+    check('table-preferences-apply-to-both-window-modules',await p1.evaluate(()=>{const settings=window.__codexComposerHud.snapshot().preferences;const reading=window.__codexReadingWidth.update(settings.readingWidth),sorting=window.__codexTableSort.snapshot();return reading.tableEnabled===false&&reading.tableCentered===false&&sorting.enabled===false&&sorting.defaultMode==='ascending';})&&await p2.evaluate(()=>{const settings=window.__codexComposerHud.snapshot().preferences;const reading=window.__codexReadingWidth.update(settings.readingWidth),sorting=window.__codexTableSort.snapshot();return reading.tableEnabled===false&&reading.tableCentered===false&&sorting.enabled===false&&sorting.defaultMode==='ascending';}));
+    await store.patch({tableEnabled:true,tableCentered:true,tableSortMode:'smart'});
+    await until(async()=>{const [one,two]=await Promise.all([snapshot(p1),snapshot(p2)]);return one.tableEnabled===true&&two.tableEnabled===true&&one.tableCentered===true&&two.tableCentered===true&&one.tableSortMode==='smart'&&two.tableSortMode==='smart';},'restore table preferences');
+    check('table-preferences-restore-without-window-reload',await p1.evaluate(()=>window.__codexReadingWidth.update(1152).tableEnabled===true&&window.__codexTableSort.snapshot().enabled===true&&window.__codexTableSort.snapshot().defaultMode==='smart')&&await p2.evaluate(()=>window.__codexReadingWidth.update(1152).tableEnabled===true&&window.__codexTableSort.snapshot().enabled===true&&window.__codexTableSort.snapshot().defaultMode==='smart'));
     const first=view().windows.find(w=>w.id===A),second=view().windows.find(w=>w.id===B);
     check('selection-and-metrics-directories-are-disjoint',first.windowId!==second.windowId&&read(path.join(runtime,'windows',first.windowId,'selection.json')).thread_id===A&&read(path.join(runtime,'windows',second.windowId,'selection.json')).thread_id===B&&!fs.existsSync(path.join(runtime,'metrics.json')));
     for(let i=0;i<4;i++){
       await p1.evaluate(id=>document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',id),i%2?A:B);
-      await until(async()=>await matching(p1,i%2?A:B,i%2?'110 tok/s':'370 tok/s',i%2?'13%':'83%'),'chat switch');
-      const sample=await snapshot(p2);assert.equal(sample.speed,'370 tok/s');assert.equal(sample.cache,'83%');
+      await until(async()=>await matching(p1,i%2?A:B,'- tok/s',i%2?'13%':'83%'),'chat switch');
+      const sample=await snapshot(p2);assert.equal(sample.speed,'- tok/s');assert.equal(sample.cache,'83%');
     }
     check('repeated-chat-switches-do-not-change-the-other-window',true);
     const old=await p1.evaluate(()=>window.__codexComposerHud.snapshot());
     await p1.evaluate(id=>document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',id),B);
     check('late-old-chat-render-is-rejected',!await p1.evaluate(value=>window.__codexComposerHud.render({...value,speed:'999 tok/s',cache:'99%',age:'old'}),old));
     await p1.evaluate(id=>document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',id),A);
-    await until(async()=>await matching(p1,A,'110 tok/s','13%'),'restore A');
+    await until(async()=>await matching(p1,A,'- tok/s','13%'),'restore A');
     const shells=[path.join(process.env.WINDIR,'System32/WindowsPowerShell/v1.0/powershell.exe'),'C:/Program Files/PowerShell/7/pwsh.exe'];
     for(const shell of shells)for(let i=0;i<2;i++){
       await store.patch({readingWidth:1024,customAccent:true});
@@ -169,20 +179,57 @@ async function finish(child){
     const victim=view().windows.find(w=>w.id===A),victimRuntime=path.join(runtime,'windows',victim.windowId),victimData=read(path.join(victimRuntime,'metrics.json'));
     const originalHud=await p1.locator('#codex-composer-hud').elementHandle();
     await execute(dependencies.python,['-I','-c',"import psutil,sys; p=psutil.Process(int(sys.argv[1])); assert p.ppid()==int(sys.argv[2]); assert sys.argv[3] in p.cmdline(); p.terminate()",String(victimData.collector_pid),String(controller.pid),victimRuntime],{windowsHide:true,timeout:5000});
-    await until(async()=>view()?.windows.some(w=>w.id===A&&w.windowId===victim.windowId)&&read(path.join(victimRuntime,'metrics.json'))?.collector_pid!==victimData.collector_pid&&await matching(p1,A,'110 tok/s','13%'),'single collector recovery');
+    await until(async()=>view()?.windows.some(w=>w.id===A&&w.windowId===victim.windowId)&&read(path.join(victimRuntime,'metrics.json'))?.collector_pid!==victimData.collector_pid&&await matching(p1,A,'- tok/s','13%'),'single collector recovery');
     check('collector-recovery-keeps-the-original-hud-and-width',await originalHud.evaluate(node=>node.isConnected)&&(await snapshot(p1)).width===1232);
-    track();check('one-collector-failure-recovers-without-replacing-the-other-window',view().windows.find(w=>w.id===B).windowId===second.windowId&&await matching(p2,B,'370 tok/s','83%'));
+    track();check('one-collector-failure-recovers-without-replacing-the-other-window',view().windows.find(w=>w.id===B).windowId===second.windowId&&await matching(p2,B,'- tok/s','83%'));
     await p1.close();await until(()=>view()?.windows.length===1,'close first page');
-    check('closing-one-window-preserves-the-other',await matching(p2,B,'370 tok/s','83%'));
+    check('closing-one-window-preserves-the-other',await matching(p2,B,'- tok/s','83%'));
     p1=await context.newPage();await p1.goto(fixtureUrl);
-    await until(async()=>view()?.windows.length===2&&await matching(p1,A,'110 tok/s','13%'),'add new window');
+    await until(async()=>view()?.windows.length===2&&await matching(p1,A,'- tok/s','13%'),'add new window');
     track();check('new-window-attaches-without-controller-restart',controller.exitCode===null);
     await p2.reload();await p2.evaluate(id=>document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',id),B);
-    await until(async()=>await matching(p2,B,'370 tok/s','83%'),'reload B');
-    check('page-reload-rebuilds-enhancements-and-keeps-statistics-local',await matching(p1,A,'110 tok/s','13%'));
+    try{await until(async()=>await matching(p2,B,'- tok/s','83%'),'reload B');}
+    catch(error){
+      const pageState=await p2.evaluate(()=>({url:location.href,hud:Boolean(window.__codexComposerHud),modules:Object.fromEntries(['__codexComposerHud','__codexReadingWidth','__codexFileChanges','__codexCustomAccent'].map(key=>[key,Boolean(window[key])])),snapshot:window.__codexComposerHud?.snapshot?.(),metrics:[...(document.querySelector('#codex-composer-hud')?.shadowRoot?.querySelectorAll('[data-metric-key]')||[])].map(node=>({key:node.dataset.metricKey,text:node.textContent}))})).catch(value=>({error:String(value)}));
+      fs.writeFileSync(path.join(evidence,'reload-debug.json'),JSON.stringify({pageState,snapshot:await snapshot(p2).catch(value=>({error:String(value)})),view:view()},null,2));
+      throw error;
+    }
+    check('page-reload-rebuilds-enhancements-and-keeps-statistics-local',await matching(p1,A,'- tok/s','13%'));
+    await p1.evaluate(()=>{
+      document.documentElement.lang='zh-CN';
+      window.__codexComposerHud?.remove();
+      window.__codexReadingWidth?.remove();
+      window.__codexTableSort?.remove();
+      window.__codexHudI18n={locale:()=>'zh-CN',t:key=>key};
+    });
+    await until(async()=>await p1.evaluate(()=>{
+      const root=document.querySelector('#codex-composer-hud')?.shadowRoot;
+      return root?.querySelector('#table-label')?.textContent==='table'&&
+        [...root.querySelectorAll('[data-table-sort-mode]')].map(button=>button.textContent).join('|')==='tableSortSmart|tableSortAscendingDefault|tableSortDescendingDefault';
+    }),'stale language pack installed');
+    check('stale-language-pack-exposes-raw-table-keys',await p1.evaluate(()=>{
+      const root=document.querySelector('#codex-composer-hud')?.shadowRoot;
+      return root.querySelector('#table-centered-label').textContent==='tableCentered'&&
+        root.querySelector('#table-sort-label').textContent==='tableSort';
+    }));
+    await p1.evaluate(()=>{
+      window.__codexComposerHud?.remove();
+      window.__codexReadingWidth?.remove();
+      window.__codexTableSort?.remove();
+      delete window.__codexHudI18n;
+    });
+    await until(async()=>await p1.evaluate(()=>{
+      const root=document.querySelector('#codex-composer-hud')?.shadowRoot;
+      return root?.querySelector('#table-label')?.textContent==='表格'&&
+        root.querySelector('#table-centered-label')?.textContent==='表格整体居中'&&
+        [...root.querySelectorAll('[data-table-sort-mode]')].map(button=>button.textContent).join('|')==='智能|默认升序|默认降序'&&
+        typeof window.__codexReadingWidth?.setTablesEnabled==='function'&&
+        typeof window.__codexTableSort?.setEnabled==='function';
+    }),'coordinated language and table refresh');
+    check('language-pack-and-table-modules-refresh-together',await matching(p1,A,'- tok/s','13%')&&controller.exitCode===null);
     fs.writeFileSync(path.join(runtime,'stop'),'');
     await until(()=>controller.exitCode!==null,'controller shutdown');
-    const cleaned=await Promise.all([p1,p2].map(page=>page.evaluate(()=>!window.__codexComposerHud&&!window.__codexCustomAccent&&!window.__codexReadingWidth&&!window.__codexFileChanges)));
+    const cleaned=await Promise.all([p1,p2].map(page=>page.evaluate(()=>!window.__codexComposerHud&&!window.__codexCustomAccent&&!window.__codexReadingWidth&&!window.__codexTableSort&&!window.__codexFileChanges)));
     check('stop-cleans-both-pages',cleaned.every(Boolean)&&controller.exitCode===0);
     check('stop-cleans-own-runtime-directories',fs.readdirSync(path.join(runtime,'windows')).length===0);
     await execute(dependencies.python,['-I','-c',"import psutil,sys; assert all(not psutil.pid_exists(int(p)) for p in sys.argv[1:])",...Array.from(collectors,String)],{windowsHide:true,timeout:5000});

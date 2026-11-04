@@ -1,5 +1,4 @@
 """Identity checks and normal launch plumbing shared by startup recovery."""
-import ctypes
 import os
 from pathlib import Path
 import subprocess
@@ -14,15 +13,15 @@ from src.platform.paths import ROOT
 from src.platform.codex.processes import desktops, port_status
 
 
-def preflight(settings, elevated=True):
+def preflight(settings):
+    if type(settings.get('port')) is not int or not 1024 <= settings['port'] <= 65535:
+        raise ValueError('Invalid display port')
     for dependency in [settings['python'], settings['node'],
                        str(Path(settings['playwright']) / 'package.json'),
                        str(Path(settings['collectorDir']) / 'metrics.py'),
                        str(ROOT / 'tools/token-hud-local/Start-ComposerHud.ps1')]:
         if not Path(dependency).is_file():
             raise ValueError('Recovery launch dependency unavailable')
-    if elevated and settings.get('runAsAdministrator') is True and not ctypes.windll.shell32.IsUserAnAdmin():
-        raise ValueError('Recovery requires administrator privileges')
 
 
 def powershell(script, *args):

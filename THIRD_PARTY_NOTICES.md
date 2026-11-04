@@ -10,6 +10,8 @@ Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hu
 
 The startup-check status symbols reproduce the geometry of Lucide's circle-check, circle-x, loader-circle and circle-ellipsis icons using native drawing. Copyright (c) 2026 Lucide Icons and Contributors. The [ISC license and upstream notices](src/lifecycle/diagnostics/LUCIDE-LICENSE) are preserved. No icon runtime or font is added.
 
+The table sorting controls embed Lucide's arrow-down-narrow-wide and arrow-down-wide-narrow SVG geometry under the same preserved [ISC/MIT notices](src/lifecycle/diagnostics/LUCIDE-LICENSE). They use local inline SVG without an icon runtime or external requests.
+
 Thank you to [flitfancy/codex-lite-hud](https://github.com/flitfancy/codex-lite-hud) for its local Windows HUD approach, and [Creative-developer-single/codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) for exploring in-app Codex metrics. These projects informed our research and comparison; their program code is not included.
 
 Thank you to [openai/codex](https://github.com/openai/codex) and its contributors. Better-Codex does not ship Codex binaries or an alternative model client. The launcher icon is obtained from the user's installed app during setup, not bundled with this project.

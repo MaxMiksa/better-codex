@@ -131,6 +131,12 @@ def verify(output, composited=False):
             assert not (win32gui.GetWindowLong(window, win32con.GWL_STYLE) & win32con.WS_THICKFRAME)
             assert all(not (win32gui.GetWindowLong(h, win32con.GWL_STYLE) & (win32con.WS_VSCROLL | win32con.WS_HSCROLL)) for h in handles)
             visible_text = [win32gui.GetWindowText(h) for h in handles if win32gui.IsWindowVisible(h)]
+            required = ['提示词', 'Codex 更新', '启动入口', '增强与后台'] if language == 'zh-CN' else ['Instructions', 'Codex updates', 'Launch entries', 'Enhancements and host']
+            assert all(visible_text.count(name) == 1 for name in required)
+            work = win32api.GetMonitorInfo(win32api.MonitorFromWindow(window, 2))['Work']
+            bounds = win32gui.GetWindowRect(window)
+            assert bounds[0] >= work[0] and bounds[1] >= work[1] and bounds[2] <= work[2] and bounds[3] <= work[3]
+            checks.append(theme + '-' + state + '-merged-management-rows-fit-work-area')
             assert not any('模型请求未实测' in text for text in visible_text)
             assert not any('启动环境检查通过' in text for text in visible_text)
             assert not any(text in ('检查完成', 'Check complete', '关闭', 'Close') for text in visible_text)
@@ -160,6 +166,7 @@ def verify(output, composited=False):
                         finally:
                             win32clipboard.CloseClipboard()
                         assert '启动检查报告' in copied and '历史会话' in copied and '模型请求未实测' in copied
+                        assert all(name in copied for name in ['提示词', 'Codex 更新', '启动入口', '运行环境与后台'])
                         assert 'C:\\Users\\' not in copied and 'Authorization' not in copied
                         assert win32gui.GetWindowText(copy_button) == '已复制'
                         checks.append('native-copy-button-complete-report')

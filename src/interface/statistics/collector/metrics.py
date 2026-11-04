@@ -1,4 +1,4 @@
-"""Read-only Codex usage measurements. No credentials, network, or conversation exports."""
+"""Read-only usage measurements. No credentials or conversation exports."""
 from __future__ import annotations
 
 import argparse
@@ -44,11 +44,20 @@ def cache_percent(usage: dict) -> float | None:
     return 100 * cached / total
 
 
+def request_rate(sample: dict) -> float | None:
+    duration, output = sample.get("duration_ms"), sample.get("output_tokens")
+    if (sample.get("basis") == "request" and sample.get("source") == "response"
+            and isinstance(duration, (int, float)) and duration >= 50 and output):
+        return output * 1000 / duration
+    return None
+
+
 class Measurements:
     """Response averages from request boundaries, including wait and reasoning."""
 
-    def __init__(self, model: str | None = None):
+    def __init__(self, model: str | None = None, calculate_speed: bool = True):
         self.model = model
+        self.calculate_speed = calculate_speed
         self.turn_id: str | None = None
         self.last: dict | None = None
         self.request_boundary: float | None = None
@@ -70,6 +79,8 @@ class Measurements:
         self.last_usage_at: float = 0
         self.event_at: float = 0
         self.turn_started_at: float | None = None
+        self.turn_first_response_id: str | None = None
+        self.turn_first_response_seen = False
 
     def reset_timing(self) -> None:
         self.request_boundary = None
@@ -98,6 +109,8 @@ class Measurements:
             self.reset_timing()
             self.turn_id = None
             self.turn_started_at = None
+            self.turn_first_response_id = None
+            self.turn_first_response_seen = False
             self.turn_closed = False
             self.stage = "idle"
             self.legacy_total = None
@@ -110,6 +123,8 @@ class Measurements:
             self.reset_timing()
             self.turn_id = p.get("turn_id")
             self.turn_started_at = at
+            self.turn_first_response_id = None
+            self.turn_first_response_seen = False
             self.request_boundary = at
             self.turn_closed = False
             self.stage = "generating"
@@ -149,6 +164,9 @@ class Measurements:
                 if self.stage == "idle":
                     self.request_boundary = at
                     self.turn_id = None
+                    self.turn_started_at = at
+                    self.turn_first_response_id = None
+                    self.turn_first_response_seen = False
                     self.turn_closed = False
                     self.stage = "generating"
             elif event_type == "reasoning" or event_type == "message" and p.get("role") == "assistant":
@@ -168,7 +186,10 @@ class Measurements:
                 self.recent_response_ids.append(response_id)
             self.canonical_usage_seen = True
             self.turn_id = p.get("turn_id") or self.turn_id
+            if not self.turn_first_response_seen and self.turn_started_at is not None:
+                self.turn_first_response_id = response_id
             self._sample(usage, at, "response", p.get("thread_token_usage"), p.get("turn_token_usage"))
+            self.last["response_id"] = response_id
             return
 
         if kind == "event_msg" and event_type == "token_count":
@@ -198,6 +219,7 @@ class Measurements:
                 total: dict | None, turn: dict | None) -> None:
         if at is None:
             return
+        self.turn_first_response_seen = True
         output = integer(usage.get("output_tokens"))
         # Item start times describe only one visible item, sometimes just the
         # reasoning summary. They cannot time the response's full output usage.
@@ -205,7 +227,8 @@ class Measurements:
         basis = "request" if start is not None and source == "response" and not self.response_tools_returned else "unknown"
         duration = at - start if start is not None else None
         # Old history may start halfway through a response. Preserve usage without inventing speed.
-        rate = output * 1000 / duration if basis == "request" and duration >= 50 and output else None
+        rate = request_rate({"basis": basis, "source": source, "duration_ms": duration,
+                             "output_tokens": output}) if self.calculate_speed else None
         self.last = {
             "rate": rate, "duration_ms": duration if duration is not None and duration > 0 else None,
             "basis": basis, "input_tokens": integer(usage.get("input_tokens")),
@@ -239,13 +262,15 @@ class Measurements:
                 "turn_id": self.turn_id, "turn_output_tokens": self.turn_output,
                 "sample_count": self.sample_count, "output_total": self.output_total,
                 "turn_started_at_ms": self.turn_started_at,
+                "turn_first_response_id": self.turn_first_response_id,
                 "last_event_at_ms": self.event_at}
 
 
 class SessionTail:
-    def __init__(self, path: str, model: str | None = None, history_bytes: int = 8 * 1024 * 1024):
+    def __init__(self, path: str, model: str | None = None, history_bytes: int = 8 * 1024 * 1024,
+                 calculate_speed: bool = True):
         self.path = Path(path)
-        self.measurements = Measurements(model)
+        self.measurements = Measurements(model, calculate_speed)
         self.offset = 0
         self.partial = b""
         self.history_bytes = history_bytes
@@ -258,7 +283,7 @@ class SessionTail:
         self.mtime_ns: int | None = None
 
     def reset(self) -> None:
-        self.measurements = Measurements(self.measurements.model)
+        self.measurements = Measurements(self.measurements.model, self.measurements.calculate_speed)
         self.offset = 0
         self.partial = b""
         self.initialized = False
@@ -328,9 +353,10 @@ class SessionTail:
 class TailCache:
     """Cache by thread, but rebind whenever its active rollout path changes."""
 
-    def __init__(self, maximum: int = 8):
+    def __init__(self, maximum: int = 8, calculate_speed: bool = True):
         self.tails: collections.OrderedDict[str, SessionTail] = collections.OrderedDict()
         self.maximum = maximum
+        self.calculate_speed = calculate_speed
 
     def update(self, row: dict, force: bool = False) -> SessionTail | None:
         path = row.get("rollout_path")
@@ -339,7 +365,7 @@ class TailCache:
         key = row["id"]
         tail = self.tails.get(key)
         if force or tail is None or os.path.normcase(str(tail.path)) != os.path.normcase(str(Path(path))):
-            tail = SessionTail(path, row.get("model"))
+            tail = SessionTail(path, row.get("model"), calculate_speed=self.calculate_speed)
             self.tails[key] = tail
         self.tails.move_to_end(key)
         tail.update()
@@ -434,9 +460,11 @@ def atomic_json(path: Path, value: dict) -> None:
 
 def monitor(codex_home: Path, runtime: Path, parent_pid: int | None = None, once: bool = False) -> dict | None:
     from src.interface.statistics.collector.history import SessionCatalog
+    from src.interface.statistics.collector.magpie import MagpieMeasurements
     catalog = SessionCatalog(codex_home)
     repository = catalog.repository
-    tails = TailCache()
+    tails = TailCache(calculate_speed=False)
+    magpie = MagpieMeasurements()
     matched_at = 0.0
     selection_key = None
     last_refresh_id = None
@@ -493,18 +521,21 @@ def monitor(codex_home: Path, runtime: Path, parent_pid: int | None = None, once
         status = "ok" if selected else "ambiguous" if len(matches) > 1 else "unbound"
         tail = tails.update(selected, force) if selected else None
         metrics = tail.measurements.snapshot() if tail else None
+        source = tail.source() if tail else None
+        if selected:
+            metrics, source = magpie.select(selected["id"], metrics, source, force)
         if force:
             refresh_result = {"request_id": refresh_id, "completed_at_ms": time.time() * 1000,
-                              "state": "ok" if tail and tail.source_state == "ok" else
+                              "state": "ok" if source and source.get("state") == "ok" else
                               "unavailable" if tail else status,
-                              "sample_at_ms": tail.measurements.last_usage_at if tail else None}
+                              "sample_at_ms": (metrics.get("last") or {}).get("measured_at_ms") if metrics else None}
         saved_range = read_selection(runtime / "range-result.json")
         range_result = saved_range if selected and saved_range.get("thread_id") == selected["id"] else None
         result = {"schema_version": 2, "collector_pid": os.getpid(),
                   "repository_state": repository.state,
                   "binding": status, "binding_mode": selection.get("binding_mode", "auto"),
                   "thread_id": selected["id"] if selected else None,
-                  "title": title, "metrics": metrics, "source": tail.source() if tail else None,
+                  "title": title, "metrics": metrics, "source": source,
                   "refresh": refresh_result, "range": range_result,
                   "matches": [{k: r.get(k) for k in ("id", "title", "model", "updated_at")} for r in matches],
                   "threads": [{"id": r["id"], "title": r["title"], "model": r["model"]} for r in list(catalog.rows.values())[:80]]}

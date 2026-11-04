@@ -25,7 +25,8 @@ class DisplayConnection:
         self.child_exits, self.last_child_exit = 0, None
 
     def tick(self):
-        if self.child and self.child.poll() is None and not owner_alive(self.owner):
+        gone = self.owner if self.owner is not None and not owner_alive(self.owner) else None
+        if self.child and self.child.poll() is None and gone:
             self.child.terminate()
             self.child.wait(timeout=5)
         if self.child and self.child.poll() is not None:
@@ -47,6 +48,7 @@ class DisplayConnection:
                 'desktopPid': self.owner[0] if self.owner else None,
                 'controllerPid': self.child.pid if self.child else None,
                 'packageVersion': (self.package or {}).get('packageVersion'),
+                'desktopGone': list(gone) if gone else None,
                 'childExits': self.child_exits, 'lastChildExit': self.last_child_exit}
 
     def stop(self):

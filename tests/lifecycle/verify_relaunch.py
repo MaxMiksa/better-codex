@@ -19,14 +19,16 @@ class RelaunchChecks(unittest.TestCase):
             (self.root / name).touch()
         self.settings_path = self.root / 'settings.json'
         self.settings = {'python': str(self.root / 'python.exe'), 'node': str(self.root / 'node.exe'),
-                         'playwright': str(self.root), 'collectorDir': str(self.root), 'runAsAdministrator': False}
+                         'playwright': str(self.root), 'collectorDir': str(self.root), 'runAsAdministrator': True, 'port': 19163}
         relaunch.save(self.settings_path, self.settings)
         self.package = {'packageVersion': '26.1.1.0', 'sha256': 'fixture', 'executable': 'C:/fixture/ChatGPT.exe'}
         self.running = [{'pid': 123, 'started': 100, 'main': True, 'debuggingRequested': True}]
         self.port, self.clock = 'absent', 1000
         self.calls, self.closed = [], []
         self.close_allowed, self.close_completes, self.reconnects = True, True, True
+        self.activity = {'state': 'idle', 'activeCount': 0, 'checkedAt': 1000}
         self.patches = [patch.object(relaunch, 'discover', side_effect=lambda: dict(self.package)),
+                        patch.object(relaunch, 'session_activity', side_effect=lambda *_: dict(self.activity)),
                         patch.object(relaunch, 'desktops', side_effect=lambda _: [dict(p) for p in self.running]),
                         patch.object(relaunch, 'port_status', side_effect=lambda *_: self.port),
                         patch.object(relaunch, 'request_close', side_effect=self.close),
@@ -69,6 +71,38 @@ class RelaunchChecks(unittest.TestCase):
 
     def test_confirmed_plugin_failure_arms(self):
         self.assertTrue(self.plan()['automatic'])
+
+    def test_active_session_cancels_automatic_relaunch(self):
+        self.activity['state'] = 'busy'
+        plan = self.plan(updated=True)
+        self.assertFalse(plan['allowed'] or plan['automatic'])
+        self.assertTrue(plan['cancelledForActivity'])
+        self.activity['state'] = 'idle'
+        self.assertFalse(self.plan(updated=True)['automatic'])
+        self.assertTrue(self.plan()['allowed'])
+
+    def test_unknown_session_cannot_be_treated_as_idle(self):
+        self.activity['state'] = 'unknown'
+        self.assertFalse(self.plan()['allowed'])
+
+    def test_task_starting_after_check_blocks_manual_close(self):
+        plan = self.plan('pass', False)
+        self.activity['state'] = 'busy'
+        result = relaunch.execute(self.settings_path, plan)
+        self.assertEqual(result['reason'], 'sessionBusy')
+        self.assertFalse(self.closed or self.calls)
+
+    def test_task_starting_after_countdown_cancels_automatic_attempt(self):
+        plan = self.plan(updated=True)
+        self.activity['state'] = 'busy'
+        self.assertFalse(relaunch.execute(self.settings_path, plan)['success'])
+        self.activity['state'] = 'idle'
+        self.assertFalse(self.plan(updated=True)['automatic'])
+        self.assertFalse(self.closed or self.calls)
+
+    def test_healthy_plan_does_not_highlight_reload(self):
+        self.assertFalse(self.plan('pass', False)['needed'])
+        self.assertTrue(self.plan()['needed'])
 
     def test_updated_healthy_check_also_arms(self):
         plan = self.plan('pass', False, True)
@@ -120,7 +154,11 @@ class RelaunchChecks(unittest.TestCase):
         plan = self.plan('pass', False)
         self.assertTrue(relaunch.execute(self.settings_path, plan)['success'])
         self.assertEqual(self.closed, [(123, 100)])
-        self.assertEqual(self.calls, [('Start-ComposerHud.ps1', ('-StartupCheckStarted',))])
+        self.assertEqual(len(self.calls), 1)
+        script, arguments = self.calls[0]
+        self.assertEqual(script, 'Start-ComposerHud.ps1')
+        self.assertEqual(arguments[:2], ('-StartupCheckStarted', '-CorrelationId'))
+        self.assertRegex(arguments[2], r'^[a-f0-9]{32}$')
 
     def test_absent_app_only_launches(self):
         self.running = []
@@ -150,9 +188,27 @@ class RelaunchChecks(unittest.TestCase):
         self.assertEqual(relaunch.execute(self.settings_path, plan)['reason'], 'instanceChanged')
         self.assertFalse(self.closed)
 
-    def test_foreign_listener_disables_action(self):
+    def test_foreign_listener_bypassed_by_cold_entry_without_closing_owner(self):
         self.port = 'unverified'
-        self.assertFalse(self.plan()['allowed'])
+        self.assertTrue(relaunch.execute(self.settings_path, self.plan())['success'])
+        self.assertEqual(self.closed, [(123, 100)])
+
+    def test_recovery_reloads_port_selected_by_cold_entry(self):
+        original_launch = self.launch
+        def launch(*args):
+            result = original_launch(*args)
+            relaunch.save(self.settings_path, {**self.settings, 'port': 19165})
+            return result
+        with patch.object(relaunch, 'powershell', side_effect=launch), patch.object(relaunch, 'port_status',
+                side_effect=lambda settings, _: 'verified' if settings['port'] == 19165 else 'unverified'):
+            self.assertTrue(relaunch.execute(self.settings_path, self.plan())['success'])
+
+    def test_invalid_port_prevents_close(self):
+        plan = self.plan()
+        relaunch.save(self.settings_path, {**self.settings, 'port': 0})
+        with self.assertRaises(ValueError):
+            relaunch.execute(self.settings_path, plan)
+        self.assertFalse(self.closed)
 
     def test_multiple_instances_disable_action(self):
         self.running.append({**self.running[0], 'pid': 789})
@@ -164,6 +220,9 @@ class RelaunchChecks(unittest.TestCase):
         with self.assertRaises(ValueError):
             relaunch.execute(self.settings_path, plan)
         self.assertFalse(self.closed)
+
+        (self.root / 'node.exe').touch()
+        self.assertFalse(self.plan()['automatic'])
 
     def test_failed_recovery_does_not_loop_on_new_pid(self):
         self.reconnects = False

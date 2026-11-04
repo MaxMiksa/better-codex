@@ -62,9 +62,10 @@ def request_close(pid, started):
             actual = affected[0].process.started
             if (actual.dwLowDateTime, actual.dwHighDateTime) != (target.started.dwLowDateTime, target.started.dwHighDateTime):
                 return False
-            # RmShutdownOnlyRegistered, never RmForceShutdown. Closing the last
-            # window is insufficient: current Codex deliberately stays alive.
-            return manager.RmShutdown(session, 0x10, None) == 0
+            # No force flag. RmShutdownOnlyRegistered would reject applications
+            # that did not call RegisterApplicationRestart; it does not scope
+            # shutdown to RmRegisterResources. PID + creation time above do that.
+            return manager.RmShutdown(session, 0, None) == 0
         finally:
             manager.RmEndSession(session)
     finally:

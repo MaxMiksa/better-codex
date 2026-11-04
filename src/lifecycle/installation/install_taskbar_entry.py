@@ -13,9 +13,8 @@ RUNTIME = ROOT / '.runtime/token-hud/embedded'
 COMPAT = ROOT / '.runtime/hud/service/start-embedded.vbs'
 ICON = RUNTIME / 'codex.ico'
 APP_ID = 'OpenAI.Codex_2p2nqsd0c76g0!App'
-# Direct elevated EXE launches use Electron's identity rather than the Store identity.
-ADMIN_APP_ID = 'com.openai.codex'
-MANAGED_APP_IDS = (APP_ID, ADMIN_APP_ID)
+# Accept the retired identity only to migrate shortcuts owned by this copy.
+MANAGED_APP_IDS = (APP_ID, 'com.openai.codex')
 from src.platform.i18n.localization import language, text as translate
 
 
@@ -26,9 +25,7 @@ def pinned_shortcuts():
 
 
 def install(previous_root=None, quiet=False):
-    settings_path = RUNTIME / 'settings.json'
-    settings = json.loads(settings_path.read_text(encoding='utf-8-sig')) if settings_path.exists() else {}
-    app_id = ADMIN_APP_ID if settings.get('runAsAdministrator') is True else APP_ID
+    app_id = APP_ID
     wrapper = RUNTIME / 'start-composer.vbs'
     recovery = RUNTIME / 'taskbar-recovery'
     project = ROOT / 'launchers/Codex.lnk'

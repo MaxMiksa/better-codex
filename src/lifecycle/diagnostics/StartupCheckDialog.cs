@@ -20,15 +20,21 @@ namespace BetterCodex {
         public string surface;
     }
     public class StartupCheckReport {
-        public string state, title, description, checkedAt, packageVersion, note;
-        public StartupCheckRowData[] rows;
+        public string state, title, description, checkedAt, packageVersion, note, correlation_id;
+        public StartupCheckRowData[] rows, managementRows;
         public StartupCheckAppearance appearance;
         public StartupRelaunchPlan relaunch;
     }
     public class StartupRelaunchPlan {
-        public bool allowed, automatic;
-        public string key, reason, packageVersion, packageHash;
+        public bool allowed, automatic, needed, cancelledForActivity, pluginFailure;
+        public string key, reason, packageVersion, packageHash, correlation_id;
         public Dictionary<string, object> target;
+        public StartupSessionActivity activity;
+    }
+    public class StartupSessionActivity {
+        public string state;
+        public int activeCount;
+        public double checkedAt;
     }
 
     // Lucide circle-check, circle-x, loader-circle and circle-ellipsis geometry.
@@ -64,6 +70,9 @@ namespace BetterCodex {
 
     public class StartupTextLabel : Label {
         public bool WrapText;
+        public StartupTextLabel() {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
         protected override void OnPaint(PaintEventArgs e) {
             e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             using (Brush brush = new SolidBrush(ForeColor))
@@ -111,19 +120,27 @@ namespace BetterCodex {
                 Padding = new Padding((int)(8 * scale), (int)(6 * scale), (int)(8 * scale), (int)(6 * scale)),
                 Font = new Font(family, 14 * scale, FontStyle.Regular, GraphicsUnit.Pixel) };
             Controls.AddRange(new Control[] { name, status, detail, suggestion });
+            UpdateData(data, showSuggestion);
+        }
+        public void UpdateData(StartupCheckRowData data, bool showSuggestion) {
+            Data = data;
+            name.Text = data.label;
+            status.Text = data.status;
+            detail.Text = data.id == "permissions" ? "" : (data.summary ?? data.detail ?? "").Replace("\r", "").Replace("\n", " · ");
+            suggestion.Text = showSuggestion ? data.suggestion ?? "" : "";
             AccessibleName = data.label + ": " + data.status + ". " + data.detail + ". " + data.suggestion;
         }
         public void Arrange(int width, bool compact) {
             float s = scaleFactor;
             Width = width;
             int statusWidth = Math.Max((int)(160 * s), TextRenderer.MeasureText(status.Text, status.Font).Width + (int)(24 * s));
-            int top = (int)((compact ? 10 : 15) * s), line = (int)((compact ? 26 : 28) * s);
+            int top = (int)((compact ? 3 : 15) * s), line = (int)((compact ? 25 : 28) * s);
             name.Bounds = new Rectangle(0, top, width - statusWidth - (int)(10 * s), line);
             status.Bounds = new Rectangle(width - statusWidth, top, statusWidth, line);
             detail.Text = detail.Text.Replace("\r", "").Replace("\n", " · ");
             int detailHeight = String.IsNullOrEmpty(detail.Text) ? 0 : (int)((compact ? 22 : 24) * s);
             detail.Bounds = new Rectangle(0, top + line, width, detailHeight + (int)(2 * s));
-            int next = detail.Bottom + (int)((compact ? 4 : 8) * s);
+            int next = detail.Bottom + (int)((compact ? 1 : 8) * s);
             suggestion.Visible = !String.IsNullOrEmpty(suggestion.Text);
             if (suggestion.Visible) {
                 int height = TextRenderer.MeasureText(suggestion.Text, suggestion.Font,
@@ -131,7 +148,7 @@ namespace BetterCodex {
                 suggestion.Bounds = new Rectangle(0, next, width, height);
                 next = suggestion.Bottom + (int)(8 * s);
             }
-            Height = Math.Max((int)((compact ? 56 : 64) * s), next + (int)(4 * s));
+            Height = Math.Max((int)((compact ? 56 : 64) * s), next + (int)((compact ? 3 : 4) * s));
         }
         public void ApplyAppearance(bool dark, Color background) {
             BackColor = background;
@@ -185,6 +202,9 @@ namespace BetterCodex {
         private Process actionProcess;
         private string actionDirectory, actionOutput, actionNote;
         private DateTime actionStarted;
+        private Process activityProcess;
+        private string activityDirectory, activityOutput;
+        private DateTime nextActivityRead, activityStarted;
 
         protected override bool ShowWithoutActivation { get { return true; } }
         private string T(string key) { string value; return words.TryGetValue("check." + key, out value) ? value : key; }
@@ -200,6 +220,7 @@ namespace BetterCodex {
             AutoScaleDimensions = new SizeF(96, 96);
             AutoScaleMode = AutoScaleMode.None;
             FormBorderStyle = FormBorderStyle.None;
+            TopMost = true;
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(560, 650);
             Text = T("title");
@@ -217,7 +238,6 @@ namespace BetterCodex {
             CopyReport = ButtonAt(T("copy"), new Rectangle(28, ClientSize.Height - 66, 104, 40));
             Recheck = ButtonAt(T("recheck"), new Rectangle(316, ClientSize.Height - 66, 104, 40));
             RelaunchAction = ButtonAt(T("reload"), new Rectangle(428, ClientSize.Height - 66, 104, 40));
-            RelaunchAction.Primary = true;
             closeGlyph = ButtonAt("", new Rectangle(514, 14, 32, 32));
             closeGlyph.CloseGlyph = true; closeGlyph.AccessibleName = T("close");
             CopyReport.TabIndex = 0; Recheck.TabIndex = 1; RelaunchAction.TabIndex = 2; closeGlyph.TabIndex = 3;
@@ -231,10 +251,11 @@ namespace BetterCodex {
             timer = new System.Windows.Forms.Timer { Interval = 200 };
             timer.Tick += Tick;
             UpdateAppearance();
-            Shown += delegate { StartCheck(); timer.Start(); };
+            Shown += delegate { Present(); StartCheck(); timer.Start(); };
             FormClosing += delegate { CancelCountdown(true); };
             FormClosed += delegate {
                 finishing = true; timer.Stop(); timer.Dispose(); StopOwnWorker();
+                StopActivityProbe();
                 if (actionProcess != null) actionProcess.Dispose(); // A started relaunch finishes independently.
                 foreach (StartupCheckRow item in rows) item.Dispose();
             };
@@ -252,12 +273,36 @@ namespace BetterCodex {
             if (e.Button != MouseButtons.Left) return;
             Native.ReleaseCapture(); Native.SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero);
         }
-        private void StopOwnWorker() {
+        private void Present() {
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            TopMost = true;
+            Native.SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0010 | 0x0001 | 0x0002 | 0x0040);
+        }
+        private void RecordWorkerEnd(string reason) {
+            if (!String.IsNullOrEmpty(preview) || current == null || outputPath == null || !File.Exists(python)) return;
+            try {
+                string args = "-B -X utf8 " + Quote(workerScript) + " --settings " + Quote(settings) +
+                    " --output " + Quote(outputPath) + " --instance " + Quote(Path.GetFileName(sessionDirectory)) + " --finish " + reason;
+                if (!String.IsNullOrEmpty(current.correlation_id)) args += " --correlation-id " + Quote(current.correlation_id);
+                else if (afterUpdate) args += " --after-update";
+                var start = new ProcessStartInfo(python, args) {
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
+                    RedirectStandardOutput = true, RedirectStandardError = true
+                };
+                using (Process child = Process.Start(start)) {
+                    child.BeginOutputReadLine(); child.BeginErrorReadLine();
+                    child.StandardInput.Write(json.Serialize(current)); child.StandardInput.Close();
+                }
+            } catch (Exception) { }
+        }
+        private void StopOwnWorker() { StopOwnWorkerWithReason("cancelled"); }
+        private void StopOwnWorkerWithReason(string reason) {
             if (worker != null) {
                 try { if (!worker.HasExited) { worker.Kill(); worker.WaitForExit(1500); } } catch (InvalidOperationException) { }
                 catch (System.ComponentModel.Win32Exception) { }
                 worker.Dispose(); worker = null;
             }
+            if (current != null && (current.state == "checking" || reason != "cancelled")) RecordWorkerEnd(reason);
             if (sessionDirectory != null) {
                 // Delete only the known files in this instance's own directory.
                 foreach (string name in new[] { "result.json", "result.next" }) {
@@ -274,25 +319,32 @@ namespace BetterCodex {
             foreach (string id in new[] { "app", "sessions", "sandbox", "network", "enhancements", "permissions" })
                 list.Add(new StartupCheckRowData { id = id, label = T(id), state = state,
                     status = T(state == "unknown" ? "unknownStatus" : state), detail = detail ?? "" });
+            var management = new List<StartupCheckRowData>();
+            foreach (string id in new[] { "prompts", "updates", "entries", "runtime" })
+                management.Add(new StartupCheckRowData { id = id, label = T(id), state = state,
+                    status = T(state == "unknown" ? "unknownStatus" : state), detail = detail ?? "" });
             return new StartupCheckReport { state = state == "pending" ? "checking" : "unknown",
                 title = T(state == "pending" ? "checking" : "unknown"),
                 description = T(state == "pending" ? "checkingDescription" : "unknownDescription"),
-                rows = list.ToArray(), note = T("note"), checkedAt = DateTimeOffset.Now.ToString("o") };
+                rows = list.ToArray(), managementRows = management.ToArray(), note = T("note"), checkedAt = DateTimeOffset.Now.ToString("o") };
         }
         private StartupCheckReport PreviewReport() {
             var data = Initial("pass", "");
             string[] details = { T("appReady"), T("sessionsReady").Replace("{count}", "5"), T("previewSandbox"),
-                T("vpnReady"), T("hudReady"), T("permissionReady") };
+                T("vpnReady").TrimEnd('.', '。') + "\n" + T("gatewayReady"), T("hudReady"), T("permissionReady") };
             for (int i = 0; i < data.rows.Length; i++) data.rows[i].detail = details[i];
+            string[] managedDetails = { T("promptActive"), T("updatesReady"), T("entryProjectReady"), T("runtimeBackendReady") };
+            for (int i = 0; i < data.managementRows.Length; i++) data.managementRows[i].detail = managedDetails[i];
             data.rows[0].summary = T("previewApp");
             data.rows[1].summary = T("previewSessions");
             data.rows[4].summary = T("previewEnhancements");
             data.rows[2].status = T("basicPassed"); data.rows[5].status = T("admin");
             data.state = "healthy"; data.title = T("healthy"); data.description = T("healthyDescription");
             string scenario = previewRestarted ? "Healthy" : preview;
-            data.relaunch = new StartupRelaunchPlan { allowed = true, packageVersion = "26.1.1.0", key = "plugins:26.1.1.0" };
+            data.relaunch = new StartupRelaunchPlan { allowed = true, packageVersion = "26.1.1.0", key = "plugins:26.1.1.0",
+                activity = new StartupSessionActivity { state = "idle" } };
             if (scenario == "Enhancements" || scenario == "Updated") {
-                data.relaunch.automatic = true; data.relaunch.reason = scenario == "Updated" ? "updated" : "plugins";
+                data.relaunch.automatic = data.relaunch.needed = true; data.relaunch.reason = scenario == "Updated" ? "updated" : "plugins";
                 if (scenario == "Updated") {
                     data.state = "partial"; data.title = T("partial");
                     data.rows[0].summary = T("updatedSummary"); data.rows[0].status = T("updatedStatus");
@@ -302,6 +354,14 @@ namespace BetterCodex {
                     data.rows[4].state = "warning"; data.rows[4].status = T("warning");
                     data.rows[4].summary = data.rows[4].detail = T("hudNoInterface");
                 }
+            } else if (scenario == "Busy" || scenario == "UnknownActivity") {
+                bool busy = scenario == "Busy";
+                data.state = busy ? "partial" : "unknown"; data.title = T(busy ? "partial" : "unknown");
+                data.relaunch.needed = data.relaunch.cancelledForActivity = true;
+                data.relaunch.allowed = false;
+                data.relaunch.activity.state = busy ? "busy" : "unknown";
+                data.rows[0].state = "warning"; data.rows[0].status = T(busy ? "sessionBusyStatus" : "unknownStatus");
+                data.rows[0].summary = T(busy ? "sessionBusy" : "sessionUnknown");
             } else if (scenario == "Failed") {
                 data.state = "failed"; data.title = T("failed"); data.description = T("networkFailed");
                 data.rows[3].state = "fail"; data.rows[3].status = T("fail");
@@ -318,6 +378,7 @@ namespace BetterCodex {
         private void StartCheck() {
             if (finishing || reloading) return;
             CancelCountdown(false); planConsidered = false; actionNote = null;
+            StopActivityProbe();
             StopOwnWorker(); queued = false; lastWrite = DateTime.MinValue;
             started = DateTime.UtcNow;
             if (!String.IsNullOrEmpty(preview)) { SetReport(PreviewReport()); return; }
@@ -335,7 +396,7 @@ namespace BetterCodex {
                 sessionDirectory = Path.Combine(Path.GetDirectoryName(settings), "runtime", "startup-check", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(sessionDirectory);
                 outputPath = Path.Combine(sessionDirectory, "result.json");
-                var start = new ProcessStartInfo(python, "-B -X utf8 " + Quote(workerScript) + " --settings " + Quote(settings) + " --output " + Quote(outputPath) + (afterUpdate ? " --after-update" : "")) {
+                var start = new ProcessStartInfo(python, "-B -X utf8 " + Quote(workerScript) + " --settings " + Quote(settings) + " --output " + Quote(outputPath) + " --instance " + Quote(Path.GetFileName(sessionDirectory)) + (afterUpdate ? " --after-update" : "")) {
                     UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
                 };
                 start.EnvironmentVariables["BETTER_CODEX_LANGUAGE"] = language;
@@ -349,8 +410,9 @@ namespace BetterCodex {
             }
         }
         private void Tick(object sender, EventArgs e) {
-            if (updateEvent != null && updateEvent.WaitOne(0)) { afterUpdate = true; queued = true; }
+            if (updateEvent != null && updateEvent.WaitOne(0)) { Present(); afterUpdate = true; queued = true; }
             if (refreshEvent != null && refreshEvent.WaitOne(0)) {
+                Present();
                 queued = true;
                 if (Recheck.Enabled) StartCheck();
             }
@@ -359,6 +421,8 @@ namespace BetterCodex {
             }
             if (reloading || (current != null && current.state == "checking")) { stateIcon.Angle = (stateIcon.Angle + 24) % 360; stateIcon.Invalidate(); }
             if (countdown > 0 && !reloading) {
+                PollActivityProbe();
+                if (countdown <= 0) return;
                 long now = Stopwatch.GetTimestamp();
                 countdownElapsed += Math.Min(.25, (now - countdownTick) / (double)Stopwatch.Frequency);
                 countdownTick = now;
@@ -371,33 +435,98 @@ namespace BetterCodex {
             if (reloading) PollRelaunch();
             if (worker != null) {
                 try {
-                    DateTime stamp = File.GetLastWriteTimeUtc(outputPath);
-                    if (stamp != lastWrite && File.Exists(outputPath)) {
-                        var data = json.Deserialize<StartupCheckReport>(File.ReadAllText(outputPath, Encoding.UTF8));
-                        if (data != null && data.rows != null && data.rows.Length == 6) { SetReport(data); lastWrite = stamp; }
-                    }
-                    if ((worker.HasExited && current.state == "checking") || (DateTime.UtcNow - started).TotalSeconds > 48) {
-                        foreach (StartupCheckRowData item in current.rows)
-                            if (item.state == "pending") { item.state = "unknown"; item.status = T("unknownStatus"); item.detail = T("workerTimeout"); }
+                    // Sample exit before reading so an exited worker's final report
+                    // is consumed before deciding that its checks are incomplete.
+                    bool exited = worker.HasExited;
+                    try {
+                        DateTime stamp = File.GetLastWriteTimeUtc(outputPath);
+                        if (stamp != lastWrite && File.Exists(outputPath)) {
+                            var data = json.Deserialize<StartupCheckReport>(File.ReadAllText(outputPath, Encoding.UTF8));
+                            if (data != null && data.rows != null && data.rows.Length == 6) { SetReport(data); lastWrite = stamp; }
+                        }
+                    } catch (IOException) { } catch (ArgumentException) { }
+                    bool timedOut = (DateTime.UtcNow - started).TotalSeconds > 48;
+                    if (current.state == "checking" && (exited || timedOut)) {
+                        string reason = exited ? T("workerStopped").Replace("{code}", worker.ExitCode.ToString()) : T("workerTimeout");
+                        foreach (StartupCheckRowData item in AllRows(current))
+                            if (item.state == "pending") { item.state = "unknown"; item.status = T("unknownStatus"); item.detail = reason; }
                         current.state = "unknown"; current.title = T("unknown"); current.description = T("unknownDescription");
-                        StopOwnWorker(); SetReport(current);
-                    } else if (worker.HasExited) { StopOwnWorker(); }
-                } catch (IOException) { } catch (InvalidOperationException) { } catch (ArgumentException) { }
+                        StopOwnWorkerWithReason(exited ? "workerStopped" : "workerTimeout"); SetReport(current);
+                    } else if (exited || timedOut) { StopOwnWorker(); }
+                } catch (InvalidOperationException) { }
             }
             else if (!reloading && String.IsNullOrEmpty(preview) && current != null && current.state == "checking") TryStartWorker();
             if (queued && Recheck.Enabled) StartCheck();
             if (DateTime.UtcNow >= nextThemeRead) { nextThemeRead = DateTime.UtcNow.AddSeconds(1); UpdateAppearance(); }
         }
-        private void CancelCountdown(bool remember) {
+        private void StopActivityProbe() {
+            if (activityProcess != null) {
+                try { if (!activityProcess.HasExited) { activityProcess.Kill(); activityProcess.WaitForExit(1000); } }
+                catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
+                activityProcess.Dispose(); activityProcess = null;
+            }
+            if (activityDirectory != null) {
+                try { File.Delete(activityOutput); File.Delete(Path.ChangeExtension(activityOutput, ".next")); Directory.Delete(activityDirectory, false); }
+                catch (IOException) { } catch (UnauthorizedAccessException) { }
+                activityDirectory = activityOutput = null;
+            }
+        }
+        private void BlockForActivity(StartupSessionActivity activity) {
+            CancelCountdown(true, true); StopActivityProbe();
+            current.relaunch.activity = activity;
+            current.relaunch.allowed = current.relaunch.automatic = false;
+            current.relaunch.cancelledForActivity = true;
+            actionNote = T("automaticCancelled");
+            bool busy = activity.state == "busy";
+            current.rows[0].state = "warning"; current.rows[0].status = T(busy ? "sessionBusyStatus" : "unknownStatus");
+            current.rows[0].summary = T(busy ? "sessionBusyCancelled" : "sessionUnknownCancelled");
+            if (current.state == "healthy") { current.state = "partial"; current.title = T("partial"); }
+            SetReport(current);
+        }
+        private void PollActivityProbe() {
+            if (!String.IsNullOrEmpty(preview)) return;
+            if (activityProcess != null) {
+                try {
+                    if (File.Exists(activityOutput)) {
+                        var activity = json.Deserialize<StartupSessionActivity>(File.ReadAllText(activityOutput, Encoding.UTF8));
+                        if (activity == null || activity.state != "idle") {
+                            BlockForActivity(activity ?? new StartupSessionActivity { state = "unknown" }); return;
+                        }
+                        current.relaunch.activity = activity; StopActivityProbe();
+                    } else if (activityProcess.HasExited || (DateTime.UtcNow - activityStarted).TotalSeconds > 5) {
+                        BlockForActivity(new StartupSessionActivity { state = "unknown" }); return;
+                    }
+                } catch (IOException) { } catch (ArgumentException) { BlockForActivity(new StartupSessionActivity { state = "unknown" }); }
+            }
+            if (activityProcess != null || DateTime.UtcNow < nextActivityRead || countdown <= 0) return;
+            try {
+                activityDirectory = Path.Combine(Path.GetDirectoryName(settings), "runtime", "startup-check", Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(activityDirectory); activityOutput = Path.Combine(activityDirectory, "activity.json");
+                string args = "-B -X utf8 " + Quote(Path.Combine(Path.GetDirectoryName(workerScript), "relaunch.py")) +
+                    " --activity --settings " + Quote(settings) + " --output " + Quote(activityOutput);
+                if (current.relaunch.target != null) args += " --target-pid " + Convert.ToString(current.relaunch.target["pid"], System.Globalization.CultureInfo.InvariantCulture) +
+                    " --target-started " + Convert.ToString(current.relaunch.target["started"], System.Globalization.CultureInfo.InvariantCulture);
+                activityProcess = Process.Start(new ProcessStartInfo(python, args) {
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+                });
+                activityProcess.BeginOutputReadLine(); activityProcess.BeginErrorReadLine();
+                activityStarted = DateTime.UtcNow; nextActivityRead = DateTime.UtcNow.AddSeconds(2);
+            } catch (Exception) { BlockForActivity(new StartupSessionActivity { state = "unknown" }); }
+        }
+        private void CancelCountdown(bool remember, bool activityBlock = false) {
             bool armed = countdown > 0;
             countdown = 0; RelaunchAction.Text = T("reload");
+            LayoutFooter();
             if (!remember || reloading || !String.IsNullOrEmpty(preview) || current == null) return;
             string operation;
-            if (armed && current.relaunch != null) operation = " --cancel " + Quote(current.relaunch.key);
+            if (armed && current.relaunch != null) operation = " --cancel " + Quote(current.relaunch.key) +
+                (activityBlock && current.relaunch.pluginFailure ? " --plugin-failure" : "") +
+                (activityBlock ? " --activity-block" : "");
             else if (afterUpdate || current.state == "checking") {
                 operation = " --cancel-check" + (afterUpdate ? " --after-update" : "");
                 if (!String.IsNullOrEmpty(current.packageVersion)) operation += " --version " + Quote(current.packageVersion);
             } else return;
+            if (!String.IsNullOrEmpty(current.correlation_id)) operation += " --correlation-id " + Quote(current.correlation_id);
             try {
                 if (!File.Exists(python)) {
                     var config = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settings, Encoding.UTF8));
@@ -411,8 +540,10 @@ namespace BetterCodex {
             } catch (Exception) { }
         }
         private void StartRelaunch() {
-            if (finishing || reloading || current == null || current.relaunch == null || !current.relaunch.allowed) return;
+            if (finishing || reloading || current == null || current.relaunch == null || !current.relaunch.allowed ||
+                current.relaunch.activity == null || current.relaunch.activity.state != "idle") return;
             CancelCountdown(false); suppressedVersion = current.relaunch.packageVersion; afterUpdate = false; StopOwnWorker();
+            StopActivityProbe();
             if (!String.IsNullOrEmpty(preview)) {
                 previewRestarted = true; actionNote = T("previewRelaunch"); StartCheck(); return;
             }
@@ -444,6 +575,8 @@ namespace BetterCodex {
             try {
                 if (File.Exists(actionOutput)) {
                     var result = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(actionOutput, Encoding.UTF8));
+                    if (result.ContainsKey("activity") && current.relaunch != null)
+                        current.relaunch.activity = json.ConvertToType<StartupSessionActivity>(result["activity"]);
                     FinishRelaunch(Convert.ToBoolean(result["success"]), Convert.ToString(result["reason"]));
                 } else if ((actionProcess != null && actionProcess.HasExited && actionProcess.ExitCode != 0) ||
                            (DateTime.UtcNow - actionStarted).TotalSeconds > 90) FinishRelaunch(false, "relaunchFailed");
@@ -458,7 +591,9 @@ namespace BetterCodex {
             }
             actionDirectory = actionOutput = null;
             if (success) { StartCheck(); return; }
-            current.state = "failed"; current.title = T("relaunchFailedTitle"); current.description = actionNote;
+            bool blocked = reason == "sessionBusy" || reason == "sessionUnknown";
+            if (blocked && current.relaunch != null) { current.relaunch.allowed = current.relaunch.automatic = false; }
+            current.state = blocked ? "partial" : "failed"; current.title = T(blocked ? "partial" : "relaunchFailedTitle"); current.description = actionNote;
             current.rows[0].state = "warning"; current.rows[0].status = T("warning");
             current.rows[0].summary = current.rows[0].detail = actionNote;
             SetReport(current);
@@ -468,7 +603,9 @@ namespace BetterCodex {
             heading.Text = reloading ? T("reloading") : data.title; description.Text = data.description;
             stateIcon.State = reloading ? "checking" : data.state;
             Recheck.Enabled = data.state != "checking" && !reloading;
-            RelaunchAction.Enabled = Recheck.Enabled && data.relaunch != null && data.relaunch.allowed;
+            RelaunchAction.Enabled = Recheck.Enabled && data.relaunch != null && data.relaunch.allowed &&
+                data.relaunch.activity != null && data.relaunch.activity.state == "idle";
+            RelaunchAction.Primary = RelaunchAction.Enabled && data.relaunch.needed;
             if (data.state != "checking" && !planConsidered && !reloading) {
                 planConsidered = true;
                 if (RelaunchAction.Enabled && data.relaunch.automatic && data.relaunch.packageVersion != suppressedVersion) {
@@ -479,13 +616,13 @@ namespace BetterCodex {
             RelaunchAction.Text = reloading ? T("reloading") : countdown > 0 ?
                 T("reloadCountdown").Replace("{count}", countdown.ToString()) : T("reload");
             body.SuspendLayout();
-            body.Controls.Clear();
-            foreach (StartupCheckRow old in rows) old.Dispose();
-            rows.Clear();
             int top = 0;
             int dpi = (int)Native.GetDpiForWindow(Handle);
             float s = dpi / 96f;
             if (fontDpi != dpi) {
+                // Row fonts are DPI-specific; ordinary report updates retain controls.
+                foreach (StartupCheckRow old in rows) old.Dispose();
+                rows.Clear();
                 fontDpi = dpi;
                 Font = new Font(family, 16 * s, FontStyle.Regular, GraphicsUnit.Pixel);
                 caption.Font = new Font(family, 16 * s, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -494,28 +631,42 @@ namespace BetterCodex {
             }
             int padding = (int)(28 * s);
             int contentWidth = (int)(504 * s);
-            foreach (StartupCheckRowData item in data.rows) {
+            StartupCheckRowData[] displayed = DisplayRows(data);
+            foreach (StartupCheckRowData item in displayed) {
                 string single = (item.summary ?? item.detail ?? "").Replace("\r", "").Replace("\n", " · ");
                 if (item.id == "permissions") single = "";
                 contentWidth = Math.Max(contentWidth, TextRenderer.MeasureText(single, Font).Width + (int)(4 * s));
             }
             int copyWidth = Math.Max((int)(104 * s), TextRenderer.MeasureText(T("copy"), Font).Width + (int)(24 * s));
             int recheckWidth = Math.Max((int)(104 * s), TextRenderer.MeasureText(T("recheck"), Font).Width + (int)(24 * s));
-            int reloadWidth = TextRenderer.MeasureText(T("reloadCountdown").Replace("{count}", "15"), Font).Width + (int)(28 * s);
+            int reloadWidth = ReloadWidth(s);
             contentWidth = Math.Max(contentWidth, copyWidth + recheckWidth + reloadWidth + (int)(32 * s));
             int formWidth = Math.Min(contentWidth + 2 * padding, Screen.FromControl(this).WorkingArea.Width - (int)(32 * s));
             int width = formWidth - 2 * padding;
             string suggestionId = null;
-            foreach (StartupCheckRowData item in data.rows)
+            foreach (StartupCheckRowData item in displayed)
                 if (item.state == "fail" && !String.IsNullOrEmpty(item.suggestion)) { suggestionId = item.id; break; }
             if (suggestionId == null)
-                foreach (StartupCheckRowData item in data.rows)
+                foreach (StartupCheckRowData item in displayed)
                     if (!String.IsNullOrEmpty(item.suggestion)) { suggestionId = item.id; break; }
-            foreach (StartupCheckRowData item in data.rows) {
-                var view = new StartupCheckRow(item, family, item.id == suggestionId, s);
-                body.Controls.Add(view);
+            while (rows.Count > displayed.Length) {
+                rows[rows.Count - 1].Dispose();
+                rows.RemoveAt(rows.Count - 1);
+            }
+            for (int i = 0; i < displayed.Length; i++) {
+                StartupCheckRowData item = displayed[i];
+                StartupCheckRow view;
+                if (i < rows.Count) {
+                    view = rows[i];
+                    view.UpdateData(item, item.id == suggestionId);
+                } else {
+                    view = new StartupCheckRow(item, family, item.id == suggestionId, s);
+                    view.ApplyAppearance(dark, body.BackColor);
+                    rows.Add(view);
+                    body.Controls.Add(view);
+                }
                 view.Arrange(width, false); view.Location = new Point(0, top);
-                top += view.Height; rows.Add(view);
+                top += view.Height;
             }
             if ((int)(220 * s) + top > Screen.FromControl(this).WorkingArea.Height - (int)(24 * s)) {
                 top = 0;
@@ -523,18 +674,65 @@ namespace BetterCodex {
             }
             int formHeight = (int)(132 * s) + top + (int)(88 * s);
             ClientSize = new Size(formWidth, formHeight);
+            Rectangle work = Screen.FromControl(this).WorkingArea;
+            int edge = (int)(12 * s);
+            if (Bottom > work.Bottom - edge) Top = Math.Max(work.Top + edge, work.Bottom - Height - edge);
+            if (Right > work.Right - edge) Left = Math.Max(work.Left + edge, work.Right - Width - edge);
             caption.Bounds = new Rectangle(padding, (int)(19 * s), formWidth - 2 * padding - (int)(32 * s), (int)(24 * s));
             heading.Bounds = new Rectangle(padding + (int)(42 * s), (int)(61 * s), width - (int)(42 * s), (int)(46 * s));
             stateIcon.Bounds = new Rectangle(padding, (int)(69 * s), (int)(28 * s), (int)(28 * s));
             closeGlyph.Bounds = new Rectangle(formWidth - (int)(46 * s), (int)(14 * s), (int)(32 * s), (int)(32 * s));
             body.Bounds = new Rectangle(padding, (int)(132 * s), width, top);
-            int bottom = formHeight - (int)(66 * s);
-            CopyReport.Bounds = new Rectangle(padding, bottom, copyWidth, (int)(40 * s));
-            RelaunchAction.Bounds = new Rectangle(formWidth - padding - reloadWidth, bottom, reloadWidth, (int)(40 * s));
-            Recheck.Bounds = new Rectangle(RelaunchAction.Left - (int)(8 * s) - recheckWidth, bottom, recheckWidth, (int)(40 * s));
+            LayoutFooter();
             body.ResumeLayout();
             if (data.appearance != null && String.IsNullOrEmpty(forcedTheme)) ApplyAppearance(data.appearance.dark, data.appearance.surface);
             else ApplyAppearance(dark, dark ? "#111111" : "#ffffff");
+        }
+        private int ReloadWidth(float scale) {
+            string text = countdown > 0 ? T("reloadCountdown").Replace("{count}", "15") : RelaunchAction.Text;
+            return Math.Max((int)(104 * scale), TextRenderer.MeasureText(text, Font).Width + (int)(28 * scale));
+        }
+        private static int Severity(string state) {
+            return state == "fail" ? 5 : state == "warning" ? 4 : state == "unknown" ? 3 : state == "pending" ? 2 : 1;
+        }
+        private StartupCheckRowData[] AllRows(StartupCheckReport data) {
+            var result = new List<StartupCheckRowData>(data.rows);
+            if (data.managementRows != null) result.AddRange(data.managementRows);
+            return result.ToArray();
+        }
+        private StartupCheckRowData MergeRow(StartupCheckRowData first, StartupCheckRowData extra, string label) {
+            bool worse = Severity(extra.state) > Severity(first.state);
+            var selected = worse ? extra : first;
+            // Loaded enhancements awaiting content are healthy when the backend
+            // passes. Keep the original evidence and recovery state unchanged.
+            bool healthyEnhancements = first.id == "enhancements" && first.state == "notApplicable" && extra.state == "pass";
+            return new StartupCheckRowData { id = "combined", label = label,
+                state = healthyEnhancements ? "pass" : selected.state, status = worse ? extra.status : first.status,
+                summary = !worse && Severity(first.state) == 1 ? extra.summary ?? extra.detail : selected.summary ?? selected.detail,
+                detail = first.label + ": " + first.status + "\n" + first.detail + "\n" + extra.label + ": " + extra.status + "\n" + extra.detail,
+                suggestion = selected.suggestion };
+        }
+        private StartupCheckRowData[] DisplayRows(StartupCheckReport data) {
+            if (data.managementRows == null || data.managementRows.Length != 4) return data.rows;
+            var result = new List<StartupCheckRowData>();
+            foreach (var item in data.rows) {
+                if (item.id == "enhancements") result.Add(MergeRow(item, data.managementRows[3], T("enhancementsAndRuntime")));
+                else if (item.id == "permissions") result.Add(MergeRow(item, data.managementRows[2], T("entries")));
+                else result.Add(item);
+            }
+            result.Add(data.managementRows[0]); result.Add(data.managementRows[1]);
+            return result.ToArray();
+        }
+        private void LayoutFooter() {
+            if (fontDpi == 0) return;
+            float s = fontDpi / 96f;
+            int padding = (int)(28 * s), bottom = ClientSize.Height - (int)(66 * s);
+            int copyWidth = Math.Max((int)(104 * s), TextRenderer.MeasureText(T("copy"), Font).Width + (int)(24 * s));
+            int recheckWidth = Math.Max((int)(104 * s), TextRenderer.MeasureText(T("recheck"), Font).Width + (int)(24 * s));
+            int reloadWidth = ReloadWidth(s);
+            CopyReport.Bounds = new Rectangle(padding, bottom, copyWidth, (int)(40 * s));
+            RelaunchAction.Bounds = new Rectangle(ClientSize.Width - padding - reloadWidth, bottom, reloadWidth, (int)(40 * s));
+            Recheck.Bounds = new Rectangle(RelaunchAction.Left - (int)(8 * s) - recheckWidth, bottom, recheckWidth, (int)(40 * s));
         }
         private void UpdateAppearance() {
             bool isDark = false;
@@ -582,7 +780,12 @@ namespace BetterCodex {
             result.AppendLine(current.title); result.AppendLine(current.description);
             if (!String.IsNullOrEmpty(actionNote)) result.AppendLine(actionNote);
             if (countdown > 0) result.AppendLine(RelaunchAction.Text);
-            foreach (StartupCheckRowData item in current.rows) {
+            if (current.relaunch != null && current.relaunch.activity != null) {
+                string state = current.relaunch.activity.state;
+                result.AppendLine(T(state == "busy" ? "sessionBusy" : state == "idle" ? "sessionIdle" : "sessionUnknown"));
+                if (current.relaunch.cancelledForActivity) result.AppendLine(T("automaticCancelled"));
+            }
+            foreach (StartupCheckRowData item in DisplayRows(current)) {
                 result.AppendLine(); result.AppendLine(item.label + ": " + item.status);
                 if (!String.IsNullOrEmpty(item.detail)) result.AppendLine(item.detail);
                 if (!String.IsNullOrEmpty(item.suggestion)) result.AppendLine(T("suggestion").Replace("{value}", item.suggestion));
@@ -671,6 +874,7 @@ namespace BetterCodex {
             }
         }
         private static class Native {
+            [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern bool ReleaseCapture();
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam);
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern bool SetProcessDpiAwarenessContext(IntPtr context);
