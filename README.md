@@ -12,9 +12,9 @@ Make Windows Codex conversations easier to read, with statistics beside the inpu
 
 **Windows 11 x64 · Official Codex Store app · English / 简体中文 · Bundled portable runtimes**
 
-<p align="center"><img src="Presentation/overview.png" alt="Latest Better-Codex source: sortable tables, collapsed file changes, interface settings and four inline statistics" width="900" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better-Codex interface settings and four inline statistics, based on a real Codex screenshot" width="760" /></p>
 
-The image shows the **latest source on main**, rendered with sample content and statistics. The downloadable **v0.4.1** packages predate these additions; use the source setup below for the current interface.
+Images use real Codex screenshots; table content and statistics are examples. The settings and table controls show the **latest source on main**. The downloadable **v0.4.1** packages predate these additions; use the source setup below for the current interface.
 
 ## Latest source
 
@@ -22,6 +22,10 @@ The image shows the **latest source on main**, rendered with sample content and 
 - **One settings panel:** adjust reading width from 768 to 1600px, choose whether file lists start collapsed, and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
 - **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle through sorting directions and the original order; hold Ctrl to select multiple columns in priority order, or Alt to preset/reverse a direction. Choose Smart, Ascending or Descending as the first-click direction in settings. Sorting changes only the current visual order; copying retains the source order.
 - **Local runtime history:** inspect recent startup, enhancement and recovery events with `tools/token-hud-local/Get-RuntimeHistory.ps1`. Records stay local and expire after five days; chat text is not recorded.
+
+<p align="center"><img src="Presentation/table-sorting.png" alt="A six-column table in Codex with status icons, native sorting controls and two sorting priorities" width="900" /></p>
+
+<p align="center"><img src="Presentation/file-changes.png" alt="A real collapsed file-change list with the native Undo and View changes actions" width="900" /></p>
 
 TTFT uses the first model response in the current turn. Speed uses magpie's latest valid native value for that turn when available; after a confirmed disconnection, subsequent turns use the local request average. That local average includes waiting and reasoning and excludes known tool execution. Missing timing stays unavailable, and a turn keeps one speed source. These statistics do not promise faster generation.
 
