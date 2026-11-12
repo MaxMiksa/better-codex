@@ -131,6 +131,11 @@ async function finish(child){
     check('native-fallback-keeps-ttft-missing-in-both-windows',(await snapshot(p1)).ttft==='-s'&&(await snapshot(p2)).ttft==='-s');
     check('route-parameter-window-supported-without-accepting-other-documents',isMainPageUrl('app://-/index.html?initialRoute=fixture')&&!isMainPageUrl('app://-/detached-window.html?initialRoute=fixture')&&!isMainPageUrl('https://example.invalid/index.html'));
     check('all-enhancements-coexist-in-both-pages',(await snapshot(p1)).modules&&(await snapshot(p2)).modules&&(await snapshot(p1)).accentStyle&&(await snapshot(p2)).accentStyle&&(await snapshot(p1)).width===1232&&(await snapshot(p2)).width===1232);
+    await store.patch({commandVisible:{side:false,reasoning:true},commandGroupOrder:['project','chat','context','other'],commandItemOrder:{chat:['rename','new','archive']}});
+    await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences.commandVisible;return value.side===false&&value.reasoning===true&&value.new===true;}))).then(values=>values.every(Boolean)),'command preferences in both windows');
+    check('command-preferences-persist-and-sync-across-windows',read(settingsPath).commandVisible.side===false);
+    await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat.join('|')==='rename|new|archive';}))).then(values=>values.every(Boolean)),'command order in both windows');
+    check('command-orders-persist-and-sync-across-windows',read(settingsPath).commandGroupOrder[0]==='project'&&read(settingsPath).commandItemOrder.chat[0]==='rename');
     await store.patch({tableEnabled:false,tableCentered:false,tableSortMode:'ascending'});
     await until(async()=>{const [one,two]=await Promise.all([snapshot(p1),snapshot(p2)]);return one.tableEnabled===false&&two.tableEnabled===false&&one.tableCentered===false&&two.tableCentered===false&&one.tableSortMode==='ascending'&&two.tableSortMode==='ascending';},'table preferences in both windows');
     check('table-preferences-apply-to-both-window-modules',await p1.evaluate(()=>{const settings=window.__codexComposerHud.snapshot().preferences;const reading=window.__codexReadingWidth.update(settings.readingWidth),sorting=window.__codexTableSort.snapshot();return reading.tableEnabled===false&&reading.tableCentered===false&&sorting.enabled===false&&sorting.defaultMode==='ascending';})&&await p2.evaluate(()=>{const settings=window.__codexComposerHud.snapshot().preferences;const reading=window.__codexReadingWidth.update(settings.readingWidth),sorting=window.__codexTableSort.snapshot();return reading.tableEnabled===false&&reading.tableCentered===false&&sorting.enabled===false&&sorting.defaultMode==='ascending';}));
@@ -195,6 +200,7 @@ async function finish(child){
       throw error;
     }
     check('page-reload-rebuilds-enhancements-and-keeps-statistics-local',await matching(p1,A,'- tok/s','13%'));
+    check('command-choices-survive-page-reload',await p1.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandVisible.side===false&&value.commandVisible.reasoning===true&&value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat[0]==='rename';}));
     await p1.evaluate(()=>{
       document.documentElement.lang='zh-CN';
       window.__codexComposerHud?.remove();
@@ -229,7 +235,7 @@ async function finish(child){
     check('language-pack-and-table-modules-refresh-together',await matching(p1,A,'- tok/s','13%')&&controller.exitCode===null);
     fs.writeFileSync(path.join(runtime,'stop'),'');
     await until(()=>controller.exitCode!==null,'controller shutdown');
-    const cleaned=await Promise.all([p1,p2].map(page=>page.evaluate(()=>!window.__codexComposerHud&&!window.__codexCustomAccent&&!window.__codexReadingWidth&&!window.__codexTableSort&&!window.__codexFileChanges)));
+    const cleaned=await Promise.all([p1,p2].map(page=>page.evaluate(()=>!window.__codexComposerHud&&!window.__codexCustomAccent&&!window.__codexReadingWidth&&!window.__codexTableSort&&!window.__codexFileChanges&&!window.__codexCommandMenu)));
     check('stop-cleans-both-pages',cleaned.every(Boolean)&&controller.exitCode===0);
     check('stop-cleans-own-runtime-directories',fs.readdirSync(path.join(runtime,'windows')).length===0);
     await execute(dependencies.python,['-I','-c',"import psutil,sys; assert all(not psutil.pid_exists(int(p)) for p in sys.argv[1:])",...Array.from(collectors,String)],{windowsHide:true,timeout:5000});

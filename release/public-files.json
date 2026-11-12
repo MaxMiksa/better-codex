@@ -35,6 +35,7 @@
     "src/interface/appearance/Set-CustomAccent.ps1",
     "src/interface/appearance/chrome-theme.cjs",
     "src/interface/appearance/custom-accent.js",
+    "src/interface/appearance/command-menu.js",
     "src/interface/file_changes/file-changes.js",
     "src/interface/host/collector-session.cjs",
     "src/interface/host/connection.py",

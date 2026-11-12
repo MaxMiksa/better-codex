@@ -6,6 +6,7 @@ const {readBinding}=require('../statistics/chat-binding.cjs');
 const {isMainPageUrl,pageGuard}=require('./page-contract.cjs');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const read=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return null;}};
+const {normalize:commandVisible,normalizeGroupOrder,normalizeItemOrder}=require('../appearance/command-menu.js');
 const METRIC_KEYS=['ttft','speed','cache','age'];
 const DEFAULT_PREFERENCES={readingWidth:1152,fileChangesDefaultCollapsed:true,customAccent:true,tableEnabled:true,tableCentered:true,tableSortMode:'smart',
   metricOrder:[...METRIC_KEYS],metricVisible:Object.fromEntries(METRIC_KEYS.map(key=>[key,true]))};
@@ -31,6 +32,9 @@ function preferences(value={}){
     tableEnabled:typeof value.tableEnabled==='boolean'?value.tableEnabled:typeof value.tableOptimization==='boolean'?value.tableOptimization:DEFAULT_PREFERENCES.tableEnabled,
     tableCentered:typeof value.tableCentered==='boolean'?value.tableCentered:DEFAULT_PREFERENCES.tableCentered,
     tableSortMode:['smart','ascending','descending'].includes(value.tableSortMode)?value.tableSortMode:DEFAULT_PREFERENCES.tableSortMode,
+    commandVisible:commandVisible(value.commandVisible),
+    commandGroupOrder:normalizeGroupOrder(value.commandGroupOrder),
+    commandItemOrder:normalizeItemOrder(value.commandItemOrder),
     metricOrder:metricOrder(value.metricOrder),
     metricVisible:metricVisible(value.metricVisible)
   };
@@ -43,6 +47,9 @@ function patch(value={}){
   if(typeof value.tableEnabled==='boolean')result.tableEnabled=value.tableEnabled;
   if(typeof value.tableCentered==='boolean')result.tableCentered=value.tableCentered;
   if(['smart','ascending','descending'].includes(value.tableSortMode))result.tableSortMode=value.tableSortMode;
+  if(value.commandVisible&&typeof value.commandVisible==='object'&&!Array.isArray(value.commandVisible))result.commandVisible=commandVisible(value.commandVisible);
+  if(Array.isArray(value.commandGroupOrder))result.commandGroupOrder=normalizeGroupOrder(value.commandGroupOrder);
+  if(value.commandItemOrder&&typeof value.commandItemOrder==='object'&&!Array.isArray(value.commandItemOrder))result.commandItemOrder=normalizeItemOrder(value.commandItemOrder);
   if(Array.isArray(value.metricOrder))result.metricOrder=metricOrder(value.metricOrder);
   if(value.metricVisible&&typeof value.metricVisible==='object'&&!Array.isArray(value.metricVisible))result.metricVisible=metricVisible(value.metricVisible);
   return result;
@@ -65,6 +72,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,runtime,s
       const collectorStatus=collector.tick();
       try{
         await install('__codexHudI18n',sources.i18n);
+        if(sources.commands)await install('__codexCommandMenu',sources.commands);
         await install('__codexComposerHud',sources.hud);
         let currentPreferences=preferences(store.read());
         try{
@@ -141,7 +149,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,runtime,s
     // Each worker owns only its page, CDP session, collector and runtime directory.
     await collector.stop();
     if(!page.isClosed())await page.evaluate(()=>{
-      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud']){
+      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexCommandMenu']){
         try{window[name]?.remove();}catch{}
       }
       delete window.__codexHudI18n;delete window.__codexHudLanguage;

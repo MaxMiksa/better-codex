@@ -14,7 +14,7 @@ async function main(){
   const sources={i18n:require('../../platform/i18n/i18n.js').pageSource()};
   const readThemes=createThemeReader(path.join(settings.codexHome,'config.toml'));
   try{
-    for(const [key,file] of Object.entries({hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
+    for(const [key,file] of Object.entries({commands:'../appearance/command-menu.js',hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
       sources[key]=fs.readFileSync(path.join(__dirname,file),'utf8');
     }
     while(browser.isConnected()&&!fs.existsSync(stop)){
