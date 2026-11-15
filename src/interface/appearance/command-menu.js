@@ -20,7 +20,7 @@
   const catalog={groups,commands,defaults,normalize,isSkill,normalizeGroupOrder,normalizeItemOrder,orderedGroups};
   if(typeof module==='object'&&module.exports){module.exports=catalog;return;}
   if(window.__codexCommandMenu)return;
-  let preferences=normalize(),groupOrder=normalizeGroupOrder(),itemOrder=normalizeItemOrder(),disposed=false,queued=false;
+  let preferences=normalize(),groupOrder=normalizeGroupOrder(),itemOrder=normalizeItemOrder(),enabled=true,disposed=false,queued=false;
   const discovered=new Map(),managed=new Set(),selections=new WeakMap(),views=new Map(),proxySources=new WeakMap(),columns=new WeakMap();
   const style=document.createElement('style');style.id='better-codex-command-menu-style';
   style.textContent=`[data-bc-command-hidden],[data-bc-section-hidden],[data-bc-command-source]{display:none!important}
@@ -43,7 +43,7 @@
   function attribute(node,key,value){managed.add(node);if(value===null){if(node.hasAttribute(key))node.removeAttribute(key);}else if(node.getAttribute(key)!==value)node.setAttribute(key,value);}
   function clear(node){for(const name of ['data-bc-command-root','data-bc-command-section','data-bc-command','data-bc-command-hidden','data-bc-command-source','data-bc-section-hidden','data-bc-active'])node.removeAttribute(name);node.style?.removeProperty('--bc-command-order');}
   function restore(root){views.get(root)?.surface.remove();views.delete(root);selections.delete(root);columns.delete(root);for(const node of [...managed])if(root.contains(node)){clear(node);managed.delete(node);}}
-  function eligible(root){const value=autocomplete(root);return value?.ui?.active===true&&value.ui.trigger==='/'&&!value.submenuCommand;}
+  function eligible(root){const value=autocomplete(root);return enabled&&value?.ui?.active===true&&value.ui.trigger==='/'&&!value.submenuCommand;}
   function rows(root){return [...root.querySelectorAll('[data-list-navigation-item="true"]')].filter(row=>row.hasAttribute('data-bc-command')&&!row.hasAttribute('data-bc-command-hidden')&&row.getAttribute('aria-disabled')!=='true'&&!row.disabled).sort((a,b)=>Number(a.style.getPropertyValue('--bc-command-order'))-Number(b.style.getPropertyValue('--bc-command-order')));}
   function visual(root,row){return views.get(root)?.buttons.get(row)||row;}
   function select(root,row){selections.set(root,row);for(const node of root.querySelectorAll('[data-bc-command]'))attribute(node,'data-bc-active',node===row?'':null);for(const [source,button] of views.get(root)?.buttons||[]){button.toggleAttribute('data-bc-active',source===row);button.setAttribute('aria-selected',String(source===row));}}
@@ -70,6 +70,7 @@
   }
   function refresh(){
     queued=false;if(disposed)return;
+    if(!enabled){for(const root of [...views.keys()])restore(root);for(const node of managed)clear(node);managed.clear();return;}
     for(const [root,view] of views)if(!root.isConnected){view.surface.remove();views.delete(root);}
     for(const node of [...managed])if(!node.isConnected)managed.delete(node);
     let changed=false;
@@ -116,7 +117,7 @@
   }
   function pointermove(event){const button=event.target.closest?.('[data-bc-menu-button]'),row=button?proxySources.get(button):event.target.closest?.('[data-bc-command]:not([data-bc-command-hidden])'),root=row?.closest('[data-mention-list-scroll-area]');if(root&&eligible(root)){columns.delete(root);select(root,row);}}
   window.addEventListener('keydown',keydown,true);window.addEventListener('mousemove',pointermove,true);
-  window.__codexCommandMenu={catalog,update(value,order){preferences=normalize(value);groupOrder=normalizeGroupOrder(order?.groupOrder??groupOrder);itemOrder=normalizeItemOrder(order?.itemOrder??itemOrder);refresh();},entries(){return [...discovered].filter(([id])=>!commands.some(item=>item.id===id)).map(([id,title])=>({id,title,group:'other'}));},
+  window.__codexCommandMenu={catalog,update(value,order){if(typeof order?.enabled==='boolean')enabled=order.enabled;preferences=normalize(value);groupOrder=normalizeGroupOrder(order?.groupOrder??groupOrder);itemOrder=normalizeItemOrder(order?.itemOrder??itemOrder);refresh();},entries(){return [...discovered].filter(([id])=>!commands.some(item=>item.id===id)).map(([id,title])=>({id,title,group:'other'}));},
     remove(){disposed=true;observer.disconnect();window.removeEventListener('keydown',keydown,true);window.removeEventListener('mousemove',pointermove,true);for(const view of views.values())view.surface.remove();views.clear();for(const node of managed)clear(node);managed.clear();style.remove();delete window.__codexCommandMenu;}};
   refresh();
 })();

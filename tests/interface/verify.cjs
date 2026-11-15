@@ -447,6 +447,14 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
     const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('.table-group'),commands=root.querySelector('#command-settings'),files=root.querySelector('#files-default-label').closest('.setting-row'),a=table.getBoundingClientRect(),b=commands.getBoundingClientRect(),c=files.getBoundingClientRect();
     return table.nextElementSibling===commands&&Math.abs(a.height-root.querySelector('#table-toggle').getBoundingClientRect().height)<.1&&Math.abs(b.height-root.querySelector('#command-toggle').getBoundingClientRect().height)<.1&&Math.abs(b.top-a.bottom-12)<.1&&Math.abs(c.top-b.bottom-12)<.1;
   }));
+  check('command-master-defaults-on',await page.locator('#command-enabled').getAttribute('aria-checked')==='true');
+  await page.locator('#command-enabled').click();
+  check('command-master-queues-save-without-clearing-choices',await page.evaluate(()=>{const h=window.__codexComposerHud;return h.settingsRequest().value.commandMenuEnabled===false&&Object.values(h.snapshot().preferences.commandVisible).filter(Boolean).length===8;}));
+  await page.locator('#undo').click();
+  check('command-master-undo-restores-enabled-state',await page.locator('#command-enabled').getAttribute('aria-checked')==='true');
+  await page.locator('#redo').click();
+  check('command-master-redo-restores-disabled-state',await page.locator('#command-enabled').getAttribute('aria-checked')==='false');
+  await page.locator('#command-enabled').click();
   await commandToggle.click();
   check('commands-regrouped-without-a-miscellaneous-pile',await page.locator('#command-options .command-heading').allTextContents().then(value=>value.join('|')==='聊天管理|上下文与分流|项目工作|聊天整理|模型与推理|工作模式|工具与连接|创作与伙伴|状态与帮助'));
   check('commands-default-exactly-eight-enabled',await page.locator('#command-options [aria-pressed="true"]').count()===8);
@@ -496,6 +504,20 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('native-commands-keep-eight-in-approved-order',(await menuOrder()).join('|')==='new|rename|archive|side|fork|compact|init|review-mode');
   check('native-commands-form-three-rows-without-dividers',await page.locator('#native-menu [data-bc-command-break]').count()===0&&await page.locator('#native-menu [data-bc-command-group]').evaluateAll(lines=>lines.map(line=>line.children.length).join('|')==='3|3|2'&&lines.every(line=>[...line.children].every(button=>Math.abs(button.getBoundingClientRect().top-line.firstElementChild.getBoundingClientRect().top)<.5))));
   check('future-command-default-hidden-and-recoverable',await page.evaluate(()=>document.querySelector('[data-bc-command="unknown-new-command"]').hasAttribute('data-bc-command-hidden')&&window.__codexCommandMenu.entries().some(item=>item.id==='unknown-new-command')));
+  await page.evaluate(source);
+  await page.evaluate(()=>{const h=window.__codexComposerHud;h.settingsState({...h.snapshot().preferences,commandMenuEnabled:false});});
+  check('command-master-off-immediately-restores-open-native-menu',await page.locator('#native-menu [data-bc-command],#native-menu [data-bc-command-grid]').count()===0&&await page.locator('#native-menu [data-list-navigation-item]').evaluateAll(rows=>rows.every(row=>getComputedStyle(row).display!=='none')));
+  await page.locator('[contenteditable="true"]').fill('/');await page.keyboard.press('ArrowRight');
+  check('command-master-off-releases-native-keyboard',await page.evaluate(()=>window.nativeKeys.includes('ArrowRight')));
+  await page.evaluate(()=>{const h=window.__codexComposerHud;h.settingsState({...h.snapshot().preferences,commandMenuEnabled:true});window.nativeKeys=[];});
+  check('command-master-on-rebuilds-open-menu-with-saved-choices',(await menuOrder()).join('|')==='new|rename|archive|side|fork|compact|init|review-mode');
+  // A page module can be reinstalled independently after desktop updates.
+  await page.evaluate(()=>window.__codexCommandMenu.remove());await page.evaluate(commandSource);
+  await page.evaluate(()=>{const h=window.__codexComposerHud;h.settingsState({...h.snapshot().preferences,commandVisible:{...h.snapshot().preferences.commandVisible,side:false}});});
+  check('reinstalled-command-module-receives-current-settings',!(await menuOrder()).includes('side'));
+  await page.evaluate(()=>{const h=window.__codexComposerHud;h.settingsState({...h.snapshot().preferences,commandVisible:{...h.snapshot().preferences.commandVisible,side:true}});});
+  await page.evaluate(()=>{window.__codexComposerHud.remove();window.removeEventListener('keydown',window.nativeMenuKeys,true);window.addEventListener('keydown',window.nativeMenuKeys,true);});
+
   await page.locator('[contenteditable="true"]').fill('/');
   await page.keyboard.press('ArrowRight');await page.keyboard.press('Enter');
   check('native-keyboard-selects-visible-order-and-stops-hidden-handlers',await page.evaluate(()=>window.menuSelections.join('|')==='rename'&&!window.nativeKeys.includes('Enter')&&!window.nativeKeys.includes('ArrowRight')));

@@ -136,6 +136,13 @@ async function finish(child){
     check('command-preferences-persist-and-sync-across-windows',read(settingsPath).commandVisible.side===false);
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat.join('|')==='rename|new|archive';}))).then(values=>values.every(Boolean)),'command order in both windows');
     check('command-orders-persist-and-sync-across-windows',read(settingsPath).commandGroupOrder[0]==='project'&&read(settingsPath).commandItemOrder.chat[0]==='rename');
+    await p1.evaluate(()=>document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#command-enabled').click());
+    await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandMenuEnabled===false))).then(values=>values.every(Boolean)),'command master disabled in both windows');
+    check('command-master-persists-and-syncs-without-reloading',read(settingsPath).commandMenuEnabled===false&&read(settingsPath).commandVisible.side===false);
+    await p2.evaluate(()=>document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#command-enabled').click());
+    await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandMenuEnabled===true))).then(values=>values.every(Boolean)),'command master enabled in both windows');
+    check('command-master-reenables-from-other-window',read(settingsPath).commandMenuEnabled===true);
+
     await store.patch({tableEnabled:false,tableCentered:false,tableSortMode:'ascending'});
     await until(async()=>{const [one,two]=await Promise.all([snapshot(p1),snapshot(p2)]);return one.tableEnabled===false&&two.tableEnabled===false&&one.tableCentered===false&&two.tableCentered===false&&one.tableSortMode==='ascending'&&two.tableSortMode==='ascending';},'table preferences in both windows');
     check('table-preferences-apply-to-both-window-modules',await p1.evaluate(()=>{const settings=window.__codexComposerHud.snapshot().preferences;const reading=window.__codexReadingWidth.update(settings.readingWidth),sorting=window.__codexTableSort.snapshot();return reading.tableEnabled===false&&reading.tableCentered===false&&sorting.enabled===false&&sorting.defaultMode==='ascending';})&&await p2.evaluate(()=>{const settings=window.__codexComposerHud.snapshot().preferences;const reading=window.__codexReadingWidth.update(settings.readingWidth),sorting=window.__codexTableSort.snapshot();return reading.tableEnabled===false&&reading.tableCentered===false&&sorting.enabled===false&&sorting.defaultMode==='ascending';}));

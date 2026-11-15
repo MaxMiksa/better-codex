@@ -32,6 +32,7 @@ function preferences(value={}){
     tableEnabled:typeof value.tableEnabled==='boolean'?value.tableEnabled:typeof value.tableOptimization==='boolean'?value.tableOptimization:DEFAULT_PREFERENCES.tableEnabled,
     tableCentered:typeof value.tableCentered==='boolean'?value.tableCentered:DEFAULT_PREFERENCES.tableCentered,
     tableSortMode:['smart','ascending','descending'].includes(value.tableSortMode)?value.tableSortMode:DEFAULT_PREFERENCES.tableSortMode,
+    commandMenuEnabled:typeof value.commandMenuEnabled==='boolean'?value.commandMenuEnabled:true,
     commandVisible:commandVisible(value.commandVisible),
     commandGroupOrder:normalizeGroupOrder(value.commandGroupOrder),
     commandItemOrder:normalizeItemOrder(value.commandItemOrder),
@@ -47,6 +48,7 @@ function patch(value={}){
   if(typeof value.tableEnabled==='boolean')result.tableEnabled=value.tableEnabled;
   if(typeof value.tableCentered==='boolean')result.tableCentered=value.tableCentered;
   if(['smart','ascending','descending'].includes(value.tableSortMode))result.tableSortMode=value.tableSortMode;
+  if(typeof value.commandMenuEnabled==='boolean')result.commandMenuEnabled=value.commandMenuEnabled;
   if(value.commandVisible&&typeof value.commandVisible==='object'&&!Array.isArray(value.commandVisible))result.commandVisible=commandVisible(value.commandVisible);
   if(Array.isArray(value.commandGroupOrder))result.commandGroupOrder=normalizeGroupOrder(value.commandGroupOrder);
   if(value.commandItemOrder&&typeof value.commandItemOrder==='object'&&!Array.isArray(value.commandItemOrder))result.commandItemOrder=normalizeItemOrder(value.commandItemOrder);
