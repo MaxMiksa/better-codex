@@ -502,6 +502,32 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   });
   const menuOrder=()=>page.evaluate(()=>[...document.querySelectorAll('#native-menu [data-bc-command]:not([data-bc-command-hidden])')].sort((a,b)=>Number(a.style.getPropertyValue('--bc-command-order'))-Number(b.style.getPropertyValue('--bc-command-order'))).map(row=>row.dataset.bcCommand));
   check('native-commands-keep-eight-in-approved-order',(await menuOrder()).join('|')==='new|rename|archive|side|fork|compact|init|review-mode');
+  check('native-command-sources-stay-mounted-but-invisible',await page.locator('#native-menu [data-bc-command-source]').evaluateAll(rows=>rows.every(row=>{const style=getComputedStyle(row);return style.display!=='none'&&style.visibility==='hidden'&&style.pointerEvents==='none'&&row.getBoundingClientRect().width>0;})));
+  check('native-command-sources-intersect-viewport-for-icon-rendering',await page.evaluate(()=>new Promise(resolve=>{
+    const rows=[...document.querySelectorAll('#native-menu [data-bc-command-source]')].filter(row=>!row.hasAttribute('data-bc-command-hidden')),seen=new Set();
+    const timer=setTimeout(()=>{observer.disconnect();resolve(false);},2000);
+    const observer=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)seen.add(entry.target);if(seen.size===rows.length){clearTimeout(timer);observer.disconnect();resolve(true);}});
+    for(const row of rows)observer.observe(row);
+  })));
+  const chatButtons=page.locator('#native-menu [data-bc-command-group="chat"] [data-bc-menu-button]');
+  const chatGeometry=()=>chatButtons.evaluateAll(buttons=>buttons.map(button=>{
+    const rect=button.getBoundingClientRect();
+    return [rect.left,rect.width,button.lastElementChild.getBoundingClientRect().left];
+  }));
+  const beforeIcons=await chatGeometry();
+  await chatButtons.evaluateAll(buttons=>{window.fixtureChatButtons=buttons;});
+  await page.evaluate(()=>{
+    for(const id of ['new','rename','archive']){
+      const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 16 16');
+      icon.innerHTML='<path d="M2 8h12" stroke="currentColor"/>';
+      document.querySelector('#native-menu [data-bc-command="'+id+'"]').prepend(icon);
+    }
+  });
+  check('native-command-icons-loaded-after-first-render-appear',await page.locator('#native-menu [data-bc-command-group="chat"] [data-bc-menu-button] svg').count()===3);
+  check('native-delayed-command-icons-do-not-move-buttons-or-labels',JSON.stringify(await chatGeometry())===JSON.stringify(beforeIcons));
+  check('native-delayed-command-icons-keep-existing-buttons',await chatButtons.evaluateAll(buttons=>buttons.every((button,index)=>button===window.fixtureChatButtons[index])));
+  await page.evaluate(()=>document.querySelector('#native-menu [data-bc-command="rename"] svg').replaceChildren());
+  check('native-command-icon-content-refreshes-without-label-change',await page.locator('#native-menu [data-bc-menu-button="rename"] svg path').count()===0);
   check('native-commands-form-three-rows-without-dividers',await page.locator('#native-menu [data-bc-command-break]').count()===0&&await page.locator('#native-menu [data-bc-command-group]').evaluateAll(lines=>lines.map(line=>line.children.length).join('|')==='3|3|2'&&lines.every(line=>[...line.children].every(button=>Math.abs(button.getBoundingClientRect().top-line.firstElementChild.getBoundingClientRect().top)<.5))));
   check('future-command-default-hidden-and-recoverable',await page.evaluate(()=>document.querySelector('[data-bc-command="unknown-new-command"]').hasAttribute('data-bc-command-hidden')&&window.__codexCommandMenu.entries().some(item=>item.id==='unknown-new-command')));
   await page.evaluate(source);
