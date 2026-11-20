@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.4.1"><img alt="版本" src="https://img.shields.io/badge/version-v0.4.1-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.4.2"><img alt="版本" src="https://img.shields.io/badge/version-v0.4.2-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -14,7 +14,7 @@
 
 <p align="center"><img src="Presentation/overview.png" alt="基于 Codex 真实截图的 Better-Codex 界面设置与四项内嵌统计" width="760" /></p>
 
-配图以 Codex 真实截图为底，表格内容与统计数值为演示数据；设置面板和表格控件来自 **main 分支最新源码**。现有 **v0.4.1 下载包**尚不包含这些新增能力；体验图中界面请按下方说明安装最新源码。
+配图以 Codex 真实截图为底，表格内容与统计数值为演示数据。
 
 ## 最新源码
 
@@ -31,15 +31,15 @@ TTFT 取本轮首次模型响应。速度优先使用 magpie 提供的本轮最�
 
 ## 开始使用
 
-1. 从 [v0.4.1 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.4.1) 下载 `better-codex-v0.4.1-windows-x64-portable.zip`。
+1. 从 [v0.4.2 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.4.2) 下载 `better-codex-v0.4.2-windows-x64-portable.zip`。
 2. **完整解压**到可写、准备长期保留的目录。
 3. 双击 `BetterCodex.exe`；点击输入框底部的统计文字调节正文宽度。便携包不需要安装 Python/Node.js，首次启动不下载依赖。
 
-联合入口会异步打开启动体检。确认增强未加载或刚完成 Codex 更新后，检测全部结束才开始 **15 秒重开倒计时**；点击按钮立即执行，**X / Esc 取消**。重开请求正常退出，失败不强制终止、不循环。当前工作需要保留时请取消，方便后再重开。
+启动体检默认最小化。全部通过时保持最小化，30 秒后自动关闭；有问题需要关注时才展开完整窗口。确认增强未加载或刚完成 Codex 更新后，检测全部结束才开始 **15 秒重开倒计时**；点击按钮立即执行，**X / Esc 取消**。重开请求正常退出，失败不强制终止、不循环。当前工作需要保留时请取消，方便后再重开。
 
 随时双击 `Stop.cmd` 停止增强、恢复原生布局；Codex 和聊天历史保留。再次运行联合入口可恢复增强。
 
-## v0.4.1 功能
+## v0.4.2 功能
 
 | 使用场景 | 能力 |
 | --- | --- |
@@ -103,7 +103,7 @@ Codex 页面更新可能需要适配；不同版本、全部窗口布局和显�
 
 ## 开发与来源
 
-体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；另行提供的 `better-codex-v0.4.1-source.zip` 是旧版发行源码。当前源码安装需要 Python 3.11+、Node.js 24.11.1 及以上的 24.x 版本和 pnpm 12.16.1，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`；该 pnpm 不在 PATH 时加 `-PnpmExecutable <路径>`，语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
+体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.4.2-source.zip`。当前源码安装需要 Python 3.11+、Node.js 24.11.1 及以上的 24.x 版本和 pnpm 12.16.1，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`；该 pnpm 不在 PATH 时加 `-PnpmExecutable <路径>`，语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
 
 本地采集器复用自 [codex-token-hud](https://github.com/drkang7/codex-token-hud)。感谢 [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud)、[codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) 与 [openai/codex](https://github.com/openai/codex)。复用范围、版本和许可见[第三方声明](THIRD_PARTY_NOTICES.md)。
 

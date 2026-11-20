@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$WorkDirectory)
+﻿param([Parameter(Mandatory=$true)][string]$WorkDirectory)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $work = [IO.Path]::GetFullPath($WorkDirectory)
@@ -116,6 +116,45 @@ try {
     (Get-Field $dialog 'timer').Dispose()
     $dialog.Dispose()
 }
+# Exercise automatic window closure without running probes or recovery.
+$dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), (Join-Path $work 'unused.py'), $words, 'zh-CN', 'Healthy', 'dark', $null, $null, $false)
+try {
+    $report = $type.GetMethod('PreviewReport',$flags).Invoke($dialog,@())
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    Assert-Worker 'healthy-result-arms-auto-close' (Get-Field $dialog 'autoCloseArmed')
+    Set-Field $dialog 'autoCloseElapsed' ([double]29)
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    Assert-Worker 'report-refresh-preserves-auto-close-progress' ((Get-Field $dialog 'autoCloseElapsed') -eq 29)
+    foreach ($state in @('pending','unknown','warning','fail')) {
+        $report.managementRows[0].state = $state
+        $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+        Assert-Worker ('unfinished-or-problem-row-blocks-auto-close-' + $state) (-not (Get-Field $dialog 'autoCloseArmed'))
+    }
+    $report.managementRows[0].state = 'notApplicable'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    Assert-Worker 'not-applicable-does-not-block-auto-close' (Get-Field $dialog 'autoCloseArmed')
+    $report.relaunch.needed = $true
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    Assert-Worker 'recovery-needed-blocks-auto-close' (-not (Get-Field $dialog 'autoCloseArmed'))
+    $report.relaunch.needed = $false
+    Set-Field $dialog 'reloading' $true
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    Assert-Worker 'recovery-in-progress-blocks-auto-close' (-not (Get-Field $dialog 'autoCloseArmed'))
+    Set-Field $dialog 'reloading' $false
+    $null = $type.GetMethod('StartCheck',$flags).Invoke($dialog,@())
+    Assert-Worker 'recheck-starts-fresh-auto-close' ((Get-Field $dialog 'autoCloseArmed') -and (Get-Field $dialog 'autoCloseElapsed') -eq 0)
+    Set-Field $dialog 'autoCloseElapsed' ([double]29)
+    Set-Field $dialog 'autoCloseTick' ([long]([Diagnostics.Stopwatch]::GetTimestamp() - 60 * [Diagnostics.Stopwatch]::Frequency))
+    $null = $type.GetMethod('Tick',$flags).Invoke($dialog,@($null,[EventArgs]::Empty))
+    Assert-Worker 'suspend-does-not-consume-auto-close-delay' (-not $dialog.IsDisposed -and (Get-Field $dialog 'autoCloseElapsed') -le 29.25)
+    for ($i = 0; $i -lt 4; $i++) {
+        Set-Field $dialog 'autoCloseTick' ([long]([Diagnostics.Stopwatch]::GetTimestamp() - [Diagnostics.Stopwatch]::Frequency))
+        $null = $type.GetMethod('Tick',$flags).Invoke($dialog,@($null,[EventArgs]::Empty))
+    }
+    Assert-Worker 'healthy-window-closes-at-thirty-seconds' $dialog.IsDisposed
+} finally {
+    if (-not $dialog.IsDisposed) { (Get-Field $dialog 'timer').Dispose(); $dialog.Dispose() }
+}
 # Exercise the real terminal-history handoff without running a diagnostic probe.
 $history = Join-Path $work 'history-fixture'
 [IO.Directory]::CreateDirectory($history) | Out-Null
@@ -146,5 +185,41 @@ try {
 } finally {
     (Get-Field $dialog 'timer').Dispose()
     $dialog.Dispose()
+}
+# Check real window state with synthetic reports and no runnable worker.
+Add-Type 'public static class TestStartupWindow {
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsIconic(System.IntPtr hwnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+}'
+$refresh = [Threading.AutoResetEvent]::new($false)
+$update = [Threading.AutoResetEvent]::new($false)
+$dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'missing-settings.json'), '', $words, 'zh-CN', '', 'dark', $refresh, $update, $false)
+try {
+    $dialog.Show()
+    [Windows.Forms.Application]::DoEvents()
+    (Get-Field $dialog 'timer').Stop()
+    Assert-Worker 'checking-starts-minimized' ([TestStartupWindow]::IsIconic($dialog.Handle))
+    Assert-Worker 'minimized-start-does-not-activate' ([TestStartupWindow]::GetForegroundWindow() -ne $dialog.Handle)
+    $pending = Get-Field $dialog 'current'
+    $pending.rows[0].state = 'warning'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($pending))
+    Assert-Worker 'incomplete-result-stays-minimized' ([TestStartupWindow]::IsIconic($dialog.Handle))
+    $healthy = $type.GetMethod('Initial',$flags).Invoke($dialog,@('pass','fixture'))
+    $healthy.state = 'healthy'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
+    Assert-Worker 'healthy-result-stays-minimized-and-arms-close' (([TestStartupWindow]::IsIconic($dialog.Handle)) -and (Get-Field $dialog 'autoCloseArmed'))
+    $null = $refresh.Set()
+    $null = $type.GetMethod('Tick',$flags).Invoke($dialog,@($null,[EventArgs]::Empty))
+    Assert-Worker 'repeat-entry-rechecks-without-restoring' ([TestStartupWindow]::IsIconic($dialog.Handle) -and (Get-Field $dialog 'current').state -eq 'checking')
+    $healthy.managementRows[0].state = 'warning'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
+    Assert-Worker 'completed-warning-restores-without-activation' ($dialog.WindowState -eq 'Normal' -and -not [TestStartupWindow]::IsIconic($dialog.Handle) -and [TestStartupWindow]::GetForegroundWindow() -ne $dialog.Handle)
+    $dialog.WindowState = 'Minimized'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
+    Assert-Worker 'same-problem-refresh-does-not-restore-again' ([TestStartupWindow]::IsIconic($dialog.Handle))
+} finally {
+    $dialog.Close()
+    $refresh.Dispose()
+    $update.Dispose()
 }
 @{passed=$checks.Count;checks=@($checks)} | ConvertTo-Json

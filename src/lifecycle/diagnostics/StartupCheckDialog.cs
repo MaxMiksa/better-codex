@@ -199,6 +199,11 @@ namespace BetterCodex {
         private int countdown;
         private double countdownElapsed;
         private long countdownTick;
+        private bool autoCloseArmed;
+        private bool presentedProblem;
+        private bool preventActivation;
+        private double autoCloseElapsed;
+        private long autoCloseTick;
         private Process actionProcess;
         private string actionDirectory, actionOutput, actionNote;
         private DateTime actionStarted;
@@ -207,6 +212,13 @@ namespace BetterCodex {
         private DateTime nextActivityRead, activityStarted;
 
         protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams {
+            get {
+                var parameters = base.CreateParams;
+                if (preventActivation) parameters.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                return parameters;
+            }
+        }
         private string T(string key) { string value; return words.TryGetValue("check." + key, out value) ? value : key; }
         private static string Quote(string value) { return "\"" + value.Replace("\"", "\\\"") + "\""; }
 
@@ -223,6 +235,8 @@ namespace BetterCodex {
             TopMost = true;
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(560, 650);
+            preventActivation = String.IsNullOrEmpty(preview);
+            if (preventActivation) WindowState = FormWindowState.Minimized;
             Text = T("title");
             Font = new Font(family, 16, FontStyle.Regular, GraphicsUnit.Pixel);
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
@@ -251,7 +265,11 @@ namespace BetterCodex {
             timer = new System.Windows.Forms.Timer { Interval = 200 };
             timer.Tick += Tick;
             UpdateAppearance();
-            Shown += delegate { Present(); StartCheck(); timer.Start(); };
+            Shown += delegate {
+                if (preventActivation) { preventActivation = false; UpdateStyles(); }
+                else Present();
+                StartCheck(); timer.Start();
+            };
             FormClosing += delegate { CancelCountdown(true); };
             FormClosed += delegate {
                 finishing = true; timer.Stop(); timer.Dispose(); StopOwnWorker();
@@ -274,7 +292,12 @@ namespace BetterCodex {
             Native.ReleaseCapture(); Native.SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero);
         }
         private void Present() {
-            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            if (WindowState == FormWindowState.Minimized) {
+                // Restoring a visible minimized form can activate it even with SW_SHOWNOACTIVATE.
+                preventActivation = true; UpdateStyles();
+                try { Hide(); WindowState = FormWindowState.Normal; Show(); }
+                finally { preventActivation = false; UpdateStyles(); }
+            }
             TopMost = true;
             Native.SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0010 | 0x0001 | 0x0002 | 0x0040);
         }
@@ -377,6 +400,8 @@ namespace BetterCodex {
         }
         private void StartCheck() {
             if (finishing || reloading) return;
+            autoCloseArmed = false;
+            presentedProblem = false;
             CancelCountdown(false); planConsidered = false; actionNote = null;
             StopActivityProbe();
             StopOwnWorker(); queued = false; lastWrite = DateTime.MinValue;
@@ -410,9 +435,9 @@ namespace BetterCodex {
             }
         }
         private void Tick(object sender, EventArgs e) {
-            if (updateEvent != null && updateEvent.WaitOne(0)) { Present(); afterUpdate = true; queued = true; }
+            if (updateEvent != null && updateEvent.WaitOne(0)) { afterUpdate = true; queued = true; }
             if (refreshEvent != null && refreshEvent.WaitOne(0)) {
-                Present();
+                if (!String.IsNullOrEmpty(preview)) Present();
                 queued = true;
                 if (Recheck.Enabled) StartCheck();
             }
@@ -458,6 +483,12 @@ namespace BetterCodex {
             else if (!reloading && String.IsNullOrEmpty(preview) && current != null && current.state == "checking") TryStartWorker();
             if (queued && Recheck.Enabled) StartCheck();
             if (DateTime.UtcNow >= nextThemeRead) { nextThemeRead = DateTime.UtcNow.AddSeconds(1); UpdateAppearance(); }
+            if (autoCloseArmed) {
+                long now = Stopwatch.GetTimestamp();
+                autoCloseElapsed += Math.Min(.25, (now - autoCloseTick) / (double)Stopwatch.Frequency);
+                autoCloseTick = now;
+                if (autoCloseElapsed >= 30) { autoCloseArmed = false; Close(); return; }
+            }
         }
         private void StopActivityProbe() {
             if (activityProcess != null) {
@@ -542,6 +573,7 @@ namespace BetterCodex {
         private void StartRelaunch() {
             if (finishing || reloading || current == null || current.relaunch == null || !current.relaunch.allowed ||
                 current.relaunch.activity == null || current.relaunch.activity.state != "idle") return;
+            autoCloseArmed = false;
             CancelCountdown(false); suppressedVersion = current.relaunch.packageVersion; afterUpdate = false; StopOwnWorker();
             StopActivityProbe();
             if (!String.IsNullOrEmpty(preview)) {
@@ -615,6 +647,15 @@ namespace BetterCodex {
             }
             RelaunchAction.Text = reloading ? T("reloading") : countdown > 0 ?
                 T("reloadCountdown").Replace("{count}", countdown.ToString()) : T("reload");
+            bool healthy = data.state == "healthy" && !reloading && countdown == 0 &&
+                data.rows != null && data.rows.Length == 6 && data.managementRows != null && data.managementRows.Length == 4 &&
+                (data.relaunch == null || (!data.relaunch.needed && !data.relaunch.automatic));
+            foreach (StartupCheckRowData item in AllRows(data))
+                if (item.state != "pass" && item.state != "notApplicable") healthy = false;
+            if (Visible && !presentedProblem && !healthy && data.state != "checking") {
+                presentedProblem = true;
+                if (WindowState == FormWindowState.Minimized) Present();
+            }
             body.SuspendLayout();
             int top = 0;
             int dpi = (int)Native.GetDpiForWindow(Handle);
@@ -687,6 +728,10 @@ namespace BetterCodex {
             body.ResumeLayout();
             if (data.appearance != null && String.IsNullOrEmpty(forcedTheme)) ApplyAppearance(data.appearance.dark, data.appearance.surface);
             else ApplyAppearance(dark, dark ? "#111111" : "#ffffff");
+            if (!healthy) autoCloseArmed = false;
+            else if (!autoCloseArmed) {
+                autoCloseArmed = true; autoCloseElapsed = 0; autoCloseTick = Stopwatch.GetTimestamp();
+            }
         }
         private int ReloadWidth(float scale) {
             string text = countdown > 0 ? T("reloadCountdown").Replace("{count}", "15") : RelaunchAction.Text;

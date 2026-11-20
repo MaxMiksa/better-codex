@@ -64,7 +64,7 @@ Run candidate builds in an isolated source copy. The builders write version-name
 ```powershell
 python -B -X utf8 scripts/package.py
 python -B -X utf8 scripts/build-portable.py --work .validation-runtime/portable-build
-python -B -X utf8 scripts/verify-package.py --source dist/better-codex-v0.4.1-source.zip --portable dist/better-codex-v0.4.1-windows-x64-portable.zip --work .validation-runtime/package-check
+python -B -X utf8 scripts/verify-package.py --source dist/better-codex-v0.4.2-source.zip --portable dist/better-codex-v0.4.2-windows-x64-portable.zip --work .validation-runtime/package-check
 ```
 
 Use the version named by package.json/VERSION in the verification arguments. The verification work directory must not already exist. It checks actual ZIP file sets and bytes, runtime hashes, native --check / --prepare-only, restricted PATH, and relocation through a Unicode/space path with synthetic APPDATA/home. It never invokes launch or stop; it is not clean-machine or real-upgrade acceptance.
