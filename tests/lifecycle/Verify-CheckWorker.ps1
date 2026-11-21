@@ -214,6 +214,19 @@ try {
     $healthy.managementRows[0].state = 'warning'
     $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
     Assert-Worker 'completed-warning-restores-without-activation' ($dialog.WindowState -eq 'Normal' -and -not [TestStartupWindow]::IsIconic($dialog.Handle) -and [TestStartupWindow]::GetForegroundWindow() -ne $dialog.Handle)
+    $null = $type.GetMethod('FinishRelaunch',$flags).Invoke($dialog,@($true,'fixture'))
+    Assert-Worker 'repair-recheck-keeps-window-open-until-result' (-not [TestStartupWindow]::IsIconic($dialog.Handle) -and (Get-Field $dialog 'current').state -eq 'checking')
+    $healthy.managementRows[0].state = 'pass'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
+    Assert-Worker 'passed-repair-check-minimizes-auto-opened-window' ($dialog.WindowState -eq 'Minimized' -and ([TestStartupWindow]::IsIconic($dialog.Handle)) -and (Get-Field $dialog 'autoCloseArmed'))
+    $dialog.WindowState = 'Normal'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
+    Assert-Worker 'healthy-refresh-keeps-user-opened-window-visible' (-not [TestStartupWindow]::IsIconic($dialog.Handle))
+    $null = $type.GetMethod('StartCheck',$flags).Invoke($dialog,@())
+    $dialog.WindowState = 'Minimized'
+    $healthy.managementRows[0].state = 'warning'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
+    Assert-Worker 'subsequent-warning-still-restores-window' (-not [TestStartupWindow]::IsIconic($dialog.Handle))
     $dialog.WindowState = 'Minimized'
     $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($healthy))
     Assert-Worker 'same-problem-refresh-does-not-restore-again' ([TestStartupWindow]::IsIconic($dialog.Handle))

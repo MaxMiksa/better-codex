@@ -201,6 +201,7 @@ namespace BetterCodex {
         private long countdownTick;
         private bool autoCloseArmed;
         private bool presentedProblem;
+        private bool openedForProblem;
         private bool preventActivation;
         private double autoCloseElapsed;
         private long autoCloseTick;
@@ -654,7 +655,14 @@ namespace BetterCodex {
                 if (item.state != "pass" && item.state != "notApplicable") healthy = false;
             if (Visible && !presentedProblem && !healthy && data.state != "checking") {
                 presentedProblem = true;
-                if (WindowState == FormWindowState.Minimized) Present();
+                if (WindowState == FormWindowState.Minimized) {
+                    Present();
+                    if (String.IsNullOrEmpty(preview)) openedForProblem = true;
+                }
+            } else if (healthy && openedForProblem) {
+                openedForProblem = false;
+                if (WindowState != FormWindowState.Minimized)
+                    Native.ShowWindow(Handle, 7 /* SW_SHOWMINNOACTIVE */);
             }
             body.SuspendLayout();
             int top = 0;
@@ -919,6 +927,7 @@ namespace BetterCodex {
             }
         }
         private static class Native {
+            [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern bool ShowWindow(IntPtr hwnd, int command);
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern bool ReleaseCapture();
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam);
