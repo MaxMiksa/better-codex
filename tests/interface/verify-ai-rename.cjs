@@ -42,8 +42,9 @@ async function waitFor(predicate,timeout=3000){
   const prompt=rename.titlePrompt('测试正文');
   check('prompt-and-examples-use-chinese-separator',prompt.includes('{"title":"类型：描述"}')&&
     prompt.includes('冒号前后不加空格')&&rename.EXAMPLES.every(example=>/^[a-z]+：\S/u.test(example)));
-  check('prompt-weighs-user-goal-changes-over-followups',prompt.includes('明确改变目标时，以新目标为准')&&
-    prompt.includes('排查同一功能或询问实现细节，仍按原主题命名'));
+  check('prompt-centers-the-whole-session-on-core-subjects',prompt.includes('围绕哪个核心关键词或核心对象展开工作')&&
+    prompt.includes('默认选一个核心关键词或核心对象，通常不超过两个')&&
+    prompt.includes('加上动词组成简洁短语')&&!prompt.includes('以新目标为准'));
 
   const injected=transcript.contentText([
     {type:'input_text',text:'# AGENTS.md instructions for fixture'},
