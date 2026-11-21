@@ -1,4 +1,5 @@
 const fs=require('node:fs'),path=require('node:path'),readline=require('node:readline');
+const sentenceBoundaries=new Intl.Segmenter('zh-CN',{granularity:'sentence'});
 
 let DatabaseSync=null;
 function database(){
@@ -148,48 +149,10 @@ function formatTranscript(messages){
     if(turnId)currentTurn=turnId;
     previousRole=role;
     const label=user?`用户消息 ${++users}`:`模型回复 ${++answers}`;
-    return `${heading}【${label}】\n${String(text).trim()}`;
+    const content=String(text).trim();
+    const excerpt=user?content:(sentenceBoundaries.segment(content)[Symbol.iterator]().next().value?.segment.trimEnd()??'');
+    return `${heading}【${label}】\n${excerpt}`;
   }).join('\n\n');
 }
-function forwardBoundary(text,index){
-  const target=Math.max(0,Math.min(text.length,index));
-  const paragraph=text.indexOf('\n\n',target);
-  if(paragraph>=0&&paragraph-target<4000)return paragraph+2;
-  const line=text.indexOf('\n',target);
-  if(line>=0&&line-target<2000)return line+1;
-  return target;
-}
-function backwardBoundary(text,index){
-  const target=Math.max(0,Math.min(text.length,index));
-  const paragraph=text.lastIndexOf('\n\n',target);
-  if(paragraph>=0&&target-paragraph<4000)return paragraph+2;
-  const line=text.lastIndexOf('\n',target);
-  if(line>=0&&target-line<2000)return line+1;
-  return target;
-}
-function chunkText(text,size){
-  const chunks=[];
-  let offset=0;
-  while(offset<text.length){
-    let end=forwardBoundary(text,offset+size);
-    if(end<=offset)end=Math.min(text.length,offset+size);
-    chunks.push(text.slice(offset,end));
-    offset=end;
-  }
-  return chunks.filter(chunk=>chunk.trim());
-}
-function splitTranscript(text,{fullBudget=70000,headBudget=25000,tailBudget=25000,chunkSize=40000}={}){
-  if(text.length<=fullBudget)return {mode:'full',full:text,originalChars:text.length};
-  const headEnd=forwardBoundary(text,headBudget);
-  let tailStart=backwardBoundary(text,text.length-tailBudget);
-  if(tailStart<headEnd)tailStart=headEnd;
-  return {
-    mode:'compressed',
-    head:text.slice(0,headEnd),
-    middleChunks:chunkText(text.slice(headEnd,tailStart),chunkSize),
-    tail:text.slice(tailStart),
-    originalChars:text.length
-  };
-}
-module.exports={readThreadTranscript,readThreadRow,formatTranscript,splitTranscript,chunkText,
+module.exports={readThreadTranscript,readThreadRow,formatTranscript,
   contentText,responseText,isInjectedUserPart,validThreadId,databases};

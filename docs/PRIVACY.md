@@ -24,7 +24,7 @@ The source implementation also keeps a local SQLite runtime history for five day
 
 如果本机安装了 magpie，采集器会读取 `$XDG_CONFIG_HOME/magpie/settings.json`（未设置时为 `~/.config/magpie/settings.json`）中的本机端口，并用所选 Codex 聊天标识查询 `http://127.0.0.1:<port>/v1/magpie/usage/requests`。该请求不使用代理、不跟随重定向、不读取凭据、不发送模型消息，也不修改模型连接配置。接口响应可能带有账户或请求元数据；采集器只保留完成响应关联所需的统计与标识字段，不把账户元数据或请求正文保存到状态文件。
 
-**AI 重命名会按你的点击明确发起一次含会话内容的模型请求。** Better-Codex 读取当前本地聊天的用户消息与助手最终回复，再用同一 Codex Home 下的官方 Codex CLI（`codex exec --ephemeral`，模型 `gpt-6-luna`，只读沙箱）生成标题。该内容经 Codex 现有模型服务发送；本项目不增加 API 密钥或代理，不把会话正文和提示词写入状态文件、日志或运行历史，也不发送聊天消息。注入的 AGENTS/environment 上下文、commentary、推理和工具输出不纳入。若不愿发送由聊天内容派生的文本，请继续使用原生“重命名”。
+**AI 重命名会在你点击后发起含会话内容的模型请求。** Better-Codex 读取当前本地聊天的用户消息与助手最终回复；模型输入只包含用户消息和每条最终回复的第一句话。标题由同一 Codex Home 下的官方 Codex CLI（`codex exec --ephemeral`，模型 `gpt-6-luna`，只读沙箱）生成。该内容经 Codex 现有模型服务发送；本项目不增加 API 密钥或代理，不把会话正文和提示词写入状态文件、日志或运行历史，也不发送聊天消息。注入的 AGENTS/environment 上下文、commentary、推理和工具输出不纳入。若不愿发送由聊天内容派生的文本，请继续使用原生“重命名”。
 
 Startup diagnostics inspect local app, session, permission and network conditions. A bounded HTTPS HEAD request checks transport through the detected proxy path without model credentials or a model message; HTTP reachability does not establish model authentication. Reports omit chat identifiers, titles, credentials and proxy authentication. Recovery stores necessary package/process identity and cancellation metadata locally, and requests only normal app exit after rechecking the target.
 

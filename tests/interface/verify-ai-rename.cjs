@@ -54,12 +54,6 @@ async function waitFor(predicate,timeout=3000){
   ]);
   check('injected-user-context-is-removed',injected==='真实用户内容\n[图片]');
 
-  const longText=Array.from({length:9000},(_,index)=>`section-${index} 会话内容`).join('\n');
-  const split=transcript.splitTranscript(longText);
-  check('long-transcript-compresses',split.mode==='compressed'&&split.middleChunks.length>0);
-  check('compression-preserves-every-character',
-    split.head+split.middleChunks.join('')+split.tail===longText);
-
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'better-codex-ai-rename-'));
   try{
     const rollout=path.join(root,'rollout.jsonl');
@@ -107,23 +101,33 @@ async function waitFor(predicate,timeout=3000){
   }
 
   const calls=[];
-  const title=await rename.generateTitle([{role:'user',text:'做一个 AI 重命名命令'}],{call:async prompt=>{
+  const title=await rename.generateTitle([
+    {role:'user',text:'做一个 AI 重命名命令。保留完整需求。'},
+    {role:'assistant',text:'命令已接入！这段不发送。'},
+    {role:'user',text:'验证两个轮次。也保留这句话。'},
+    {role:'assistant',text:'Version 0.5.8 is ready. This sentence is omitted.'}
+  ],{call:async prompt=>{
     calls.push(prompt);
     return '{"title":"feat: AI 重命名"}';
   }});
   check('generate-title-uses-model-output',title==='feat：AI 重命名'&&calls.length===1&&calls[0].includes('风格示例'));
-  check('model-receives-round-formatted-session',calls[0].endsWith('<session>\n【第 1 轮】\n【用户消息 1】\n做一个 AI 重命名命令\n</session>'));
+  check('model-receives-full-user-text-and-only-first-final-sentences',calls[0].endsWith(
+    '<session>\n【第 1 轮】\n【用户消息 1】\n做一个 AI 重命名命令。保留完整需求。\n\n【模型回复 1】\n命令已接入！\n\n'+
+    '【第 2 轮】\n【用户消息 1】\n验证两个轮次。也保留这句话。\n\n【模型回复 1】\nVersion 0.5.8 is ready.\n</session>'));
   check('older-untagged-messages-can-start-another-round',transcript.formatTranscript([
     {role:'user',text:'第一条'},{role:'assistant',text:'答复'},{role:'user',text:'下一条'}
   ]).endsWith('【第 2 轮】\n【用户消息 1】\n下一条'));
 
-  const longMessages=[{role:'user',text:longText}];
-  let summaryCalls=0;
-  const compressed=await rename.generateTitle(longMessages,{call:async prompt=>{
-    if(prompt.includes('分段压缩器')){summaryCalls+=1;return '{"summary":"长会话分段摘要"}';}
+  const longText=Array.from({length:9000},(_,index)=>`section-${index} 会话内容`).join('\n');
+  const longMessages=[{role:'user',text:longText},{role:'assistant',text:'结果已确认。无需发送的后续正文。'}];
+  const longCalls=[];
+  const longTitle=await rename.generateTitle(longMessages,{call:async prompt=>{
+    longCalls.push(prompt);
     return '{"title":"feat: 超长会话"}';
   }});
-  check('long-title-compresses-middle',compressed==='feat：超长会话'&&summaryCalls>0);
+  check('long-session-uses-one-model-request',longTitle==='feat：超长会话'&&longCalls.length===1);
+  check('long-session-retains-all-user-text-and-only-first-reply-sentence',longText.length>70000&&
+    longCalls[0].endsWith(`<session>\n【第 1 轮】\n【用户消息 1】\n${longText}\n\n【模型回复 1】\n结果已确认。\n</session>`));
 
   let currentId=id,notifications=[],applied=null,readCount=0;
   globalThis.window={

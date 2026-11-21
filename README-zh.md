@@ -24,7 +24,7 @@
 - **斜杠菜单设置排序**：展开「界面设置 → 命令界面」，可独立展开「命令」和「Skills」，拖动标题旁的把手即可换位；命令区只保留按钮组，不显示小标题。
 - **斜杠菜单中的 Skills 显隐**：打开「界面设置 → 命令界面 → Skills」即可逐项显示或隐藏。默认隐藏 Health、Excel Live Control、Spreadsheets、Visualize、Create Statusline；不禁用技能，也不改变原生 `$` 选择器。
 - **斜杠菜单中的 Prompt 快捷入口**：Codex Home 的 `prompts` 一级目录中的 Markdown 模板会以三列显示在 Skills 下方。选择后只在当前光标处插入正文，不替换草稿、不自动发送；`Ctrl+↑/↓` 可在命令组、Skills 和 Prompt 之间快速跳转。
-- **斜杠菜单中的 AI 重命名**：在聊天管理中选择 AI 重命名，由 Luna 概括当前本地聊天并直接应用简短中文标题，如 `feat：AI 重命名`、`bug：地图标记消失`。只读取用户消息和助手最终回复，不改草稿；生成或应用失败时保留原名。
+- **斜杠菜单中的 AI 重命名**：在聊天管理中选择 AI 重命名，由 Luna 概括当前本地聊天并直接应用简短中文标题，如 `feat：AI 重命名`、`bug：地图标记消失`。Luna 只收到用户消息和每条助手最终回复的第一句话。不改草稿；生成或应用失败时保留原名。
 - **本地运行历史**：通过 `tools/token-hud-local/Get-RuntimeHistory.ps1` 查询近期启动、增强与恢复事件；记录仅留本机、保留五天，不记录聊天正文。
 
 <p align="center"><img src="Presentation/table-sorting.png" alt="Codex 原生渲染的六列宽表，包含状态图标、排序控件和两级排序优先级" width="900" /></p>
