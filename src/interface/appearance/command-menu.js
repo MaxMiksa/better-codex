@@ -29,6 +29,7 @@
     [data-bc-command-source]{display:block!important;position:absolute!important;top:0;left:0;width:100%;visibility:hidden;pointer-events:none}
     [data-bc-section-hidden]{display:block!important;position:absolute!important;top:0;left:0;width:100%;height:0;visibility:hidden;pointer-events:none}
     [data-bc-command-root]{position:relative;display:flex;flex-direction:column;overflow-x:hidden!important;scrollbar-gutter:stable}
+    div:has(> [data-mention-list-scroll-area][data-bc-command-root]){max-height:min(var(--composer-overlay-available-height,var(--autocomplete-overlay-available-height,calc(100vh - 24px))),var(--composer-top-menu-max-height,100vh))!important}
     [data-bc-command-section]{order:1;flex-shrink:0}
     [data-bc-command-grid]{order:0;display:grid;gap:4px;padding:4px;flex-shrink:0;min-width:0}
     [data-bc-command-grid][hidden]{display:none}
