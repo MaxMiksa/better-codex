@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.2"><img alt="版本" src="https://img.shields.io/badge/version-v0.5.2-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.5"><img alt="版本" src="https://img.shields.io/badge/version-v0.5.5-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -21,7 +21,8 @@
 - **四项统计**：本轮首次响应耗时（TTFT）、输出速度、缓存比例与统计时间。点击统计条打开设置，各项可单独显隐，也可拖动调整顺序。
 - **统一设置面板**：正文宽度可在 768–1600px 间调整，可设置文件列表默认收起、开关 Custom 配色修正。修改自动保存，支持撤销、重做与恢复默认。
 - **表格阅读与排序**：按内容分配列宽，可独立于正文宽度整体居中。点击表头循环切换排序方向与原始顺序；按住 Ctrl 依次选择多列，先选的优先；Alt 可预设或反转方向。设置中可选择首次点击采用智能、升序或降序。排序仅改变当前页面的视觉顺序，复制仍保留原始顺序。
-- **斜杠菜单中的 Skills 显隐**：打开「界面设置 → 命令菜单」即可逐项显示或隐藏。默认隐藏 Health、Excel Live Control、Spreadsheets、Visualize、Create Statusline；不禁用技能，也不改变原生 `$` 选择器。
+- **斜杠菜单设置排序**：「命令」和「Skills」可独立展开，拖动标题旁的把手即可换位；命令区只保留按钮组，不显示小标题。
+- **斜杠菜单中的 Skills 显隐**：打开「界面设置 → Skills」即可逐项显示或隐藏。默认隐藏 Health、Excel Live Control、Spreadsheets、Visualize、Create Statusline；不禁用技能，也不改变原生 `$` 选择器。
 - **斜杠菜单中的 Prompt 快捷入口**：Codex Home 的 `prompts` 一级目录中的 Markdown 模板会以三列显示在 Skills 下方。选择后只在当前光标处插入正文，不替换草稿、不自动发送；`Ctrl+↑/↓` 可在命令组、Skills 和 Prompt 之间快速跳转。
 - **斜杠菜单中的 AI 重命名**：在聊天管理中选择 AI 重命名，由 Luna 概括当前本地聊天并直接应用简短中文标题，如 `feat：AI 重命名`、`bug：地图标记消失`。只读取用户消息和助手最终回复，不改草稿；生成或应用失败时保留原名。
 - **本地运行历史**：通过 `tools/token-hud-local/Get-RuntimeHistory.ps1` 查询近期启动、增强与恢复事件；记录仅留本机、保留五天，不记录聊天正文。
@@ -34,7 +35,7 @@ TTFT 取本轮首次模型响应。速度优先使用 magpie 提供的本轮最�
 
 ## 开始使用
 
-1. 从 [v0.5.2 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.2) 下载 `better-codex-v0.5.2-windows-x64-portable.zip`。
+1. 从 [v0.5.5 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.5) 下载 `better-codex-v0.5.5-windows-x64-portable.zip`。
 2. **完整解压**到可写、准备长期保留的目录。
 3. 双击 `BetterCodex.exe`；点击输入框底部的统计文字调节正文宽度。便携包不需要安装 Python/Node.js，首次启动不下载依赖。
 
@@ -42,7 +43,7 @@ TTFT 取本轮首次模型响应。速度优先使用 magpie 提供的本轮最�
 
 随时双击 `Stop.cmd` 停止增强、恢复原生布局；Codex 和聊天历史保留。再次运行联合入口可恢复增强。
 
-## v0.5.2 功能
+## v0.5.5 功能
 
 | 使用场景 | 能力 |
 | --- | --- |
@@ -107,7 +108,7 @@ Codex 页面更新可能需要适配；不同版本、全部窗口布局和显�
 
 ## 开发与来源
 
-体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.5.2-source.zip`。当前源码安装需要 Python 3.11+、Node.js 24.11.1 及以上的 24.x 版本和 pnpm 12.16.1，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`；该 pnpm 不在 PATH 时加 `-PnpmExecutable <路径>`，语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
+体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.5.5-source.zip`。当前源码安装需要 Python 3.11+、Node.js 24.11.1 及以上的 24.x 版本和 pnpm 12.16.1，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`；该 pnpm 不在 PATH 时加 `-PnpmExecutable <路径>`，语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
 
 本地采集器复用自 [codex-token-hud](https://github.com/drkang7/codex-token-hud)。感谢 [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud)、[codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) 与 [openai/codex](https://github.com/openai/codex)。复用范围、版本和许可见[第三方声明](THIRD_PARTY_NOTICES.md)。
 
