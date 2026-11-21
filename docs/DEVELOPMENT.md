@@ -18,6 +18,18 @@ Dependencies point from app to capabilities to platform. Platform does not impor
 
 Source copies include module READMEs and tests/README.md. Local maintenance copies also have PROJECT.md and AGENTS.md; public exports exclude those files and all private prompt content.
 
+## Maintain documentation and evidence
+
+AGENTS.md holds enduring collaboration rules; PROJECT.md holds current scope, implementation/loading/release status, open issues and next steps. Module READMEs explain responsibilities, operations, contracts and verification. Public README.md / README-zh.md describe released capabilities and use. Keep one complete account of each fact and link to it from other entries; update existing documents rather than creating competing versions.
+
+Use Markdown headings and their fragment links for navigation. Avoid invisible HTML anchors in current documentation: previews may display the tags as text. When reorganizing sections, update referring links together; leave historical evidence and approved review bytes unchanged.
+
+Update affected documentation before implementation when it is outdated, then record the resulting state before delivery. Keep dated evidence, reviews and approvals unchanged; add a new dated record for new findings. Distinguish source checks, isolated tests, independent-engine behavior, real-desktop observations, user feedback and long-term acceptance. A past result or old snapshot does not prove current success.
+
+Frontend changes require the user's image preview confirmation under the global instructions. Public product illustrations use real Codex screenshots, with cropping, redaction, rounded corners, borders and composition only; generated or reconstructed interfaces cannot substitute for screenshots. The local maintenance copy keeps the detailed recipe in `docs/design/pages/readme-showcase.md`.
+
+Keep temporary work in `.validation-runtime/<task>/`. Existing real-model prompt scripts retain their documented module-local fixture exception and need explicit authorization. Before recycling temporary files, verify absolute targets, junctions, dependencies and restoration points; protect installed state, valuable source and evidence. Commit a coherent verified stage locally, including only this task's files; leave unrelated work untouched. Attach any resulting PR to the chat and maintain that association.
+
 ## Set up a source copy
 
 Use Windows 11 x64, the official Codex Store app, Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1. From the source root:
@@ -64,7 +76,7 @@ Run candidate builds in an isolated source copy. The builders write version-name
 ```powershell
 python -B -X utf8 scripts/package.py
 python -B -X utf8 scripts/build-portable.py --work .validation-runtime/portable-build
-python -B -X utf8 scripts/verify-package.py --source dist/better-codex-v0.4.3-source.zip --portable dist/better-codex-v0.4.3-windows-x64-portable.zip --work .validation-runtime/package-check
+python -B -X utf8 scripts/verify-package.py --source dist/better-codex-v0.5.0-source.zip --portable dist/better-codex-v0.5.0-windows-x64-portable.zip --work .validation-runtime/package-check
 ```
 
 Use the version named by package.json/VERSION in the verification arguments. The verification work directory must not already exist. It checks actual ZIP file sets and bytes, runtime hashes, native --check / --prepare-only, restricted PATH, and relocation through a Unicode/space path with synthetic APPDATA/home. It never invokes launch or stop; it is not clean-machine or real-upgrade acceptance.
@@ -74,6 +86,8 @@ Neither package contains local state, private research or prompt customization. 
 ## Preserve installed contracts
 
 Keep settings flat, preserve unknown fields, and use the existing cross-runtime lock. Installation paths, durable cancellation records, prompt owner/approvals and restoration chains retain their locations. Existing task parameters, wrapper validation and PID/creation-time checks are contracts; keep every bridge a live process or external registration can still call.
+
+Do not modify model connection settings. If the user explicitly authorizes restoring a former connection setup, revert only changes proven to be managed by this product, preserve later user settings and refuse conflicting overwrites. A working display connection does not establish model-network or authentication success.
 
 Collector failure must stay local to statistics and retain other page enhancements. Recovery policy belongs to lifecycle, identity mechanisms to platform. A normal-exit/relaunch operation that has already started must complete once even if its window or background host closes; generic cleanup must not terminate it.
 

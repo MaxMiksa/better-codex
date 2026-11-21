@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.4.4"><img alt="Version" src="https://img.shields.io/badge/version-v0.4.4-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.0"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.0-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -21,6 +21,8 @@ Images use real Codex screenshots; table content and statistics are examples.
 - **Four statistics:** time to first response (TTFT), output speed, cache percentage and sample age. Click the statistics to open settings; toggle individual fields or drag to reorder them.
 - **One settings panel:** adjust reading width from 768 to 1600px, choose whether file lists start collapsed, and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
 - **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle through sorting directions and the original order; hold Ctrl to select multiple columns in priority order, or Alt to preset/reverse a direction. Choose Smart, Ascending or Descending as the first-click direction in settings. Sorting changes only the current visual order; copying retains the source order.
+- **Prompt shortcuts in the slash menu:** reusable Markdown prompts from the first level of Codex Home's `prompts` folder appear below Skills in a three-column section. Activate one to insert its text at the current cursor without replacing your draft or sending it. `Ctrl+↑/↓` jumps between command groups, Skills and Prompt.
+- **AI rename in the slash menu:** choose AI rename under chat management to summarize the current local chat with Luna and apply a concise Chinese title such as `feat: AI 重命名` or `bug: 地图标记消失`. It reads user messages and assistant final answers, writes nothing to your draft, and keeps the original name if generation or renaming fails.
 - **Local runtime history:** inspect recent startup, enhancement and recovery events with `tools/token-hud-local/Get-RuntimeHistory.ps1`. Records stay local and expire after five days; chat text is not recorded.
 
 <p align="center"><img src="Presentation/table-sorting.png" alt="A six-column table in Codex with status icons, native sorting controls and two sorting priorities" width="900" /></p>
@@ -31,7 +33,7 @@ TTFT uses the first model response in the current turn. Speed uses magpie's late
 
 ## Get started
 
-1. Download `better-codex-v0.4.4-windows-x64-portable.zip` from [v0.4.4 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.4.4).
+1. Download `better-codex-v0.5.0-windows-x64-portable.zip` from [v0.5.0 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.0).
 2. **Extract the entire ZIP** to a writable folder you plan to keep.
 3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No Python/Node.js installation or first-launch dependency download is needed.
 
@@ -39,7 +41,7 @@ The startup check runs minimized and opens the full window only when something n
 
 Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
 
-## v0.4.4 features
+## v0.5.0 features
 
 | Task | What you get |
 | --- | --- |
@@ -47,6 +49,7 @@ Run `Stop.cmd` at any time to stop enhancements and restore the native layout. C
 | Adjust reading space | Click the statistics to set a width limit up to 1600px; main chats, side chats and subagents stay within their panels, and the input box keeps its width |
 | Browse file changes | Multi-file lists start collapsed and can expand together; review/undo remain available, and a manually expanded card keeps its state |
 | Use Custom colors | Readable user-message bubbles and send buttons with a custom accent; native presets remain intact |
+| Name a chat with AI | The slash menu can summarize the current local chat with Luna into a short Chinese `feat:` / `bug:` style title and apply it through native rename; failures keep the original |
 | Start and maintain | Combined shortcut, separate login-start switch, startup checks and sanitized reports; optional monitoring restores the enhancement entry after Codex updates |
 
 Statistics follow the main input area's layout. Labels follow Codex's English/Simplified Chinese interface, falling back to the launch language when none is declared; other languages fall back to English. Chat mode keeps reading width without these statistics. Documents and blank pages keep their native layout.
@@ -97,13 +100,13 @@ Codex UI updates may need adaptation. All app versions, window layouts and displ
 
 ## Privacy
 
-Model requests keep Codex's existing connection. Better-Codex adds no model proxy and needs no extra API key. Portable packaging does not make model requests offline. Startup checks make a small credential-free HTTPS request through the detected network path.
+Model requests keep Codex's existing connection. Better-Codex adds no model proxy and needs no extra API key. Portable packaging does not make model requests offline. AI rename is the one enhancement that sends conversation-derived text to a model, and only after you choose it; see [Privacy](docs/PRIVACY.md). Startup checks make a small credential-free HTTPS request through the detected network path.
 
 Local state can contain chat identifiers, titles, paths and usage. **Do not upload .runtime/, authentication files or raw Codex logs.** Report the version, symptom and sanitized startup report instead. Do not expose or forward the local display interface to the internet. See [Privacy](docs/PRIVACY.md).
 
 ## Development and credits
 
-For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.4.4-source.zip`. Current source installation needs Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. Use `-PnpmExecutable <path>` if that pnpm version is outside PATH. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
+For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.0-source.zip`. Current source installation needs Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. Use `-PnpmExecutable <path>` if that pnpm version is outside PATH. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
 
 The local collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions and licenses.
 

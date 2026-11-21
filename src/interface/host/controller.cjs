@@ -1,6 +1,7 @@
 const fs=require('node:fs'),path=require('node:path'),{randomUUID}=require('node:crypto');
 const {createWriter}=require('./runtime-writer.cjs');
 const {createThemeReader}=require('../appearance/chrome-theme.cjs');
+const {createPromptReader}=require('./prompt-directory.cjs');
 const {createSettingsStore}=require('../../platform/settings/settings-store.cjs');
 const {runWindow}=require('./window-controller.cjs');
 const {isMainPageUrl}=require('./page-contract.cjs');
@@ -13,8 +14,9 @@ async function main(){
   const windows=new Map(),store=createSettingsStore(settingsPath,settings);
   const sources={i18n:require('../../platform/i18n/i18n.js').pageSource()};
   const readThemes=createThemeReader(path.join(settings.codexHome,'config.toml'));
+  const readPrompts=createPromptReader(settings.codexHome);
   try{
-    for(const [key,file] of Object.entries({commands:'../appearance/command-menu.js',hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
+    for(const [key,file] of Object.entries({commands:'../appearance/command-menu.js',aiRename:'../appearance/ai-rename.js',hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
       sources[key]=fs.readFileSync(path.join(__dirname,file),'utf8');
     }
     while(browser.isConnected()&&!fs.existsSync(stop)){
@@ -27,7 +29,7 @@ async function main(){
         if(windows.has(page))continue;
         const id=randomUUID(),state={id,stopped:false,done:false,retryAt:0,status:{visible:false,rendered:false,reason:'connecting'}};
         windows.set(page,state);
-        state.task=runWindow({page,state,settings,store,sources,readThemes,
+        state.task=runWindow({page,state,settings,store,sources,readThemes,readPrompts,
           runtime:path.join(runtime,'windows',id),stopping:()=>!browser.isConnected()||fs.existsSync(stop)})
           .catch(error=>{state.retryAt=Date.now()+3000;state.status={visible:false,rendered:false,reason:'window-unavailable',errorType:error.name,code:error.code||null,checkedAt:Date.now()};})
           .finally(()=>{state.done=true;});

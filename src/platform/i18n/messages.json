@@ -284,7 +284,13 @@
     "command.share": "Share chat",
     "command.feedback": "Feedback",
     "command.service-tier:priority": "Fast",
-    "command.ide-context": "IDE context"
+    "command.ide-context": "IDE context",
+    "command.ai-rename": "AI rename",
+    "aiRename.running": "AI is naming this chat…",
+    "aiRename.success": "Renamed to {title}",
+    "aiRename.failed": "AI rename failed; original name kept",
+    "aiRename.noChat": "Open a saved chat first",
+    "aiRename.busy": "AI rename is already running"
   },
   "zh-CN": {
     "responseAverage": "本轮最近一次有效的 magpie 速度；有新值再更新，下一轮清空。",
@@ -560,7 +566,13 @@
     "command.share": "分享聊天",
     "command.feedback": "反馈",
     "command.service-tier:priority": "快速",
-    "command.ide-context": "IDE 上下文"
+    "command.ide-context": "IDE 上下文",
+    "command.ai-rename": "AI 重命名",
+    "aiRename.running": "AI 正在整理会话…",
+    "aiRename.success": "已重命名为 {title}",
+    "aiRename.failed": "AI 重命名失败，已保留原名",
+    "aiRename.noChat": "请先打开已保存的聊天",
+    "aiRename.busy": "AI 重命名正在处理"
   }
 }
 

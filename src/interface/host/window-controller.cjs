@@ -3,6 +3,7 @@ const {createCollector}=require('./collector-session.cjs');
 const {formatMetrics}=require('../statistics/metrics-view.cjs');
 const {createWriter}=require('./runtime-writer.cjs');
 const {readBinding}=require('../statistics/chat-binding.cjs');
+const {createAiRenameManager}=require('./ai-rename.cjs');
 const {isMainPageUrl,pageGuard}=require('./page-contract.cjs');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const read=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return null;}};
@@ -57,15 +58,27 @@ function patch(value={}){
   return result;
 }
 
-async function runWindow({page,state,settings,store,sources,readThemes,runtime,stopping}){
+async function runWindow({page,state,settings,store,sources,readThemes,readPrompts,runtime,stopping}){
   const writer=createWriter(),write=writer.write;
   const active=()=>!state.stopped&&!stopping()&&!page.isClosed()&&isMainPageUrl(page.url());
-  let session,previous,settingsSaveError=null;
+  let session,previous,settingsSaveError=null,promptsPending=false;
   const collector=createCollector({settings,runtime});
+  const aiRename=createAiRenameManager({settings,page,isActive:active});
   async function install(name,source){
     if(!await page.evaluate(name=>Boolean(window[name]),name)){
       await session.send('Runtime.evaluate',{expression:'if('+pageGuard+'){'+source+'\n}'});
     }
+  }
+  async function ensureRuntime(){
+    if(await page.evaluate(()=>window.__betterCodexRuntime)===state.id)return;
+    await page.evaluate(()=>{
+      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexAiRename','__codexCommandMenu']){
+        try{window[name]?.remove();}catch{}
+        delete window[name];
+      }
+      delete window.__codexHudI18n;delete window.__codexHudLanguage;
+    });
+    await page.evaluate(id=>{window.__betterCodexRuntime=id;},state.id);
   }
   try{
     fs.mkdirSync(runtime,{recursive:true});
@@ -73,8 +86,10 @@ async function runWindow({page,state,settings,store,sources,readThemes,runtime,s
     while(active()){
       const collectorStatus=collector.tick();
       try{
+        await ensureRuntime();
         await install('__codexHudI18n',sources.i18n);
         if(sources.commands)await install('__codexCommandMenu',sources.commands);
+        if(sources.aiRename)await install('__codexAiRename',sources.aiRename);
         await install('__codexComposerHud',sources.hud);
         let currentPreferences=preferences(store.read());
         try{
@@ -119,13 +134,27 @@ async function runWindow({page,state,settings,store,sources,readThemes,runtime,s
             if(themes===null)customAccent.reason='config-unavailable';
           }
         }catch{customAccent={applied:false,reason:'theme-unavailable'};}
-        await page.evaluate(value=>window.__codexComposerHud.settingsState(value),{
+        const promptRequests=await page.evaluate(value=>{
+          window.__codexComposerHud.settingsState(value);
+          return window.__codexCommandMenu?.promptRequests?.();
+        },{
           ...currentPreferences,
           readingWidth:Number.isInteger(readingWidth?.maxWidth)?readingWidth.maxWidth:currentPreferences.readingWidth
         });
+        if(readPrompts&&!promptsPending&&promptRequests?.length){
+          promptsPending=true;
+          // Do not block this window's ordinary updates or publish prompt content in runtime state.
+          readPrompts().then(entries=>active()&&page.evaluate(value=>{
+            if(location.protocol==='app:'&&location.host==='-'&&location.pathname==='/index.html')window.__codexCommandMenu?.promptState?.(value);
+          },{requests:promptRequests,entries})).catch(()=>{}).finally(()=>{promptsPending=false;});
+        }
         const request=await page.evaluate(()=>window.__codexComposerHud.bindingRequest());
         if(request)await page.evaluate(value=>window.__codexComposerHud.bind(value),{...request,id:readBinding(request,path.join(settings.codexHome,'session_index.jsonl'))});
         const observation=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+        if(observation.id&&active()){
+          const aiRenameRequest=await page.evaluate(()=>window.__codexAiRename?.pull?.());
+          if(aiRenameRequest)aiRename.start(aiRenameRequest,observation);
+        }
         if(observation.id!==previous){
           if(write(path.join(runtime,'selection.json'),{thread_id:observation.id,title:'',binding_mode:'manual'}))previous=observation.id;
         }
@@ -139,7 +168,8 @@ async function runWindow({page,state,settings,store,sources,readThemes,runtime,s
           ...formatMetrics(data,observation.id,Date.now(),observation.locale)});
         state.status={...observation,rendered,readingWidth,tableSort,fileChanges,customAccent,preferences:currentPreferences,
           settingsSaveError,collector:collectorStatus,
-          collectorBound:data?.thread_id===observation.id&&data?.binding==='ok',writes:writer.diagnostics(),checkedAt:Date.now()};
+          collectorBound:data?.thread_id===observation.id&&data?.binding==='ok',aiRename:aiRename.status(),
+          writes:writer.diagnostics(),checkedAt:Date.now()};
         write(path.join(runtime,'view-status.json'),state.status);
       }catch(error){
         // Navigation can destroy an execution context; retry this page without dropping other windows.
@@ -149,12 +179,14 @@ async function runWindow({page,state,settings,store,sources,readThemes,runtime,s
     }
   }finally{
     // Each worker owns only its page, CDP session, collector and runtime directory.
+    aiRename.close();
     await collector.stop();
     if(!page.isClosed())await page.evaluate(()=>{
-      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexCommandMenu']){
+      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexAiRename','__codexCommandMenu']){
         try{window[name]?.remove();}catch{}
       }
       delete window.__codexHudI18n;delete window.__codexHudLanguage;
+      delete window.__betterCodexRuntime;
     }).catch(()=>{});
     if(session)await session.detach().catch(()=>{});
     // Async removal retries transient Windows locks without blocking other windows.

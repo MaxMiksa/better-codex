@@ -37,6 +37,13 @@
       "{browser}"
     ]
   },
+  "ai-rename": {
+    "kind": "node",
+    "path": "tests/interface/verify-ai-rename.cjs",
+    "args": [
+      "{browser}"
+    ]
+  },
   "diagnostics": {
     "kind": "python",
     "path": "tests/lifecycle/verify_checks.py"

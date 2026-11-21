@@ -2,6 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {formatMetrics}=require('../../src/interface/statistics/metrics-view.cjs');
 const {resolveChat}=require('../../src/interface/statistics/chat-binding.cjs');
+const {createPromptReader}=require('../../src/interface/host/prompt-directory.cjs');
 const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolve(__dirname,'../../.runtime/token-hud/node/node_modules/playwright'));
 const evidence=path.resolve(process.argv[2]),scratch=path.resolve(process.argv[3]);
 const id='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002';
@@ -428,6 +429,44 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('even-primary-statistics-without-space-hide-without-losing-chat',!blocked.visible&&blocked.id===id&&blocked.generation===snapshot.generation);
   await page.setViewportSize({width:1261,height:253});
   check('hidden-primary-statistics-recover-without-rebinding',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).generation===snapshot.generation);
+  snapshot=await reset();
+  const optionalValues={...snapshot,ttft:'5.22s',speed:'61 tok/s',cache:'-%',age:'Stats expired'};
+  await page.evaluate(value=>window.__codexComposerHud.render(value),optionalValues);
+  const optionalSafe=()=>{
+    const host=document.querySelector('#codex-composer-hud'),h=host.getBoundingClientRect();
+    const r=document.querySelector('#optional-content').getBoundingClientRect();
+    return !host.hidden&&(r.left>=h.right+11.9||r.right<=h.left-11.9||r.top>=h.bottom+3.9||r.bottom<=h.top-3.9);
+  };
+  check('optional-ring-addition-avoided-before-first-frame',await page.evaluate(()=>new Promise(resolve=>{
+    const h=document.querySelector('#codex-composer-hud').getBoundingClientRect(),footer=document.querySelector('footer');
+    const wrapper=document.createElement('div');wrapper.id='optional-wrapper';wrapper.style.cssText='position:absolute;inset:0;display:block;pointer-events:none';
+    wrapper.innerHTML='<span id="optional-content" style="position:absolute;top:12px;width:16px;height:16px"><span role="img" style="display:inline-flex;width:16px;height:16px"><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="none" stroke="gray"/></svg></span></span>';
+    wrapper.firstElementChild.style.left=(h.right-footer.getBoundingClientRect().left-5)+'px';footer.append(wrapper);
+    requestAnimationFrame(()=>{
+      const host=document.querySelector('#codex-composer-hud'),r=wrapper.firstElementChild.getBoundingClientRect();
+      resolve(!host.hidden&&host.getBoundingClientRect().right<=r.left-11.9);
+    });
+  })));
+  check('optional-full-width-layout-wrapper-does-not-block-hud',await page.evaluate(optionalSafe));
+  check('optional-ring-keeps-four-statistics-and-binding',await page.evaluate(s=>{const hud=window.__codexComposerHud.snapshot();return hud.visible&&hud.generation===s.generation&&[...document.querySelector('#codex-composer-hud').shadowRoot.querySelectorAll('#metrics span')].filter(e=>!e.hidden).length===4;},snapshot));
+  await page.locator('#optional-content').evaluate(e=>e.hidden=true);
+  check('optional-ring-hidden-restores-center',await page.evaluate(()=>{const h=document.querySelector('#codex-composer-hud').getBoundingClientRect(),c=document.querySelector('#composer').getBoundingClientRect();return Math.abs((h.left+h.right-c.left-c.right)/2)<1;}));
+  await page.locator('#optional-content').evaluate(e=>{e.hidden=false;e.removeAttribute('role');e.replaceChildren();e.style.border='2px solid gray';e.style.borderRadius='50%';});
+  check('optional-css-ring-without-semantics-avoided',await page.evaluate(optionalSafe));
+  await page.locator('#optional-content').evaluate(e=>{e.style.width='auto';e.style.border='0';e.textContent='Quota 75%';});
+  check('optional-plain-text-without-button-role-avoided',await page.evaluate(optionalSafe));
+  await page.locator('#optional-content').evaluate(e=>{e.style.width='16px';e.replaceChildren();e.innerHTML='<svg width="16" height="16"><circle cx="8" cy="8" r="7"/></svg>';});
+  check('optional-bare-svg-avoided',await page.evaluate(optionalSafe));
+  await page.locator('#optional-content').evaluate(e=>{const svg=e.firstElementChild;svg.style.display='block';svg.style.width='16px';e.style.width='auto';const animation=svg.animate([{width:'16px'},{width:'120px'}],{duration:100,fill:'forwards'});return animation.finished;});
+  await page.waitForTimeout(300);
+  check('optional-content-resize-without-dom-mutation-avoided',await page.evaluate(()=>{const host=document.querySelector('#codex-composer-hud'),h=host.getBoundingClientRect(),r=document.querySelector('#optional-content svg').getBoundingClientRect();return !host.hidden&&(r.left>=h.right+11.9||r.right<=h.left-11.9);}));
+  await page.locator('#optional-content').evaluate(e=>{e.firstElementChild.getAnimations().forEach(a=>a.cancel());e.firstElementChild.style.width='16px';});
+  await page.locator('#optional-content').evaluate(e=>{e.style.left='0';e.style.width='100%';e.style.background='gray';e.replaceChildren();});
+  const optionalBlocked=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('optional-content-no-space-hides-without-rebinding',!optionalBlocked.visible&&optionalBlocked.id===snapshot.id&&optionalBlocked.generation===snapshot.generation);
+  await page.locator('#optional-wrapper').evaluate(e=>e.remove());
+  const optionalRecovered=await page.evaluate(()=>window.__codexComposerHud.snapshot());
+  check('optional-content-removal-restores-all-values-without-rebinding',optionalRecovered.visible&&optionalRecovered.generation===snapshot.generation&&await page.locator('#metrics').innerText().then(s=>s.includes('5.22s')&&s.includes('61 tok/s')&&s.includes('Stats expired')));
   await reset();await page.setViewportSize({width:400,height:253});
   check('narrow-composer-hides-before-overlap',!(await page.evaluate(()=>window.__codexComposerHud.snapshot())).visible);
   await page.setViewportSize({width:1261,height:253});await reset();
@@ -441,7 +480,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.evaluate(()=>{document.querySelector('#composer').style.top='850px';window.__codexComposerHud.settingsState({});});
   await page.locator('#metrics').click();
   const commandToggle=page.locator('#command-toggle');
-  check('legacy-command-orders-migrate-without-enabling-extra-features',await page.evaluate(()=>{const c=window.__codexCommandMenu.catalog,order=c.normalizeItemOrder({other:['pet','reasoning','model','pin','unknown-new-command']});return order.model.join('|')==='reasoning|model|service-tier:priority'&&order.creative.join('|')==='pet|sketch'&&order.other.join('|')==='unknown-new-command'&&Object.values(c.normalize()).filter(Boolean).length===8;}));
+  check('legacy-command-orders-migrate-without-enabling-extra-features',await page.evaluate(()=>{const c=window.__codexCommandMenu.catalog,order=c.normalizeItemOrder({other:['pet','reasoning','model','pin','unknown-new-command']});return order.model.join('|')==='reasoning|model|service-tier:priority'&&order.creative.join('|')==='pet|sketch'&&order.other.join('|')==='unknown-new-command'&&Object.values(c.normalize()).filter(Boolean).length===9;}));
   check('commands-default-collapsed-and-native-switch-style',await commandToggle.getAttribute('aria-expanded')==='false'&&await page.locator('#command-options').evaluate(e=>e.inert));
   check('collapsed-accordions-are-adjacent-without-blank-child-gap',await page.evaluate(()=>{
     const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('.table-group'),commands=root.querySelector('#command-settings'),files=root.querySelector('#files-default-label').closest('.setting-row'),a=table.getBoundingClientRect(),b=commands.getBoundingClientRect(),c=files.getBoundingClientRect();
@@ -449,7 +488,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   }));
   check('command-master-defaults-on',await page.locator('#command-enabled').getAttribute('aria-checked')==='true');
   await page.locator('#command-enabled').click();
-  check('command-master-queues-save-without-clearing-choices',await page.evaluate(()=>{const h=window.__codexComposerHud;return h.settingsRequest().value.commandMenuEnabled===false&&Object.values(h.snapshot().preferences.commandVisible).filter(Boolean).length===8;}));
+  check('command-master-queues-save-without-clearing-choices',await page.evaluate(()=>{const h=window.__codexComposerHud;return h.settingsRequest().value.commandMenuEnabled===false&&Object.values(h.snapshot().preferences.commandVisible).filter(Boolean).length===9;}));
   await page.locator('#undo').click();
   check('command-master-undo-restores-enabled-state',await page.locator('#command-enabled').getAttribute('aria-checked')==='true');
   await page.locator('#redo').click();
@@ -457,7 +496,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.locator('#command-enabled').click();
   await commandToggle.click();
   check('commands-regrouped-without-a-miscellaneous-pile',await page.locator('#command-options .command-heading').allTextContents().then(value=>value.join('|')==='聊天管理|上下文与分流|项目工作|聊天整理|模型与推理|工作模式|工具与连接|创作与伙伴|状态与帮助'));
-  check('commands-default-exactly-eight-enabled',await page.locator('#command-options [aria-pressed="true"]').count()===8);
+  check('commands-default-exactly-nine-enabled',await page.locator('#command-options [aria-pressed="true"]').count()===9);
   check('command-settings-use-one-horizontal-button-group-per-category',await page.locator('#command-options .command-buttons').evaluateAll(groups=>groups.every(group=>{const buttons=[...group.children],top=buttons[0].getBoundingClientRect().top;return buttons.every(button=>button.getAttribute('aria-pressed')!==null&&Math.abs(button.getBoundingClientRect().top-top)<.5);})));
   await page.locator('[data-command-id="side"]').click();
   check('commands-switch-queues-persistent-preference',await page.evaluate(()=>window.__codexComposerHud.settingsRequest().value.commandVisible.side===false));
@@ -467,18 +506,18 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('commands-switch-redo-restores-hidden-choice',await page.locator('[data-command-id="side"]').getAttribute('aria-pressed')==='false');
   await page.locator('#restore-defaults').click();
   await commandToggle.click();await commandToggle.click();
-  check('commands-collapse-keeps-controls-and-eight-defaults',await page.locator('#command-options [aria-pressed="true"]').count()===8);
+  check('commands-collapse-keeps-controls-and-nine-defaults',await page.locator('#command-options [aria-pressed="true"]').count()===9);
   await page.locator('[data-command-id="new"]').press('ArrowRight');
-  check('command-settings-left-right-focuses-without-toggling',await page.locator('[data-command-id="rename"]').evaluate(button=>button.getRootNode().activeElement===button)&&await page.locator('#command-options [aria-pressed="true"]').count()===8);
+  check('command-settings-left-right-focuses-without-toggling',await page.locator('[data-command-id="rename"]').evaluate(button=>button.getRootNode().activeElement===button)&&await page.locator('#command-options [aria-pressed="true"]').count()===9);
   const commandGrip=(kind,id)=>page.locator('[data-command-drag="'+kind+'"][data-command-drag-id="'+id+'"]');
   await commandGrip('item','new').dragTo(commandGrip('item','archive'));
-  check('command-item-drag-saves-order-without-toggling',await page.evaluate(()=>{const hud=window.__codexComposerHud;return hud.settingsRequest().value.commandItemOrder.chat.join('|')==='rename|archive|new'&&Object.values(hud.snapshot().preferences.commandVisible).filter(Boolean).length===8;}));
+  check('command-item-drag-saves-order-without-toggling',await page.evaluate(()=>{const hud=window.__codexComposerHud;return hud.settingsRequest().value.commandItemOrder.chat.join('|')==='rename|ai-rename|archive|new'&&Object.values(hud.snapshot().preferences.commandVisible).filter(Boolean).length===9;}));
   await page.locator('#undo').click();
-  check('command-order-undo-restores-default',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandItemOrder.chat.join('|')==='new|rename|archive'));
+  check('command-order-undo-restores-default',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandItemOrder.chat.join('|')==='new|rename|ai-rename|archive'));
   await page.locator('#redo').click();
-  check('command-order-redo-restores-drag',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandItemOrder.chat.join('|')==='rename|archive|new'));
+  check('command-order-redo-restores-drag',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandItemOrder.chat.join('|')==='rename|ai-rename|archive|new'));
   await commandGrip('item','new').dragTo(commandGrip('item','side'));
-  check('command-item-drag-stays-in-own-group',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandItemOrder.chat.join('|')==='rename|archive|new'));
+  check('command-item-drag-stays-in-own-group',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandItemOrder.chat.join('|')==='rename|ai-rename|archive|new'));
   await commandGrip('group','context').dragTo(commandGrip('group','chat'));
   check('command-group-drag-saves-and-renders-order',await page.evaluate(()=>window.__codexComposerHud.settingsRequest().value.commandGroupOrder.slice(0,3).join('|')==='context|chat|project')&&(await page.locator('#command-options .command-heading').allTextContents())[0]==='上下文与分流');
   await commandGrip('group','context').press('ArrowDown');
@@ -488,7 +527,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.evaluate(()=>{
     window.menuSelections=[];window.nativeKeys=[];
     const menu=document.createElement('div');menu.id='native-menu';menu.setAttribute('data-mention-list-scroll-area','');menu.style.cssText='width:400px';
-    const controller={ui:{active:true,trigger:'/'},submenuCommand:null};window.menuFixtureController=controller;
+    const controller={ui:{active:true,trigger:'/'},submenuCommand:null,closeAutocomplete(){this.ui.active=false;window.__codexCommandMenu.update({});}};window.menuFixtureController=controller;
     menu.__reactFiber$fixture={memoizedProps:{autocomplete:controller}};
     const section=document.createElement('div');section.dataset.mentionSectionId='commands';const items=document.createElement('div');items.dataset.mentionSectionItems='true';section.append(items);menu.append(section);
     for(const id of ['reasoning','review-mode','archive','new','side','fork','compact','init','rename','unknown-new-command']){
@@ -516,6 +555,9 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   }));
   const beforeIcons=await chatGeometry();
   await chatButtons.evaluateAll(buttons=>{window.fixtureChatButtons=buttons;});
+  await page.waitForTimeout(60);
+  check('ai-rename-synthetic-command-has-label-and-sparkle',await page.locator('#native-menu [data-bc-menu-button="ai-rename"]').evaluate(button=>
+    button.textContent==='AI 重命名'&&button.title==='AI 重命名'&&button.querySelectorAll('svg').length===1&&!button.disabled));
   await page.evaluate(()=>{
     for(const id of ['new','rename','archive']){
       const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 16 16');
@@ -523,14 +565,22 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
       document.querySelector('#native-menu [data-bc-command="'+id+'"]').prepend(icon);
     }
   });
-  check('native-command-icons-loaded-after-first-render-appear',await page.locator('#native-menu [data-bc-command-group="chat"] [data-bc-menu-button] svg').count()===3);
+  check('native-command-icons-loaded-after-first-render-appear',await page.locator('#native-menu [data-bc-command-group="chat"] [data-bc-menu-button] svg').count()===4);
   check('native-delayed-command-icons-do-not-move-buttons-or-labels',JSON.stringify(await chatGeometry())===JSON.stringify(beforeIcons));
   check('native-delayed-command-icons-keep-existing-buttons',await chatButtons.evaluateAll(buttons=>buttons.every((button,index)=>button===window.fixtureChatButtons[index])));
   await page.evaluate(()=>document.querySelector('#native-menu [data-bc-command="rename"] svg').replaceChildren());
   check('native-command-icon-content-refreshes-without-label-change',await page.locator('#native-menu [data-bc-menu-button="rename"] svg path').count()===0);
-  check('native-commands-form-three-rows-without-dividers',await page.locator('#native-menu [data-bc-command-break]').count()===0&&await page.locator('#native-menu [data-bc-command-group]').evaluateAll(lines=>lines.map(line=>line.children.length).join('|')==='3|3|2'&&lines.every(line=>[...line.children].every(button=>Math.abs(button.getBoundingClientRect().top-line.firstElementChild.getBoundingClientRect().top)<.5))));
+  check('native-commands-form-three-rows-without-dividers',await page.locator('#native-menu [data-bc-command-break]').count()===0&&await page.locator('#native-menu [data-bc-command-group]').evaluateAll(lines=>lines.map(line=>line.children.length).join('|')==='4|3|2'&&lines.every(line=>[...line.children].every(button=>Math.abs(button.getBoundingClientRect().top-line.firstElementChild.getBoundingClientRect().top)<.5))));
   check('future-command-default-hidden-and-recoverable',await page.evaluate(()=>document.querySelector('[data-bc-command="unknown-new-command"]').hasAttribute('data-bc-command-hidden')&&window.__codexCommandMenu.entries().some(item=>item.id==='unknown-new-command')));
   await page.evaluate(source);
+  await page.evaluate(()=>{
+    const editor=document.querySelector('#composer [contenteditable="true"]');editor.textContent='/';editor.focus();getSelection().collapse(editor.firstChild,1);
+    window.aiRenameRequests=0;window.__codexAiRename={request(){window.aiRenameRequests+=1;return true;}};
+  });
+  await page.locator('#native-menu [data-bc-menu-button="ai-rename"]').click();
+  check('ai-rename-click-requests-once-clears-trigger-and-never-submits-native-command',await page.evaluate(()=>
+    window.aiRenameRequests===1&&document.querySelector('#composer [contenteditable="true"]').textContent===''&&!window.menuFixtureController.ui.active&&window.menuSelections.length===0));
+  await page.evaluate(()=>{delete window.__codexAiRename;window.menuFixtureController.ui.active=true;window.__codexCommandMenu.update({});});
   await page.evaluate(()=>{const h=window.__codexComposerHud;h.settingsState({...h.snapshot().preferences,commandMenuEnabled:false});});
   check('command-master-off-immediately-restores-open-native-menu',await page.locator('#native-menu [data-bc-command],#native-menu [data-bc-command-grid]').count()===0&&await page.locator('#native-menu [data-list-navigation-item]').evaluateAll(rows=>rows.every(row=>getComputedStyle(row).display!=='none')));
   await page.locator('[contenteditable="true"]').fill('/');await page.keyboard.press('ArrowRight');
@@ -571,24 +621,178 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.evaluate(()=>window.__codexCommandMenu.update({side:false,reasoning:true}));
   check('native-switches-apply-without-reopening-menu',!(await menuOrder()).includes('side')&&(await menuOrder()).includes('reasoning'));
   await page.evaluate(()=>window.__codexCommandMenu.update({new:false,archive:false,side:false,fork:false,compact:false,reasoning:false}));
-  check('native-row-count-and-buttons-follow-live-choices',await page.locator('#native-menu [data-bc-command-group]').evaluateAll(lines=>{const chat=lines.find(line=>line.dataset.bcCommandGroup==='chat'),project=lines.find(line=>line.dataset.bcCommandGroup==='project');return lines.length===2&&chat.children.length===1&&chat.firstElementChild.dataset.bcMenuButton==='rename'&&project.children.length===2;}));
+  check('native-row-count-and-buttons-follow-live-choices',await page.locator('#native-menu [data-bc-command-group]').evaluateAll(lines=>{const chat=lines.find(line=>line.dataset.bcCommandGroup==='chat'),project=lines.find(line=>line.dataset.bcCommandGroup==='project');return lines.length===2&&chat.children.length===2&&[...chat.children].map(button=>button.dataset.bcMenuButton).join('|')==='rename|ai-rename'&&project.children.length===2;}));
   await page.evaluate(()=>window.__codexCommandMenu.update({'unknown-new-command':true}));
   check('native-discovered-command-has-dynamic-fallback-group',await page.locator('#native-menu [data-bc-command-group="other"] [data-bc-menu-button]').count()===1);
   await page.evaluate(()=>window.__codexCommandMenu.update(Object.fromEntries(window.__codexCommandMenu.catalog.commands.map(item=>[item.id,false]))));
   await page.keyboard.press('Enter');
   check('native-empty-result-never-submits-a-hidden-command',await page.evaluate(()=>window.menuSelections.length===2));
-  check('native-empty-command-groups-leave-no-blank-rows',await page.locator('#native-menu [data-bc-command-group]').count()===0);
+  check('native-empty-command-groups-leave-no-blank-rows-or-headings',await page.locator('#native-menu [data-bc-command-group],#native-menu [data-bc-menu-heading]').count()===0);
   await page.evaluate(()=>{
     const section=document.createElement('div');section.dataset.mentionSectionId='skills';const items=document.createElement('div');section.append(items);
-    for(const id of ['skill:alpha','skill:beta']){const row=document.createElement('button');row.dataset.listNavigationItem='true';row.textContent=id;row.__reactFiber$fixture={memoizedProps:{children:{props:{item:{id,title:id}}}}};row.addEventListener('click',()=>window.menuSelections.push(id));items.append(row);}
+    for(const name of ['alpha','beta','gamma','delta','epsilon','zeta','eta']){const id='skill:'+name,title=name==='gamma'?'gamma with a very long skill name that should truncate without widening the menu':name;const row=document.createElement('button');row.dataset.listNavigationItem='true';row.textContent=title+' description personal source';row.__reactFiber$fixture={memoizedProps:{children:{props:{item:{id,title}}}}};row.addEventListener('click',()=>window.menuSelections.push(id));items.append(row);}
     document.querySelector('#native-menu').prepend(section);window.__codexCommandMenu.update({'skill:alpha':false});
   });
-  check('native-skills-visible-at-bottom-and-excluded-from-settings',(await menuOrder()).slice(-2).join('|')==='skill:alpha|skill:beta'&&await page.evaluate(()=>!window.__codexCommandMenu.entries().some(item=>item.id.startsWith('skill:'))));
-  check('native-skill-section-renders-below-commands',await page.evaluate(()=>document.querySelector('[data-mention-section-id="skills"]').getBoundingClientRect().top>=document.querySelector('[data-bc-command-grid]').getBoundingClientRect().bottom));
+  check('native-skills-visible-at-bottom-and-excluded-from-settings',(await menuOrder()).slice(-7).join('|')==='skill:alpha|skill:epsilon|skill:zeta|skill:beta|skill:eta|skill:delta|skill:gamma'&&await page.evaluate(()=>!window.__codexCommandMenu.entries().some(item=>item.id.startsWith('skill:'))));
+  check('native-skills-use-three-fixed-columns-with-incomplete-last-column',await page.locator('#native-menu [data-bc-skill-row]').evaluateAll(lines=>lines.map(line=>line.children.length).join('|')==='3|2|2'&&lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3)));
+  check('native-skills-sort-alphabetically-down-left-filled-columns',await page.locator('#native-menu [data-bc-skill-row]').evaluateAll(lines=>[0,1,2].map(column=>lines.map(line=>line.children[column]?.dataset.bcMenuButton).filter(Boolean).join('|')).join(';')==='skill:alpha|skill:beta|skill:delta;skill:epsilon|skill:eta|skill:gamma;skill:zeta'));
+  check('native-skill-buttons-show-only-names-and-full-name-tooltip',await page.locator('#native-menu [data-bc-skill-row] button').evaluateAll(buttons=>buttons.every(button=>button.children.length===1&&button.firstElementChild.tagName==='SPAN'&&button.textContent===button.title&&!button.textContent.includes('personal source'))));
+  check('native-skill-long-name-truncates-without-horizontal-overflow',await page.locator('#native-menu [data-bc-menu-button="skill:gamma"]').evaluate(button=>button.firstElementChild.scrollWidth>button.firstElementChild.clientWidth&&getComputedStyle(button.firstElementChild).textOverflow==='ellipsis'&&button.closest('[data-bc-command-group]').scrollWidth<=button.closest('[data-bc-command-group]').clientWidth+1));
+  await page.locator('#native-menu').evaluate(menu=>menu.style.width='240px');
+  check('native-skill-grid-keeps-three-columns-in-narrow-menu',await page.locator('#native-menu [data-bc-skill-row]').evaluateAll(lines=>lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3&&line.scrollWidth<=line.clientWidth+1&&[...line.children].every(button=>button.getBoundingClientRect().right<=line.getBoundingClientRect().right+1))));
+  await page.locator('#native-menu').evaluate(menu=>menu.style.width='400px');
+  await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowDown');
+  check('native-skill-keyboard-down-keeps-column',await page.locator('#native-menu [data-bc-menu-button][data-bc-active]').getAttribute('data-bc-menu-button')==='skill:eta');
+  await page.keyboard.press('ArrowUp');await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowDown');
+  check('native-skill-keyboard-shorter-row-clamps-column',await page.locator('#native-menu [data-bc-menu-button][data-bc-active]').getAttribute('data-bc-menu-button')==='skill:eta');
+  await page.keyboard.press('ArrowUp');
+  check('native-skill-keyboard-restores-column-after-short-row',await page.locator('#native-menu [data-bc-menu-button][data-bc-active]').getAttribute('data-bc-menu-button')==='skill:zeta');
+  await page.locator('#native-menu [data-bc-menu-button="skill:alpha"]').click();
+  check('native-skill-click-invokes-original-handler',await page.evaluate(()=>window.menuSelections.at(-1)==='skill:alpha'));
+  await page.evaluate(()=>window.__codexCommandMenu.update({}));
+  check('native-skill-grid-follows-command-groups',await page.locator('#native-menu [data-bc-command-grid]').evaluate(grid=>{const lines=[...grid.children],first=lines.findIndex(line=>line.hasAttribute('data-bc-skill-row'));return first>0&&lines.slice(first).every(line=>line.hasAttribute('data-bc-skill-row'));}));
+  await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');
+  check('native-keyboard-crosses-from-commands-into-skill-grid',await page.locator('#native-menu [data-bc-menu-button][data-bc-active]').getAttribute('data-bc-menu-button')==='skill:alpha');
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {enabled:false}));
+  check('native-skill-grid-master-off-restores-original-names-and-descriptions',await page.locator('#native-menu [data-bc-skill-row]').count()===0&&await page.locator('[data-mention-section-id="skills"] button').evaluateAll(rows=>rows.every(row=>getComputedStyle(row).visibility==='visible'&&row.textContent.includes('description personal source'))));
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {enabled:true}));
   await page.keyboard.press('End');await page.keyboard.press('Enter');
-  check('native-skill-invocation-keeps-original-handler',await page.evaluate(()=>window.menuSelections.at(-1)==='skill:beta'));
+  check('native-skill-invocation-keeps-original-handler',await page.evaluate(()=>window.menuSelections.at(-1)==='skill:gamma'));
+  check('native-skill-columns-fill-left-first-and-sort-for-one-through-ten-results',await page.evaluate(()=>{
+    const root=document.querySelector('#native-menu'),originals=[...root.querySelectorAll('[data-bc-command]')].filter(row=>row.dataset.bcCommand.startsWith('skill:')).map(row=>[row,row.parentElement]);
+    for(const [row] of originals)row.remove();
+    const section=document.createElement('div');section.dataset.mentionSectionId='skill-count-fixture';root.append(section);
+    let valid=true;
+    for(let count=1;count<=10;count++){
+      section.replaceChildren();
+      for(let index=count;index>0;index--){const id='skill:count-'+index,title='Skill '+index,row=document.createElement('button');row.dataset.listNavigationItem='true';row.textContent=title;row.__reactFiber$fixture={memoizedProps:{children:{props:{item:{id,title}}}}};section.append(row);}
+      window.__codexCommandMenu.update({});
+      const lines=[...root.querySelectorAll('[data-bc-skill-row]')],cols=[0,1,2].map(column=>lines.map(line=>line.children[column]?.title).filter(Boolean)),sizes=cols.map(col=>col.length);
+      valid&&=cols.flat().join('|')===Array.from({length:count},(_,index)=>'Skill '+(index+1)).join('|')&&sizes.join('|')===[0,1,2].map(column=>Math.min(Math.ceil(count/3),Math.max(0,count-column*Math.ceil(count/3)))).join('|');
+    }
+    section.remove();for(const [row,parent] of originals)parent.append(row);window.__codexCommandMenu.update({});return valid;
+  }));
+  const promptHome=path.join(fs.mkdtempSync(path.join(path.dirname(scratch),'prompt-home-')),'合成 & %TEMP%');
+  const promptDir=path.join(promptHome,'prompts'),readPrompts=createPromptReader(promptHome);
+  const titleSelector='#native-menu [data-bc-menu-heading]',promptSelector='#native-menu [data-bc-prompt-row]';
+  const menuPromptRequests=()=>page.evaluate(()=>window.__codexCommandMenu.promptRequests());
+  const sendPrompts=(requests,entries)=>page.evaluate(value=>window.__codexCommandMenu.promptState(value),{requests,entries});
+  const openPromptMenu=({draft='/',caret=draft.length,query=''}={})=>page.evaluate(({draft,caret,query})=>{
+    const {menuFixtureController:controller,__codexCommandMenu:commands}=window;
+    controller.ui.active=false;commands.update({});
+    const editor=document.querySelector('#composer [contenteditable="true"]');
+    editor.textContent=draft;editor.focus();getSelection().collapse(editor.firstChild,caret);
+    controller.ui.active=true;controller.ui.query=query;commands.update({}, {groupOrder:[],itemOrder:{}});
+  },{draft,caret,query});
+  const standaloneSelector='[data-bc-standalone-root]';
+  const openStandalone=async({draft='/',caret=draft.length}={})=>{
+    await page.evaluate(({draft,caret})=>{
+      const {menuFixtureController:controller,__codexCommandMenu:commands}=window;
+      controller.ui.active=false;commands.update({});
+      const editor=document.querySelector('#composer [contenteditable="true"]');
+      editor.textContent=draft;editor.focus();getSelection().collapse(editor.firstChild||editor,caret);
+      editor.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:draft.slice(caret-1,caret)}));
+    },{draft,caret});
+    await page.waitForTimeout(150);
+  };
+  await openPromptMenu();
+  const oldRequests=await menuPromptRequests();
+  await sendPrompts(oldRequests,await readPrompts());
+  check('missing-prompt-directory-leaves-only-existing-skills-heading',(await page.locator(titleSelector).allTextContents()).join('|')==='Skills'&&await page.locator(promptSelector).count()===0);
+  fs.mkdirSync(path.join(promptDir,'nested'),{recursive:true});
+  const body='# Prompt body\n\n$ARGUMENTS and $1';
+  for(const number of [11,5,10,4,1,3,2])fs.writeFileSync(path.join(promptDir,`Prompt ${number}.md`),number===1?'\uFEFF---\r\ndescription: metadata-only\r\n---\r\n'+body:'Template '+number);
+  for(const [name,value] of Object.entries({'.hidden.md':'hidden','ignore.txt':'ignored','nested/ignored.md':'nested','blank.md':' \n\t','empty-frontmatter.md':'---\ndescription: only\n---\n','invalid.md':Buffer.from([0xff,0xfe]),'too-big.md':Buffer.alloc(256*1024+1,97)}))fs.writeFileSync(path.join(promptDir,name),value);
+  if(process.platform==='win32'){
+    const hidden=path.join(promptDir,'Windows hidden.md');fs.writeFileSync(hidden,'hidden attribute');
+    require('node:child_process').execFileSync(path.join(process.env.SystemRoot,'System32','attrib.exe'),['+h',hidden],{windowsHide:true});
+  }
+  await openPromptMenu({draft:'left /right',caret:6});
+  const entries=await readPrompts(),promptNames=entries.map(entry=>entry.name).sort();
+  check('prompt-reader-uses-only-visible-valid-first-level-markdown',promptNames.join('|')==='Prompt 1|Prompt 10|Prompt 11|Prompt 2|Prompt 3|Prompt 4|Prompt 5');
+  check('prompt-reader-strips-frontmatter-and-preserves-markdown-and-placeholders',entries.find(entry=>entry.name==='Prompt 1')?.body===body);
+  await sendPrompts(oldRequests,entries);
+  check('results-for-closed-menu-do-not-change-new-menu',await page.locator(promptSelector).count()===0);
+  await sendPrompts(await menuPromptRequests(),entries);
+  check('native-commands-then-skills-and-prompt-headings',await page.locator('#native-menu [data-bc-command-grid]').evaluate(grid=>[...grid.children].map(line=>line.dataset.bcMenuHeading||line.dataset.bcCommandGroup).join('|')==='chat|context|project|skills|skills|skills|skills|prompts|prompts|prompts|prompts')&&(await page.locator(titleSelector).allTextContents()).join('|')==='Skills|Prompt');
+  check('skill-and-prompt-headings-are-muted-noninteractive-and-have-two-thin-lines',await page.locator(titleSelector).evaluateAll(titles=>titles.every(title=>{
+    const style=getComputedStyle(title),item=getComputedStyle(title.nextElementSibling.firstElementChild);
+    return title.tagName==='DIV'&&title.tabIndex===-1&&!title.hasAttribute('tabindex')&&style.cursor==='default'&&parseFloat(style.fontSize)<parseFloat(item.fontSize)&&style.color!==item.color&&['::before','::after'].every(side=>{const rule=getComputedStyle(title,side);return rule.flexGrow==='1'&&rule.borderTopWidth==='1px';});
+  })));
+  check('prompt-grid-reuses-natural-column-order-and-name-only-buttons',await page.locator(promptSelector).evaluateAll(lines=>{
+    const layout=[0,1,2].map(column=>lines.map(line=>line.children[column]?.textContent).filter(Boolean).join('|')).join(';');
+    return layout==='Prompt 1|Prompt 2|Prompt 3;Prompt 4|Prompt 5|Prompt 10;Prompt 11'
+      &&lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3&&[...line.children].every(button=>button.children.length===1&&button.textContent===button.title));
+  }));
+  check('prompts-excluded-from-command-settings-catalog',await page.evaluate(()=>!window.__codexCommandMenu.entries().some(item=>item.id.startsWith('prompt:'))));
+  const selectedMenuItem=()=>page.locator('#native-menu [data-bc-menu-button][data-bc-active]').getAttribute('data-bc-menu-button');
+  await page.keyboard.press('Home');await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowRight');
+  const forward=[];for(let step=0;step<5;step++){await page.keyboard.press('Control+ArrowDown');forward.push(await selectedMenuItem());}
+  check('control-down-jumps-by-logical-group-with-wrap-and-expected-column',forward.join('|')==='compact|review-mode|skill:zeta|prompt:Prompt 11|ai-rename');
+  const reverse=[];for(let step=0;step<4;step++){await page.keyboard.press('Control+ArrowUp');reverse.push(await selectedMenuItem());}
+  check('control-up-jumps-by-logical-group-and-finds-nearest-column',reverse.join('|')==='prompt:Prompt 11|skill:zeta|review-mode|compact');
+  await page.keyboard.press('Home');for(let step=0;step<6;step++)await page.keyboard.press('ArrowDown');
+  check('ordinary-down-traverses-every-skill-row-then-enters-prompt',await selectedMenuItem()==='prompt:Prompt 1');
+  await page.evaluate(()=>{
+    const editor=document.querySelector('#composer [contenteditable="true"]');
+    editor.style.whiteSpace='pre-wrap';
+    window.promptInputs=[];window.promptSends=0;
+    editor.addEventListener('input',event=>window.promptInputs.push([event.isTrusted,event.inputType]));
+    editor.addEventListener('keydown',event=>{if(event.key==='Enter')window.promptSends++;});
+    document.querySelector('#send').addEventListener('click',()=>window.promptSends++);
+  });
+  await page.locator('[data-bc-menu-button="prompt:Prompt 1"]').click();
+  check('prompt-click-preserves-draft-and-inserts-markdown-at-caret',await page.locator('#composer [contenteditable="true"]').evaluate(editor=>{
+    // Chromium uses an empty block with a placeholder BR for a blank line. Read each block once.
+    const text=[...editor.childNodes].map(node=>(node.nodeName==='DIV'?'\n':'')+node.textContent).join('').replaceAll('\u00a0',' ');
+    return text==='left \n# Prompt body\n\n$ARGUMENTS and $1\nright';
+  }));
+  check('prompt-click-edits-through-input-keeps-focus-closes-menu-and-never-sends',await page.evaluate(()=>window.promptInputs.length>0&&window.promptInputs.every(event=>event.join('|')==='true|insertText')&&window.promptSends===0&&document.activeElement.matches('#composer [contenteditable="true"]')&&getSelection().isCollapsed&&document.querySelector('#native-menu [data-bc-command-grid]')===null&&!window.menuFixtureController.ui.active));
+  fs.writeFileSync(path.join(promptDir,'Prompt 2.md'),'Updated body with $1');
+  fs.unlinkSync(path.join(promptDir,'Prompt 1.md'));
+  fs.writeFileSync(path.join(promptDir,'Latest.MD'),'Fresh');
+  await openPromptMenu({draft:'/pr',query:'pr'});
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  check('prompt-files-added-removed-and-edited-take-effect-on-reopen',await page.locator('[data-bc-menu-button="prompt:Latest"]').count()===1&&await page.locator('[data-bc-menu-button="prompt:Prompt 1"]').count()===0);
+  await page.keyboard.press('Home');await page.keyboard.press('Control+ArrowUp');await page.keyboard.press('ArrowUp');
+  check('keyboard-can-select-updated-prompt-by-row',await selectedMenuItem()==='prompt:Prompt 2');
+  await page.keyboard.press('Enter');
+  check('prompt-enter-inserts-updated-text-without-sending',await page.evaluate(()=>document.activeElement.innerText==='Updated body with $1'&&window.promptSends===0&&!window.menuFixtureController.ui.active));
+  await openStandalone();
+  check('standalone-prompt-menu-requests-when-new-conversation-has-no-native-menu',await page.evaluate(()=>window.__codexCommandMenu.promptRequests().length===1)&&await page.locator(`${standaloneSelector}:not([hidden])`).count()===0);
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  check('standalone-prompt-menu-opens-without-native-menu',await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-prompt-row]`).count()>0&&await page.locator('#native-menu [data-bc-command-grid]').count()===0);
+  check('standalone-prompt-menu-uses-three-column-name-buttons',await page.locator(`${standaloneSelector} [data-bc-prompt-row]`).evaluateAll(lines=>lines.length>0&&lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3&&[...line.children].every(button=>button.children.length===1&&button.textContent===button.title))));
+  await openStandalone({draft:'/lat'});
+  check('standalone-prompt-query-filters-by-name',await page.locator(`${standaloneSelector} [data-bc-menu-button]`).evaluateAll(buttons=>buttons.length===1&&buttons[0].dataset.bcMenuButton==='prompt:Latest'));
+  await page.locator(`${standaloneSelector} [data-bc-menu-button="prompt:Latest"]`).click();
+  check('standalone-prompt-click-inserts-and-closes-without-sending',await page.evaluate(()=>document.activeElement.innerText==='Fresh'&&window.promptSends===0&&!document.querySelector('[data-bc-standalone-root]:not([hidden])')));
+  await openStandalone();
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  const standaloneSelected=await page.locator(`${standaloneSelector} [data-bc-menu-button][data-bc-active]`).getAttribute('data-bc-menu-button');
+  const standaloneBody=(await readPrompts()).find(entry=>'prompt:'+entry.name===standaloneSelected)?.body;
+  await page.keyboard.press('Enter');
+  check('standalone-prompt-keyboard-inserts-selected-text',await page.evaluate(value=>document.activeElement.innerText===value&&window.promptSends===0&&!document.querySelector('[data-bc-standalone-root]:not([hidden])'),standaloneBody));
+  await openStandalone();
+  await openPromptMenu();
+  await page.waitForTimeout(30);
+  check('native-menu-closes-standalone-prompt-menu',await page.locator(`${standaloneSelector}:not([hidden]),#native-menu [data-bc-command-grid]`).evaluateAll(nodes=>nodes.length===1&&nodes[0].hasAttribute('data-bc-command-grid')));
+  await openPromptMenu();
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {enabled:false}));
+  check('prompt-master-off-removes-both-headings-and-restores-native-menu',await page.locator(`${titleSelector},${promptSelector},#native-menu [data-bc-command-grid],#native-menu [data-bc-command],${standaloneSelector}:not([hidden])`).count()===0&&await page.locator('#native-menu [data-list-navigation-item]').evaluateAll(rows=>rows.every(row=>getComputedStyle(row).display!=='none'&&getComputedStyle(row).visibility==='visible')));
+  await page.keyboard.press('Control+ArrowDown');
+  check('prompt-master-off-releases-logical-group-navigation',await page.evaluate(()=>window.nativeKeys.at(-1)==='ArrowDown'&&window.__codexCommandMenu.promptRequests().length===0));
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {enabled:true}));
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  await page.evaluate(()=>{
+    const unknown=document.createElement('div');unknown.id='unknown-native-row';unknown.dataset.listNavigationItem='true';document.querySelector('#native-menu').append(unknown);
+  });
+  check('unrecognized-native-structure-restores-entire-enhancement-including-prompts',await page.locator('#native-menu [data-bc-command-grid],#native-menu [data-bc-command]').count()===0);
+  await page.evaluate(()=>document.querySelector('#unknown-native-row').remove());
   await page.evaluate(()=>{window.filteredRows=[];for(const row of document.querySelectorAll('#native-menu [data-bc-command]'))if(row.dataset.bcCommand!=='skill:alpha'){window.filteredRows.push([row,row.parentElement]);row.remove();}window.__codexCommandMenu.update({});});
   check('native-filtered-skill-result-remains-available',(await menuOrder()).join('|')==='skill:alpha');
+  check('native-filtered-skill-result-keeps-three-column-layout',await page.locator('#native-menu [data-bc-skill-row]').evaluateAll(lines=>lines.length===1&&lines[0].children.length===1&&getComputedStyle(lines[0]).gridTemplateColumns.split(' ').length===3));
   await page.evaluate(()=>{for(const [row,parent] of window.filteredRows)parent.append(row);delete window.filteredRows;});
   await page.evaluate(()=>{window.menuFixtureController.submenuCommand={id:'model'};window.__codexCommandMenu.update({});});
   check('native-submenus-are-restored-and-unmodified',await page.locator('#native-menu [data-bc-command]').count()===0);
@@ -596,6 +800,88 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('native-submenu-keyboard-is-not-intercepted',await page.evaluate(()=>window.nativeKeys.includes('ArrowDown')));
   await page.evaluate(()=>{window.menuFixtureController.submenuCommand=null;window.menuFixtureController.ui.trigger='@';window.__codexCommandMenu.update({});});
   check('native-mentions-are-not-filtered',await page.locator('#native-menu [data-bc-command]').count()===0);
+  // The current composer keeps local skills in its scoped "$" provider/cache, not its "/" rows.
+  await page.evaluate(()=>{
+    document.querySelector('#native-menu [data-mention-section-id="skills"]').remove();
+    const composer=document.querySelector('#composer'),editor=composer.querySelector('[contenteditable="true"]');
+    const skill=(name,overrides={})=>({name,path:`C:\\fixture\\skills\\${name}\\SKILL.md`,enabled:true,description:'fixture',...overrides});
+    const skills=[skill('skill-10'),skill('skill-4'),skill('skill-2'),skill('skill-3'),skill('skill-1'),skill('disabled',{enabled:false}),skill('private',{isPublic:false})];
+    const scope={hostId:'local',roots:['C:\\fixture'],autocomplete:{addMention(){}},draftSkillSettings:null};
+    const cache=new Map([[JSON.stringify(['skills','local',scope.roots]),{data:[{skills},{skills:[skills[0]]}]}],
+      [JSON.stringify(['skills','local',['C:\\unrelated']]),{data:[{skills:[skill('unrelated')]}]}]]);
+    const view={dom:editor,editable:true,get state(){
+      const selection=getSelection(),text=editor.textContent;
+      return {selection:{empty:selection.isCollapsed,to:selection.focusOffset+1},doc:{textBetween:(from,to)=>text.slice(from-1,to-1),resolve:from=>({parentOffset:from-1})}};
+    }};
+    const composerController={view,insertMention(mention,{range:{from,to}}){
+      const text=editor.textContent,chip=document.createElement('span');chip.dataset.fixtureSkill=mention.name;chip.contentEditable='false';chip.textContent=mention.displayName;
+      window.skillInsertions.push({mention,from,to});editor.replaceChildren(text.slice(0,from-1),chip,text.slice(to-1));
+      getSelection().collapse(editor,2);window.menuFixtureController.ui.active=false;
+    }};
+    composer.__reactFiber$fixture={child:{memoizedProps:{composerController},sibling:{memoizedProps:{skillSuggestions:scope}}},
+      return:{memoizedProps:{value:{queryClient:{getQueryData:key=>cache.get(JSON.stringify(key))}}}}};
+    window.skillInsertions=[];window.skillCacheFixture={scope,cache,skills};window.menuFixtureController.ui.trigger='/';
+  });
+  const skillSelector='#native-menu [data-bc-skill-row]';
+  await openPromptMenu();
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  check('cached-native-skills-show-under-commands-with-prompt-and-path-ids',await page.locator(skillSelector).evaluateAll(lines=>{
+    const columns=[0,1,2].map(column=>lines.map(line=>line.children[column]?.title).filter(Boolean).join('|'));
+    return columns.join(';')==='Skill 1|Skill 2;Skill 3|Skill 4;Skill 10'&&lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3&&[...line.children].every(button=>/^skill:C:\\fixture\\skills\\[^\\]+\\SKILL\.md$/.test(button.dataset.bcMenuButton)));
+  })&&(await page.locator(titleSelector).allTextContents()).join('|')==='Skills|Prompt'&&await page.evaluate(()=>!window.__codexCommandMenu.entries().some(item=>item.id.startsWith('skill:'))));
+  await page.keyboard.press('Home');await page.keyboard.press('Control+ArrowUp');
+  const jumpToPrompt=(await selectedMenuItem()).startsWith('prompt:');
+  await page.keyboard.press('Control+ArrowUp');
+  const jumpToSkills=(await selectedMenuItem()).endsWith('skill-2\\SKILL.md');
+  await page.keyboard.press('Control+ArrowDown');
+  check('cached-native-skills-retain-two-way-control-group-navigation',jumpToPrompt&&jumpToSkills&&(await selectedMenuItem()).startsWith('prompt:'));
+  await page.evaluate(()=>{
+    const root=document.querySelector('#native-menu'),commands=root.querySelector('[data-mention-section-items]');
+    window.skillCacheFixture.nativeRows=[...commands.children];commands.replaceChildren();
+    const empty=document.createElement('div'),search=document.createElement('div');
+    empty.id='fixture-native-no-results';search.id='fixture-native-search';empty.className=search.className='px-row-x py-row-y text-sm text-tertiary';
+    empty.textContent='No commands';search.append(document.createElement('input'));root.append(empty,search);
+  });
+  await openPromptMenu({draft:'left /10 right',caret:8,query:'10'});
+  check('cached-native-skills-filter-by-name-when-native-slash-results-are-empty',await page.locator(`${skillSelector} button`).allTextContents().then(names=>names.join('|')==='Skill 10'));
+  check('cached-skills-hide-only-native-empty-message-not-search-or-section',await page.evaluate(()=>{
+    const root=document.querySelector('#native-menu'),style=id=>getComputedStyle(document.querySelector(id)).display;
+    return root.hasAttribute('data-bc-command-empty')&&style('#fixture-native-no-results')==='none'&&style('#fixture-native-search')!=='none'&&!root.querySelector('[data-mention-section-id]').hasAttribute('data-bc-section-hidden');
+  }));
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {enabled:false}));
+  check('cached-skills-master-off-fully-restores-native-empty-state',await page.locator(`${skillSelector},#native-menu[data-bc-command-empty],#native-menu [data-bc-command-grid]`).count()===0&&await page.locator('#fixture-native-no-results').isVisible());
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {enabled:true}));
+  await page.locator(`${skillSelector} button`).click();
+  check('cached-native-skill-uses-original-mention-engine-and-replaces-just-trigger',await page.evaluate(()=>{
+    const editor=document.querySelector('#composer [contenteditable="true"]'),entry=window.skillInsertions.at(-1);
+    return editor.textContent==='left Skill 10 right'&&editor.querySelector('[data-fixture-skill="skill-10"]')?.contentEditable==='false'&&entry.mention.kind==='skill'&&entry.mention.path.endsWith('skill-10\\SKILL.md')&&entry.from===6&&entry.to===9&&window.promptSends===0&&!window.menuFixtureController.ui.active;
+  }));
+  await page.evaluate(()=>{
+    document.querySelector('#native-menu [data-mention-section-items]').append(...window.skillCacheFixture.nativeRows);
+    document.querySelector('#fixture-native-no-results').remove();document.querySelector('#fixture-native-search').remove();
+    document.querySelector('#composer').setAttribute('data-composer-placement','home');
+    window.skillCacheFixture.scope.draftSkillSettings={project:{},model:'fixture'};
+  });
+  await openStandalone();
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  check('standalone-combines-native-skills-and-prompt-when-scoped-cache-is-available',await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-menu-heading]`).allTextContents().then(headings=>headings.join('|')==='Skills|Prompt'));
+  await page.keyboard.press('Home');await page.keyboard.press('Control+ArrowDown');
+  const standaloneLogicalItem=()=>page.locator(`${standaloneSelector} [data-bc-menu-button][data-bc-active]`).getAttribute('data-bc-menu-button');
+  const standaloneJumpedToPrompt=(await standaloneLogicalItem()).startsWith('prompt:');
+  await page.keyboard.press('Control+ArrowUp');
+  check('standalone-cached-skills-and-prompt-retain-two-way-control-group-navigation',standaloneJumpedToPrompt&&(await standaloneLogicalItem()).endsWith('skill-2\\SKILL.md'));
+  await openStandalone({draft:'/2'});
+  check('standalone-cached-skills-filter-by-name',await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-skill-row] button`).allTextContents().then(names=>names.join('|')==='Skill 2'));
+  await page.keyboard.press('Enter');
+  check('standalone-cached-skill-keyboard-inserts-a-mention-without-sending',await page.locator(`${standaloneSelector}:not([hidden])`).count()===0&&await page.evaluate(()=>document.activeElement.querySelector('[data-fixture-skill="skill-2"]')&&window.skillInsertions.length===2&&window.promptSends===0));
+  await openStandalone({draft:'/10'});
+  await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-skill-row] button`).click();
+  check('standalone-cached-skill-click-inserts-a-mention-without-sending',await page.locator(`${standaloneSelector}:not([hidden])`).count()===0&&await page.evaluate(()=>document.activeElement.querySelector('[data-fixture-skill="skill-10"]')&&window.skillInsertions.length===3&&window.promptSends===0));
+  await page.evaluate(()=>{window.skillCacheFixture.scope.roots=['C:\\cold'];});
+  await openStandalone();
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  check('standalone-cold-skill-cache-falls-back-to-prompt-without-using-unrelated-scope',await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-menu-heading]`).allTextContents().then(headings=>headings.join('|')==='Prompt'));
+  await page.evaluate(()=>{document.querySelector('#composer').__reactFiber$fixture=null;delete window.skillCacheFixture;});
   await page.evaluate(()=>{window.menuFixtureController.ui.trigger='/';window.__codexCommandMenu.update({});window.__codexCommandMenu.remove();window.removeEventListener('keydown',window.nativeMenuKeys,true);});
   check('native-stop-restores-original-dom-and-order',await page.locator('#native-menu [data-bc-command],#better-codex-command-menu-style').count()===0&&await page.evaluate(()=>[...document.querySelector('#native-menu [data-mention-section-items]').children].map(row=>row.textContent).slice(0,2).join('|')==='reasoning|review-mode'));
   const now=1000000,data={binding:'ok',thread_id:id,updated_at_ms:now,source:{state:'ok'},metrics:{model:'fixture',stage:'idle',turn_ttft_ms:11244,last:{model:'fixture',source:'magpie',rate_basis:'magpie-native-speed-v1',ttft_ms:11244,rate:44.99,cache_percent:97.5,measured_at_ms:now-31000}}};
