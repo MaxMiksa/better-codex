@@ -171,6 +171,12 @@ async function finish(child){
     check('command-preferences-persist-and-sync-across-windows',read(settingsPath).commandVisible.side===false);
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat.join('|')==='rename|ai-rename|new|archive';}))).then(values=>values.every(Boolean)),'command order in both windows');
     check('command-orders-persist-and-sync-across-windows',read(settingsPath).commandGroupOrder[0]==='project'&&read(settingsPath).commandItemOrder.chat[0]==='rename');
+    await p1.locator('#metrics').click();
+    await p1.locator('#command-toggle').click();
+    await p1.locator('[data-skill-id="health"]').click();
+    await until(async()=>p2.evaluate(()=>window.__codexComposerHud.snapshot().preferences.skillVisible.health===true),'skill preference in second window');
+    check('skill-visibility-persists-and-syncs-across-windows',read(settingsPath).skillVisible.health===true&&read(settingsPath).skillVisible.visualize===false);
+    await p1.locator('#metrics').click();
     await p1.evaluate(()=>document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#command-enabled').click());
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandMenuEnabled===false))).then(values=>values.every(Boolean)),'command master disabled in both windows');
     check('command-master-persists-and-syncs-without-reloading',read(settingsPath).commandMenuEnabled===false&&read(settingsPath).commandVisible.side===false);
@@ -274,7 +280,8 @@ async function finish(child){
         typeof window.__codexReadingWidth?.setTablesEnabled==='function'&&
         typeof window.__codexTableSort?.setEnabled==='function';
     }),'coordinated language and table refresh');
-    check('language-pack-and-table-modules-refresh-together',await matching(p1,A,'- tok/s','13%')&&controller.exitCode===null);
+    await until(()=>matching(p1,A,'- tok/s','13%'),'metrics restored after interface modules refresh');
+    check('language-pack-and-table-modules-refresh-together',controller.exitCode===null);
     fs.writeFileSync(path.join(runtime,'stop'),'');
     await until(()=>controller.exitCode!==null,'controller shutdown');
     const cleaned=await Promise.all([p1,p2].map(page=>page.evaluate(()=>!window.__codexComposerHud&&!window.__codexCustomAccent&&!window.__codexReadingWidth&&!window.__codexTableSort&&!window.__codexFileChanges&&!window.__codexCommandMenu)));

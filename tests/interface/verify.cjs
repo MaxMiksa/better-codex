@@ -495,8 +495,18 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('command-master-redo-restores-disabled-state',await page.locator('#command-enabled').getAttribute('aria-checked')==='false');
   await page.locator('#command-enabled').click();
   await commandToggle.click();
+  const healthChoice=page.locator('[data-skill-id="health"]');
+  check('skill-visibility-hides-the-five-presets-by-default',(await page.locator('#skill-buttons [aria-pressed="false"]').allTextContents()).join('|')==='Create Statusline|Excel Live Control|Health|Spreadsheets|Visualize');
+  await healthChoice.click();
+  check('skill-visibility-switch-queues-preference',await page.evaluate(()=>window.__codexComposerHud.settingsRequest().value.skillVisible.health===true));
+  await page.locator('#undo').click();
+  check('skill-visibility-undo-restores-preset',await healthChoice.getAttribute('aria-pressed')==='false');
+  await page.locator('#redo').click();
+  check('skill-visibility-redo-restores-choice',await healthChoice.getAttribute('aria-pressed')==='true');
+  await page.locator('#restore-defaults').click();
+  check('skill-visibility-reset-restores-preset',await healthChoice.getAttribute('aria-pressed')==='false');
   check('commands-regrouped-without-a-miscellaneous-pile',await page.locator('#command-options .command-heading').allTextContents().then(value=>value.join('|')==='聊天管理|上下文与分流|项目工作|聊天整理|模型与推理|工作模式|工具与连接|创作与伙伴|状态与帮助'));
-  check('commands-default-exactly-nine-enabled',await page.locator('#command-options [aria-pressed="true"]').count()===9);
+  check('commands-default-exactly-nine-enabled',await page.locator('#command-options [data-command-id][aria-pressed="true"]').count()===9);
   check('command-settings-use-one-horizontal-button-group-per-category',await page.locator('#command-options .command-buttons').evaluateAll(groups=>groups.every(group=>{const buttons=[...group.children],top=buttons[0].getBoundingClientRect().top;return buttons.every(button=>button.getAttribute('aria-pressed')!==null&&Math.abs(button.getBoundingClientRect().top-top)<.5);})));
   await page.locator('[data-command-id="side"]').click();
   check('commands-switch-queues-persistent-preference',await page.evaluate(()=>window.__codexComposerHud.settingsRequest().value.commandVisible.side===false));
@@ -506,9 +516,9 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('commands-switch-redo-restores-hidden-choice',await page.locator('[data-command-id="side"]').getAttribute('aria-pressed')==='false');
   await page.locator('#restore-defaults').click();
   await commandToggle.click();await commandToggle.click();
-  check('commands-collapse-keeps-controls-and-nine-defaults',await page.locator('#command-options [aria-pressed="true"]').count()===9);
+  check('commands-collapse-keeps-controls-and-nine-defaults',await page.locator('#command-options [data-command-id][aria-pressed="true"]').count()===9);
   await page.locator('[data-command-id="new"]').press('ArrowRight');
-  check('command-settings-left-right-focuses-without-toggling',await page.locator('[data-command-id="rename"]').evaluate(button=>button.getRootNode().activeElement===button)&&await page.locator('#command-options [aria-pressed="true"]').count()===9);
+  check('command-settings-left-right-focuses-without-toggling',await page.locator('[data-command-id="rename"]').evaluate(button=>button.getRootNode().activeElement===button)&&await page.locator('#command-options [data-command-id][aria-pressed="true"]').count()===9);
   const commandGrip=(kind,id)=>page.locator('[data-command-drag="'+kind+'"][data-command-drag-id="'+id+'"]');
   await commandGrip('item','new').dragTo(commandGrip('item','archive'));
   check('command-item-drag-saves-order-without-toggling',await page.evaluate(()=>{const hud=window.__codexComposerHud;return hud.settingsRequest().value.commandItemOrder.chat.join('|')==='rename|ai-rename|archive|new'&&Object.values(hud.snapshot().preferences.commandVisible).filter(Boolean).length===9;}));
@@ -633,7 +643,10 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
     for(const name of ['alpha','beta','gamma','delta','epsilon','zeta','eta']){const id='skill:'+name,title=name==='gamma'?'gamma with a very long skill name that should truncate without widening the menu':name;const row=document.createElement('button');row.dataset.listNavigationItem='true';row.textContent=title+' description personal source';row.__reactFiber$fixture={memoizedProps:{children:{props:{item:{id,title}}}}};row.addEventListener('click',()=>window.menuSelections.push(id));items.append(row);}
     document.querySelector('#native-menu').prepend(section);window.__codexCommandMenu.update({'skill:alpha':false});
   });
-  check('native-skills-visible-at-bottom-and-excluded-from-settings',(await menuOrder()).slice(-7).join('|')==='skill:alpha|skill:epsilon|skill:zeta|skill:beta|skill:eta|skill:delta|skill:gamma'&&await page.evaluate(()=>!window.__codexCommandMenu.entries().some(item=>item.id.startsWith('skill:'))));
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {skillVisible:{alpha:false}}));
+  check('native-hidden-skill-has-no-button-but-remains-in-settings',await page.locator('[data-bc-menu-button="skill:alpha"]').count()===0&&await page.evaluate(()=>window.__codexCommandMenu.skillEntries().some(item=>item.id==='alpha')));
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {skillVisible:{}}));
+  check('native-skills-visible-at-bottom-and-excluded-from-command-settings',(await menuOrder()).slice(-7).join('|')==='skill:alpha|skill:epsilon|skill:zeta|skill:beta|skill:eta|skill:delta|skill:gamma'&&await page.evaluate(()=>!window.__codexCommandMenu.entries().some(item=>item.id.startsWith('skill:'))));
   check('native-skills-use-three-fixed-columns-with-incomplete-last-column',await page.locator('#native-menu [data-bc-skill-row]').evaluateAll(lines=>lines.map(line=>line.children.length).join('|')==='3|2|2'&&lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3)));
   check('native-skills-sort-alphabetically-down-left-filled-columns',await page.locator('#native-menu [data-bc-skill-row]').evaluateAll(lines=>[0,1,2].map(column=>lines.map(line=>line.children[column]?.dataset.bcMenuButton).filter(Boolean).join('|')).join(';')==='skill:alpha|skill:beta|skill:delta;skill:epsilon|skill:eta|skill:gamma;skill:zeta'));
   check('native-skill-buttons-show-only-names-and-full-name-tooltip',await page.locator('#native-menu [data-bc-skill-row] button').evaluateAll(buttons=>buttons.every(button=>button.children.length===1&&button.firstElementChild.tagName==='SPAN'&&button.textContent===button.title&&!button.textContent.includes('personal source'))));
@@ -823,6 +836,10 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
     window.skillInsertions=[];window.skillCacheFixture={scope,cache,skills};window.menuFixtureController.ui.trigger='/';
   });
   const skillSelector='#native-menu [data-bc-skill-row]';
+  await page.evaluate(()=>{
+    const {skills}=window.skillCacheFixture;
+    for(const [name,displayName] of [['health:health','Health'],['spreadsheets:excel-live-control','Excel Live Control'],['spreadsheets:spreadsheets','Spreadsheets'],['visualize:visualize','Visualize'],['create-statusline','Create Statusline']])skills.push({name,enabled:true,path:'fixture:'+name,interface:{displayName}});
+  });
   await openPromptMenu();
   await sendPrompts(await menuPromptRequests(),await readPrompts());
   check('cached-native-skills-show-under-commands-with-prompt-and-path-ids',await page.locator(skillSelector).evaluateAll(lines=>{
@@ -877,6 +894,13 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await openStandalone({draft:'/10'});
   await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-skill-row] button`).click();
   check('standalone-cached-skill-click-inserts-a-mention-without-sending',await page.locator(`${standaloneSelector}:not([hidden])`).count()===0&&await page.evaluate(()=>document.activeElement.querySelector('[data-fixture-skill="skill-10"]')&&window.skillInsertions.length===3&&window.promptSends===0));
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {skillVisible:{'skill-2':false}}));
+  await openStandalone({draft:'/2'});
+  await sendPrompts(await menuPromptRequests(),[]);
+  check('standalone-search-does-not-reveal-hidden-skill',await page.locator(standaloneSelector+':not([hidden])').count()===0);
+  await page.evaluate(()=>window.__codexCommandMenu.update({}, {skillVisible:{}}));
+  check('standalone-shows-a-skill-again-without-reloading',await page.locator(standaloneSelector+':not([hidden]) [data-bc-skill-row] button').allTextContents().then(names=>names.join('|')==='Skill 2'));
+  await page.keyboard.press('Escape');
   await page.evaluate(()=>{window.skillCacheFixture.scope.roots=['C:\\cold'];});
   await openStandalone();
   await sendPrompts(await menuPromptRequests(),await readPrompts());

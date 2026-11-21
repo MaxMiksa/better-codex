@@ -6,6 +6,20 @@
   const commands=groups.flatMap(([group,ids])=>ids.map(id=>({id,group,label:'command.'+id,shortLabel:(shortened.has(id)?'commandShort.':'command.')+id})));
   const defaults=Object.fromEntries(commands.map(item=>[item.id,initial.has(item.id)]));
   const isSkill=id=>id.startsWith('skill:');
+  const presetSkills={'create-statusline':'Create Statusline','excel-live-control':'Excel Live Control',health:'Health',spreadsheets:'Spreadsheets',visualize:'Visualize'};
+  const skillAliases={'health:health':'health','spreadsheets:excel-live-control':'excel-live-control','spreadsheets:spreadsheets':'spreadsheets','visualize:visualize':'visualize'};
+  function skillKey(title,name){
+    const slug=text=>text.trim().toLowerCase().replace(/\s*:\s*/g,':').replace(/[\s_-]+/g,'-');
+    const key=slug(title),raw=name?slug(name):key;
+    if(Object.hasOwn(skillAliases,raw))return skillAliases[raw];
+    if(Object.hasOwn(presetSkills,raw))return raw;
+    return Object.hasOwn(skillAliases,key)?skillAliases[key]:key;
+  }
+  function normalizeSkillVisible(value){
+    const defaults=Object.fromEntries(Object.keys(presetSkills).map(id=>[id,false]));
+    const choices=value&&typeof value==='object'&&!Array.isArray(value)?Object.entries(value):[];
+    return {...defaults,...Object.fromEntries(choices.filter(([id,on])=>id.length>0&&id.length<1024&&typeof on==='boolean'))};
+  }
   function normalize(value){return {...defaults,...Object.fromEntries(Object.entries(value&&typeof value==='object'&&!Array.isArray(value)?value:{}).filter(([id,on])=>id.length>0&&id.length<1024&&typeof on==='boolean'))};}
   function normalizeGroupOrder(value){
     const saved=Array.isArray(value)?value:[],secondary=groups.slice(3,-1).map(([id])=>id);
@@ -23,10 +37,13 @@
     return [group,[...new Set([...ordered,...ids])]];
   }));}
   function orderedGroups(groupOrder,itemOrder,extra=[]){const order=normalizeItemOrder(itemOrder);return normalizeGroupOrder(groupOrder).map(group=>({id:group,items:[...commands,...extra].filter(item=>item.group===group&&!isSkill(item.id)).sort((a,b)=>{const rank=id=>order[group].includes(id)?order[group].indexOf(id):order[group].length+extra.findIndex(item=>item.id===id);return rank(a.id)-rank(b.id);})}));}
-  const catalog={groups,commands,defaults,normalize,isSkill,normalizeGroupOrder,normalizeItemOrder,orderedGroups};
+  const catalog={groups,commands,defaults,normalize,isSkill,normalizeGroupOrder,normalizeItemOrder,orderedGroups,normalizeSkillVisible};
   if(typeof module==='object'&&module.exports){module.exports=catalog;return;}
   if(window.__codexCommandMenu)return;
   let preferences=normalize(),groupOrder=normalizeGroupOrder(),itemOrder=normalizeItemOrder(),enabled=true,disposed=false,queued=false;
+  let skillVisible=normalizeSkillVisible();
+  const knownNativeSkills=new Map();
+  const showSkill=id=>!Object.hasOwn(skillVisible,id)||skillVisible[id]!==false;
   const standalone={element:null,editor:null,composer:null,query:'',request:null,loaded:false,entries:[],open:false,timer:0,promptTimer:0};
   const discovered=new Map(),managed=new Set(),selections=new WeakMap(),views=new Map(),openings=new Map(),proxySources=new WeakMap(),columns=new WeakMap();
   const headings={skills:'Skills',prompts:'Prompt'},instance=String(Math.random()),namesOrder=new Intl.Collator(undefined,{sensitivity:'base',numeric:true});
@@ -78,8 +95,7 @@
   function rows(root){return [...views.get(root)?.buttons||[]].filter(([row,button])=>!button.disabled&&(typeof row==='string'||nativeAvailable(row))).map(([row])=>row);}
   function visual(root,row){return views.get(root)?.buttons.get(row)||row;}
   function select(root,row){selections.set(root,row);for(const node of root.querySelectorAll('[data-bc-command]'))attribute(node,'data-bc-active',node===row?'':null);for(const [source,button] of views.get(root)?.buttons||[]){button.toggleAttribute('data-bc-active',source===row);button.setAttribute('aria-selected',String(source===row));}}
-  function focusedEditor(){
-    const editor=document.activeElement;
+  function focusedEditor(editor=document.activeElement){
     if(!editor?.matches?.('[contenteditable="true"],[contenteditable="plaintext-only"],textarea'))return null;
     const composer=editor.closest('[data-codex-composer-root]');
     return composer?{editor,composer}:null;
@@ -118,6 +134,17 @@
     const display=skill.interface?.displayName;
     return typeof display==='string'&&display.trim()||skill.name.replace(/[_-]+/g,' ').replace(/:\s*/g,': ').replace(/(^|\s)\p{L}/gu,letter=>letter.toLocaleUpperCase());
   }
+  function skillEntries(composer){
+    const entries=new Map(Object.entries(presetSkills));
+    for(const [id,title] of knownNativeSkills)entries.set(id,title);
+    for(const editor of composer?.querySelectorAll('[contenteditable="true"],[contenteditable="plaintext-only"],textarea')??[]){
+      for(const skill of nativeSkillContext(focusedEditor(editor))?.skills??[]){
+        if(!usableSkill(skill))continue;
+        const title=skillTitle(skill);entries.set(skillKey(title,skill.name),title);
+      }
+    }
+    return [...entries].sort((a,b)=>namesOrder.compare(a[1],b[1])).map(([id,title])=>({id,title}));
+  }
   function cachedSkills(focused,query){
     if(typeof query!=='string')return [];
     const context=nativeSkillContext(focused),seen=new Set(),needle=query.toLocaleLowerCase();
@@ -125,7 +152,7 @@
       if(!usableSkill(skill)||seen.has(skill.path))return [];
       seen.add(skill.path);
       const id='skill:'+skill.path,title=skillTitle(skill);
-      return !needle||[title,skill.name].some(name=>name.toLocaleLowerCase().includes(needle))?[{row:id,item:{id,title}}]:[];
+      return showSkill(skillKey(title,skill.name))&&(!needle||[title,skill.name].some(name=>name.toLocaleLowerCase().includes(needle)))?[{row:id,item:{id,title}}]:[];
     });
   }
   function insertSkill(root,id,query){
@@ -133,7 +160,7 @@
     if(!focused||owner&&owner!==focused.composer||typeof query!=='string'||/[\s/]/u.test(query))return false;
     const context=nativeSkillContext(focused),view=context?.controller.view;
     const skill=context?.skills.find(skill=>usableSkill(skill)&&'skill:'+skill.path===id);
-    if(!skill||view.composing||!view.state?.selection?.empty)return false;
+    if(!skill||!showSkill(skillKey(skillTitle(skill),skill.name))||view.composing||!view.state?.selection?.empty)return false;
     const {doc,selection}=view.state,to=selection.to,trigger='/'+query,from=to-trigger.length;
     if(!Number.isInteger(to)||from<1||typeof doc?.textBetween!=='function')return false;
     try{
@@ -360,7 +387,11 @@
       // A changed native contract leaves the entire menu native.
       if(entries.some(entry=>!entry.item)){restore(root);continue;}
       const nativeSkills=entries.filter(({item})=>isSkill(item.id));
-      const skillGroups=nameLayout('skills',nativeSkills.length?nativeSkills:cachedSkills(focusedEditor(),value.ui.query));
+      for(const {item} of nativeSkills){
+        const id=skillKey(item.title,item.id.slice(6));
+        if(knownNativeSkills.get(id)!==item.title){knownNativeSkills.set(id,item.title);changed=true;}
+      }
+      const skillGroups=nameLayout('skills',nativeSkills.length?nativeSkills.filter(({item})=>showSkill(skillKey(item.title,item.id.slice(6)))):cachedSkills(focusedEditor(),value.ui.query));
       if(!hasNativeRows&&!skillGroups.length){restore(root);continue;}
       attribute(root,'data-bc-command-root','');
       attribute(root,'data-bc-command-empty',hasNativeRows?null:'');
@@ -378,7 +409,8 @@
       for(const {row,item} of entries){
         if(typeof row==='string')continue;
         if(!isSkill(item.id)&&discovered.get(item.id)!==item.title){discovered.set(item.id,item.title);changed=true;}
-        attribute(row,'data-bc-command',item.id);attribute(row,'data-bc-command-hidden',isSkill(item.id)||preferences[item.id]===true?null:'');attribute(row,'data-bc-command-source','');
+        const visible=isSkill(item.id)?skillRanks.has(item.id):preferences[item.id]===true;
+        attribute(row,'data-bc-command',item.id);attribute(row,'data-bc-command-hidden',visible?null:'');attribute(row,'data-bc-command-source','');
         const order=isSkill(item.id)?skillRanks.get(item.id):ranks.get(item.id);if(row.style.getPropertyValue('--bc-command-order')!==String(order))row.style.setProperty('--bc-command-order',String(order));
       }
       for(const section of root.querySelectorAll('[data-mention-section-id]')){
@@ -447,7 +479,7 @@
   }
   window.addEventListener('keydown',keydown,true);window.addEventListener('mousemove',pointermove,true);
   document.addEventListener('input',input,true);document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',positionStandalone);
-  window.__codexCommandMenu={catalog,update(value,order){if(typeof order?.enabled==='boolean')enabled=order.enabled;preferences=normalize(value);groupOrder=normalizeGroupOrder(order?.groupOrder??groupOrder);itemOrder=normalizeItemOrder(order?.itemOrder??itemOrder);refresh();},entries(){return [...discovered].filter(([id])=>!commands.some(item=>item.id===id)).map(([id,title])=>({id,title,group:'other'}));},
+  window.__codexCommandMenu={catalog,skillEntries,update(value,order){if(typeof order?.enabled==='boolean')enabled=order.enabled;preferences=normalize(value);skillVisible=normalizeSkillVisible(order?.skillVisible??skillVisible);groupOrder=normalizeGroupOrder(order?.groupOrder??groupOrder);itemOrder=normalizeItemOrder(order?.itemOrder??itemOrder);refresh();},entries(){return [...discovered].filter(([id])=>!commands.some(item=>item.id===id)).map(([id,title])=>({id,title,group:'other'}));},
     promptRequests(){const requests=[...openings].filter(([root,opening])=>root.isConnected&&eligible(root)&&!opening.loaded).map(([,opening])=>opening.request);if(standalone.open&&!standalone.loaded)requests.push(standalone.request);return requests;},
     promptState({requests,entries}){applyPrompts(requests,entries,true);},
     remove(){disposed=true;closeStandalone();observer.disconnect();window.removeEventListener('keydown',keydown,true);window.removeEventListener('mousemove',pointermove,true);document.removeEventListener('input',input,true);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',positionStandalone);for(const view of views.values())view.surface.remove();views.clear();for(const root of openings.keys())restore(root);for(const node of managed)clear(node);managed.clear();standalone.element?.remove();style.remove();delete window.__codexCommandMenu;}};

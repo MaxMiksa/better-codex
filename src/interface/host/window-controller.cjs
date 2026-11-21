@@ -8,7 +8,7 @@ const {isMainPageUrl,pageGuard}=require('./page-contract.cjs');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const promptBinding='__betterCodexRequestPrompts';
 const read=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return null;}};
-const {normalize:commandVisible,normalizeGroupOrder,normalizeItemOrder}=require('../appearance/command-menu.js');
+const {normalize:commandVisible,normalizeSkillVisible,normalizeGroupOrder,normalizeItemOrder}=require('../appearance/command-menu.js');
 const METRIC_KEYS=['ttft','speed','cache','age'];
 const DEFAULT_PREFERENCES={readingWidth:1152,fileChangesDefaultCollapsed:true,customAccent:true,tableEnabled:true,tableCentered:true,tableSortMode:'smart',
   metricOrder:[...METRIC_KEYS],metricVisible:Object.fromEntries(METRIC_KEYS.map(key=>[key,true]))};
@@ -36,6 +36,7 @@ function preferences(value={}){
     tableSortMode:['smart','ascending','descending'].includes(value.tableSortMode)?value.tableSortMode:DEFAULT_PREFERENCES.tableSortMode,
     commandMenuEnabled:typeof value.commandMenuEnabled==='boolean'?value.commandMenuEnabled:true,
     commandVisible:commandVisible(value.commandVisible),
+    skillVisible:normalizeSkillVisible(value.skillVisible),
     commandGroupOrder:normalizeGroupOrder(value.commandGroupOrder),
     commandItemOrder:normalizeItemOrder(value.commandItemOrder),
     metricOrder:metricOrder(value.metricOrder),
@@ -52,6 +53,7 @@ function patch(value={}){
   if(['smart','ascending','descending'].includes(value.tableSortMode))result.tableSortMode=value.tableSortMode;
   if(typeof value.commandMenuEnabled==='boolean')result.commandMenuEnabled=value.commandMenuEnabled;
   if(value.commandVisible&&typeof value.commandVisible==='object'&&!Array.isArray(value.commandVisible))result.commandVisible=commandVisible(value.commandVisible);
+  if(value.skillVisible&&typeof value.skillVisible==='object'&&!Array.isArray(value.skillVisible))result.skillVisible=normalizeSkillVisible(value.skillVisible);
   if(Array.isArray(value.commandGroupOrder))result.commandGroupOrder=normalizeGroupOrder(value.commandGroupOrder);
   if(value.commandItemOrder&&typeof value.commandItemOrder==='object'&&!Array.isArray(value.commandItemOrder))result.commandItemOrder=normalizeItemOrder(value.commandItemOrder);
   if(Array.isArray(value.metricOrder))result.metricOrder=metricOrder(value.metricOrder);
