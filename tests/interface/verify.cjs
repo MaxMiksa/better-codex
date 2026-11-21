@@ -483,8 +483,9 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('legacy-command-orders-migrate-without-enabling-extra-features',await page.evaluate(()=>{const c=window.__codexCommandMenu.catalog,order=c.normalizeItemOrder({other:['pet','reasoning','model','pin','unknown-new-command']});return order.model.join('|')==='reasoning|model|service-tier:priority'&&order.creative.join('|')==='pet|sketch'&&order.other.join('|')==='unknown-new-command'&&Object.values(c.normalize()).filter(Boolean).length===9;}));
   check('commands-default-collapsed-and-native-switch-style',await commandToggle.getAttribute('aria-expanded')==='false'&&await page.locator('#command-options').evaluate(e=>e.inert));
   check('collapsed-accordions-are-adjacent-without-blank-child-gap',await page.evaluate(()=>{
-    const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('.table-group'),commands=root.querySelector('#command-settings'),files=root.querySelector('#files-default-label').closest('.setting-row'),a=table.getBoundingClientRect(),b=commands.getBoundingClientRect(),c=files.getBoundingClientRect();
-    return table.nextElementSibling===commands&&Math.abs(a.height-root.querySelector('#table-toggle').getBoundingClientRect().height)<.1&&Math.abs(b.height-root.querySelector('#command-toggle').getBoundingClientRect().height)<.1&&Math.abs(b.top-a.bottom-12)<.1&&Math.abs(c.top-b.bottom-12)<.1;
+    const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('.table-group'),sections=root.querySelector('#slash-settings'),files=root.querySelector('#files-default-label').closest('.setting-row');
+    const bounds=[table,...sections.children,files].map(node=>node.getBoundingClientRect());
+    return table.nextElementSibling===sections&&bounds.slice(1).every((rect,index)=>Math.abs(rect.top-bounds[index].bottom-12)<.1)&&[...sections.children].every(section=>Math.abs(section.offsetHeight-section.firstElementChild.offsetHeight)<.1);
   }));
   check('command-master-defaults-on',await page.locator('#command-enabled').getAttribute('aria-checked')==='true');
   await page.locator('#command-enabled').click();
@@ -494,7 +495,18 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.locator('#redo').click();
   check('command-master-redo-restores-disabled-state',await page.locator('#command-enabled').getAttribute('aria-checked')==='false');
   await page.locator('#command-enabled').click();
-  await commandToggle.click();
+  const skillToggle=page.locator('#skill-toggle'),sectionGrip=id=>page.locator(`[data-command-drag="section"][data-command-drag-id="${id}"]`);
+  await skillToggle.click();
+  check('skills-expand-independently-of-commands',await skillToggle.getAttribute('aria-expanded')==='true'&&await commandToggle.getAttribute('aria-expanded')==='false');
+  await sectionGrip('skills').dragTo(sectionGrip('commands'));
+  check('slash-settings-drag-saves-visual-and-dom-order-without-changing-command-order',await page.evaluate(()=>{
+    const hud=window.__codexComposerHud,root=document.querySelector('#codex-composer-hud').shadowRoot;
+    return root.querySelector('#slash-settings').firstElementChild.dataset.slashSection==='skills'&&hud.settingsRequest().value.commandSectionOrder.join('|')==='skills|commands'&&hud.snapshot().preferences.commandGroupOrder[0]==='chat'&&root.querySelector('#skill-toggle').getAttribute('aria-expanded')==='true';
+  }));
+  await page.locator('#undo').click();
+  check('slash-settings-section-order-can-be-undone',await page.locator('#slash-settings > :first-child').getAttribute('data-slash-section')==='commands');
+  await sectionGrip('commands').press('ArrowDown');
+  check('slash-settings-sections-reorder-with-keyboard',await page.locator('#slash-settings > :first-child').getAttribute('data-slash-section')==='skills'&&await sectionGrip('commands').evaluate(node=>node===node.getRootNode().activeElement));
   const healthChoice=page.locator('[data-skill-id="health"]');
   check('skill-visibility-hides-the-five-presets-by-default',(await page.locator('#skill-buttons [aria-pressed="false"]').allTextContents()).join('|')==='Create Statusline|Excel Live Control|Health|Spreadsheets|Visualize');
   await healthChoice.click();
@@ -505,7 +517,11 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('skill-visibility-redo-restores-choice',await healthChoice.getAttribute('aria-pressed')==='true');
   await page.locator('#restore-defaults').click();
   check('skill-visibility-reset-restores-preset',await healthChoice.getAttribute('aria-pressed')==='false');
-  check('commands-regrouped-without-a-miscellaneous-pile',await page.locator('#command-options .command-heading').allTextContents().then(value=>value.join('|')==='聊天管理|上下文与分流|项目工作|聊天整理|模型与推理|工作模式|工具与连接|创作与伙伴|状态与帮助'));
+  check('restoring-settings-also-restores-default-accordion-order',await page.locator('#slash-settings > :first-child').getAttribute('data-slash-section')==='commands');
+  await commandToggle.click();
+  check('commands-have-accessible-button-groups-without-visible-subheadings',await page.locator('#command-options h3,.command-heading').count()===0&&await page.locator('#command-options .command-buttons').evaluateAll(groups=>groups.map(group=>group.getAttribute('aria-label')).join('|')==='聊天管理|上下文与分流|项目工作|聊天整理|模型与推理|工作模式|工具与连接|创作与伙伴|状态与帮助'));
+  check('commands-and-skills-can-stay-open-together',await skillToggle.getAttribute('aria-expanded')==='true'&&await commandToggle.getAttribute('aria-expanded')==='true');
+  await skillToggle.click();
   check('commands-default-exactly-nine-enabled',await page.locator('#command-options [data-command-id][aria-pressed="true"]').count()===9);
   check('command-settings-use-one-horizontal-button-group-per-category',await page.locator('#command-options .command-buttons').evaluateAll(groups=>groups.every(group=>{const buttons=[...group.children],top=buttons[0].getBoundingClientRect().top;return buttons.every(button=>button.getAttribute('aria-pressed')!==null&&Math.abs(button.getBoundingClientRect().top-top)<.5);})));
   await page.locator('[data-command-id="side"]').click();
@@ -529,7 +545,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await commandGrip('item','new').dragTo(commandGrip('item','side'));
   check('command-item-drag-stays-in-own-group',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandItemOrder.chat.join('|')==='rename|ai-rename|archive|new'));
   await commandGrip('group','context').dragTo(commandGrip('group','chat'));
-  check('command-group-drag-saves-and-renders-order',await page.evaluate(()=>window.__codexComposerHud.settingsRequest().value.commandGroupOrder.slice(0,3).join('|')==='context|chat|project')&&(await page.locator('#command-options .command-heading').allTextContents())[0]==='上下文与分流');
+  check('command-group-drag-saves-and-renders-order',await page.evaluate(()=>window.__codexComposerHud.settingsRequest().value.commandGroupOrder.slice(0,3).join('|')==='context|chat|project')&&await page.locator('#command-options .command-buttons').first().getAttribute('aria-label')==='上下文与分流');
   await commandGrip('group','context').press('ArrowDown');
   check('command-grips-support-keyboard-reordering',await page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandGroupOrder[0]==='chat'));
   await page.locator('#restore-defaults').click();

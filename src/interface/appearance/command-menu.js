@@ -21,6 +21,7 @@
     return {...defaults,...Object.fromEntries(choices.filter(([id,on])=>id.length>0&&id.length<1024&&typeof on==='boolean'))};
   }
   function normalize(value){return {...defaults,...Object.fromEntries(Object.entries(value&&typeof value==='object'&&!Array.isArray(value)?value:{}).filter(([id,on])=>id.length>0&&id.length<1024&&typeof on==='boolean'))};}
+  function normalizeSectionOrder(value){return Array.isArray(value)&&value[0]==='skills'?['skills','commands']:['commands','skills'];}
   function normalizeGroupOrder(value){
     const saved=Array.isArray(value)?value:[],secondary=groups.slice(3,-1).map(([id])=>id);
     const legacy=saved.includes('other')&&!saved.some(id=>secondary.includes(id));
@@ -37,7 +38,7 @@
     return [group,[...new Set([...ordered,...ids])]];
   }));}
   function orderedGroups(groupOrder,itemOrder,extra=[]){const order=normalizeItemOrder(itemOrder);return normalizeGroupOrder(groupOrder).map(group=>({id:group,items:[...commands,...extra].filter(item=>item.group===group&&!isSkill(item.id)).sort((a,b)=>{const rank=id=>order[group].includes(id)?order[group].indexOf(id):order[group].length+extra.findIndex(item=>item.id===id);return rank(a.id)-rank(b.id);})}));}
-  const catalog={groups,commands,defaults,normalize,isSkill,normalizeGroupOrder,normalizeItemOrder,orderedGroups,normalizeSkillVisible};
+  const catalog={groups,commands,defaults,normalize,isSkill,normalizeGroupOrder,normalizeItemOrder,orderedGroups,normalizeSkillVisible,normalizeSectionOrder};
   if(typeof module==='object'&&module.exports){module.exports=catalog;return;}
   if(window.__codexCommandMenu)return;
   let preferences=normalize(),groupOrder=normalizeGroupOrder(),itemOrder=normalizeItemOrder(),enabled=true,disposed=false,queued=false;

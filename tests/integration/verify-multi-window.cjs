@@ -172,10 +172,13 @@ async function finish(child){
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat.join('|')==='rename|ai-rename|new|archive';}))).then(values=>values.every(Boolean)),'command order in both windows');
     check('command-orders-persist-and-sync-across-windows',read(settingsPath).commandGroupOrder[0]==='project'&&read(settingsPath).commandItemOrder.chat[0]==='rename');
     await p1.locator('#metrics').click();
-    await p1.locator('#command-toggle').click();
+    await p1.locator('#skill-toggle').click();
     await p1.locator('[data-skill-id="health"]').click();
     await until(async()=>p2.evaluate(()=>window.__codexComposerHud.snapshot().preferences.skillVisible.health===true),'skill preference in second window');
     check('skill-visibility-persists-and-syncs-across-windows',read(settingsPath).skillVisible.health===true&&read(settingsPath).skillVisible.visualize===false);
+    await p1.locator('[data-command-drag="section"][data-command-drag-id="skills"]').press('ArrowUp');
+    await until(()=>p2.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandSectionOrder[0]==='skills'),'accordion order in second window');
+    check('slash-settings-accordion-order-persists-and-syncs',read(settingsPath).commandSectionOrder.join('|')==='skills|commands');
     await p1.locator('#metrics').click();
     await p1.evaluate(()=>document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#command-enabled').click());
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandMenuEnabled===false))).then(values=>values.every(Boolean)),'command master disabled in both windows');
