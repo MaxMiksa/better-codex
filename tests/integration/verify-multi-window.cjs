@@ -172,6 +172,7 @@ async function finish(child){
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat.join('|')==='rename|ai-rename|new|archive';}))).then(values=>values.every(Boolean)),'command order in both windows');
     check('command-orders-persist-and-sync-across-windows',read(settingsPath).commandGroupOrder[0]==='project'&&read(settingsPath).commandItemOrder.chat[0]==='rename');
     await p1.locator('#metrics').click();
+    await p1.locator('#slash-toggle').click();
     await p1.locator('#skill-toggle').click();
     await p1.locator('[data-skill-id="health"]').click();
     await until(async()=>p2.evaluate(()=>window.__codexComposerHud.snapshot().preferences.skillVisible.health===true),'skill preference in second window');

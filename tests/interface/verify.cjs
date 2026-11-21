@@ -479,16 +479,17 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.setViewportSize({width:1261,height:1100});await reset();
   await page.evaluate(()=>{document.querySelector('#composer').style.top='850px';window.__codexComposerHud.settingsState({});});
   await page.locator('#metrics').click();
-  const commandToggle=page.locator('#command-toggle');
+  const commandToggle=page.locator('#command-toggle'),slashToggle=page.locator('#slash-toggle');
   check('legacy-command-orders-migrate-without-enabling-extra-features',await page.evaluate(()=>{const c=window.__codexCommandMenu.catalog,order=c.normalizeItemOrder({other:['pet','reasoning','model','pin','unknown-new-command']});return order.model.join('|')==='reasoning|model|service-tier:priority'&&order.creative.join('|')==='pet|sketch'&&order.other.join('|')==='unknown-new-command'&&Object.values(c.normalize()).filter(Boolean).length===9;}));
   check('commands-default-collapsed-and-native-switch-style',await commandToggle.getAttribute('aria-expanded')==='false'&&await page.locator('#command-options').evaluate(e=>e.inert));
   check('collapsed-accordions-are-adjacent-without-blank-child-gap',await page.evaluate(()=>{
-    const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('.table-group'),sections=root.querySelector('#slash-settings'),files=root.querySelector('#files-default-label').closest('.setting-row');
-    const bounds=[table,...sections.children,files].map(node=>node.getBoundingClientRect());
-    return table.nextElementSibling===sections&&bounds.slice(1).every((rect,index)=>Math.abs(rect.top-bounds[index].bottom-12)<.1)&&[...sections.children].every(section=>Math.abs(section.offsetHeight-section.firstElementChild.offsetHeight)<.1);
+    const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('.table-group'),slash=root.querySelector('#slash-group'),files=root.querySelector('#files-default-label').closest('.setting-row');
+    const bounds=[table,slash,files].map(node=>node.getBoundingClientRect());
+    return table.nextElementSibling===slash&&bounds.slice(1).every((rect,index)=>Math.abs(rect.top-bounds[index].bottom-12)<.1)&&slash.offsetHeight===slash.firstElementChild.offsetHeight&&root.querySelector('#slash-options').inert;
   }));
   check('command-master-defaults-on',await page.locator('#command-enabled').getAttribute('aria-checked')==='true');
   await page.locator('#command-enabled').click();
+  await slashToggle.click();
   check('command-master-queues-save-without-clearing-choices',await page.evaluate(()=>{const h=window.__codexComposerHud;return h.settingsRequest().value.commandMenuEnabled===false&&Object.values(h.snapshot().preferences.commandVisible).filter(Boolean).length===9;}));
   await page.locator('#undo').click();
   check('command-master-undo-restores-enabled-state',await page.locator('#command-enabled').getAttribute('aria-checked')==='true');
@@ -521,6 +522,10 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await commandToggle.click();
   check('commands-have-accessible-button-groups-without-visible-subheadings',await page.locator('#command-options h3,.command-heading').count()===0&&await page.locator('#command-options .command-buttons').evaluateAll(groups=>groups.map(group=>group.getAttribute('aria-label')).join('|')==='聊天管理|上下文与分流|项目工作|聊天整理|模型与推理|工作模式|工具与连接|创作与伙伴|状态与帮助'));
   check('commands-and-skills-can-stay-open-together',await skillToggle.getAttribute('aria-expanded')==='true'&&await commandToggle.getAttribute('aria-expanded')==='true');
+  await slashToggle.click();
+  check('outer-accordion-hides-both-sections-but-keeps-master-accessible',await page.locator('#slash-options').evaluate(node=>node.inert)&&await page.locator('#command-enabled').isVisible());
+  await slashToggle.click();
+  check('reopening-outer-accordion-keeps-child-expanded-state',await skillToggle.getAttribute('aria-expanded')==='true'&&await commandToggle.getAttribute('aria-expanded')==='true');
   await skillToggle.click();
   check('commands-default-exactly-nine-enabled',await page.locator('#command-options [data-command-id][aria-pressed="true"]').count()===9);
   check('command-settings-use-one-horizontal-button-group-per-category',await page.locator('#command-options .command-buttons').evaluateAll(groups=>groups.every(group=>{const buttons=[...group.children],top=buttons[0].getBoundingClientRect().top;return buttons.every(button=>button.getAttribute('aria-pressed')!==null&&Math.abs(button.getBoundingClientRect().top-top)<.5);})));
