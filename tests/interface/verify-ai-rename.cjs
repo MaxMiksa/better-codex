@@ -57,7 +57,17 @@ async function waitFor(predicate,timeout=3000){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'better-codex-ai-rename-'));
   try{
     const rollout=path.join(root,'rollout.jsonl');
-    fs.writeFileSync(rollout,[
+    const retired=path.join(root,'rollout-retired.jsonl');
+    const wrong=path.join(root,'rollout-other.jsonl');
+    const assistantOnly=path.join(root,'rollout-assistant-only.jsonl');
+    const meta=threadId=>({type:'session_meta',payload:{id:threadId}});
+    const message=(role,text)=>({type:'response_item',payload:{type:'message',role,
+      phase:role==='assistant'?'final_answer':undefined,content:[{type:role==='assistant'?'output_text':'input_text',text}]}});
+    const write=(file,items)=>fs.writeFileSync(file,items.map(value=>JSON.stringify(value)).join('\n'),'utf8');
+    write(retired,[meta(id),message('user','旧任务'),message('assistant','旧结果')]);
+    write(wrong,[meta(otherId),message('user','另一个聊天')]);
+    write(assistantOnly,[meta(id),message('assistant','没有用户消息')]);
+    write(rollout,[meta(id),
       {type:'response_item',payload:{type:'message',role:'developer',content:[{type:'input_text',text:'developer'}]}},
       {type:'event_msg',payload:{type:'task_started',turn_id:'r1'}},
       {type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text:'未答复的用户消息'}]}},
@@ -65,37 +75,37 @@ async function waitFor(predicate,timeout=3000){
       {type:'turn_context',payload:{turn_id:'r2'}},
       {type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text:'# AGENTS.md instructions for x'},{type:'input_text',text:'用户目标'}]}},
       {type:'response_item',payload:{type:'message',role:'assistant',phase:'commentary',content:[{type:'output_text',text:'commentary'}]}},
-      {type:'response_item',payload:{type:'message',role:'assistant',phase:'final_answer',content:[{type:'output_text',text:'最终回复'}]}}
-    ].map(value=>JSON.stringify(value)).join('\n'),'utf8');
+      message('user','补充消息'),message('assistant','最终回复')
+    ]);
     const state=new DatabaseSync(path.join(root,'state_5.sqlite'));
     state.exec('CREATE TABLE threads (id TEXT,title TEXT,name TEXT,rollout_path TEXT,updated_at_ms INTEGER)');
     state.prepare('INSERT INTO threads VALUES (?,?,?,?,?)').run(id,'title',null,rollout,1);
     state.close();
-    const fallback=await transcript.readThreadTranscript(root,id);
-    check('rollout-fallback-keeps-user-and-final-only',fallback.source==='rollout'&&fallback.messages.map(message=>message.text).join('|')===
-      '未答复的用户消息|用户目标|最终回复');
-    check('rollout-boundaries-preserve-unanswered-turn',transcript.formatTranscript(fallback.messages)===
-      '【第 1 轮】\n【用户消息 1】\n未答复的用户消息\n\n【第 2 轮】\n【用户消息 1】\n用户目标\n\n【模型回复 1】\n最终回复');
-
     const history=new DatabaseSync(path.join(root,'thread_history_1.sqlite'));
     history.exec('CREATE TABLE thread_items (thread_id TEXT,turn_id TEXT,item_id TEXT,rollout_ordinal INTEGER,item_json TEXT,item_type TEXT)');
     history.exec('CREATE TABLE thread_turns (thread_id TEXT,turn_id TEXT,final_agent_item_id TEXT)');
     const insert=history.prepare('INSERT INTO thread_items VALUES (?,?,?,?,?,?)');
-    insert.run(id,'t1','u1',1,JSON.stringify({type:'userMessage',content:[{type:'text',text:'用户信息'}]}),'userMessage');
-    insert.run(id,'t1','a0',2,JSON.stringify({type:'agentMessage',phase:'commentary',text:'中间说明'}),'agentMessage');
-    insert.run(id,'t1','a1',3,JSON.stringify({type:'agentMessage',phase:'final_answer',text:'最终答复'}),'agentMessage');
-    insert.run(id,'t1','tool',4,JSON.stringify({type:'commandExecution',command:'fixture'}),'commandExecution');
-    insert.run(id,'t2','u2',5,JSON.stringify({type:'userMessage',content:[{type:'text',text:'后续需求'}]}),'userMessage');
-    insert.run(id,'t2','u3',6,JSON.stringify({type:'userMessage',content:[{type:'text',text:'补充消息'}]}),'userMessage');
-    insert.run(id,'t2','a2',7,JSON.stringify({type:'agentMessage',phase:'final_answer',text:'后续答复'}),'agentMessage');
+    insert.run(id,'t1','u1',1,JSON.stringify({type:'userMessage',content:[{type:'text',text:'旧任务'}]}),'userMessage');
+    insert.run(id,'t1','a1',2,JSON.stringify({type:'agentMessage',phase:'final_answer',text:'旧结果'}),'agentMessage');
     history.prepare('INSERT INTO thread_turns VALUES (?,?,?)').run(id,'t1','a1');
     history.close();
-    const fromHistory=await transcript.readThreadTranscript(root,id);
-    check('history-prefers-user-and-final',fromHistory.source==='history'&&fromHistory.messages.map(message=>message.role).join('|')==='user|assistant|user|user|assistant'&&
-      fromHistory.messages[1].text==='最终答复');
-    check('history-restarts-role-numbering-each-round',transcript.formatTranscript(fromHistory.messages)===
-      '【第 1 轮】\n【用户消息 1】\n用户信息\n\n【模型回复 1】\n最终答复\n\n'+
-      '【第 2 轮】\n【用户消息 1】\n后续需求\n\n【用户消息 2】\n补充消息\n\n【模型回复 1】\n后续答复');
+    const active=await transcript.readThreadTranscript(root,id);
+    check('current-rollout-wins-over-populated-stale-history',active.source==='rollout'&&active.messages.map(item=>item.text).join('|')===
+      '未答复的用户消息|用户目标|补充消息|最终回复');
+    check('current-rollout-preserves-turns-and-role-numbering',transcript.formatTranscript(active.messages)===
+      '【第 1 轮】\n【用户消息 1】\n未答复的用户消息\n\n【第 2 轮】\n【用户消息 1】\n用户目标\n\n【用户消息 2】\n补充消息\n\n【模型回复 1】\n最终回复');
+
+    let reads=0;
+    const readAt=file=>({rollout_path:file});
+    const moved=await transcript.readThreadTranscript(root,id,{readRow:()=>readAt(reads++===0?retired:rollout)});
+    check('path-change-reads-new-rollout-once',reads===3&&transcript.formatTranscript(moved.messages)===transcript.formatTranscript(active.messages));
+    reads=0;
+    await assert.rejects(transcript.readThreadTranscript(root,id,{readRow:()=>readAt(reads++%2?rollout:retired)}),/^Error: transcript-changed$/);
+    check('repeated-path-change-refuses-to-name',reads===3);
+    await assert.rejects(transcript.readThreadTranscript(root,id,{readRow:()=>readAt(wrong)}),/^Error: transcript-unavailable$/);
+    await assert.rejects(transcript.readThreadTranscript(root,id,{readRow:()=>readAt(path.join(root,'missing.jsonl'))}),/^Error: transcript-unavailable$/);
+    await assert.rejects(transcript.readThreadTranscript(root,id,{readRow:()=>readAt(assistantOnly)}),/^Error: empty$/);
+    check('missing-mismatched-and-assistant-only-files-do-not-fall-back',true);
   }finally{
     fs.rmSync(root,{recursive:true,force:true});
   }
@@ -171,6 +181,16 @@ async function waitFor(predicate,timeout=3000){
       notifications.at(-1).phase==='failed');
     failed.close();
 
+    let modelStarted=false;
+    notifications=[];
+    const stale=makeManager({readTranscript:async()=>{throw new Error('transcript-changed');},
+      callFactory:()=>{modelStarted=true;throw new Error('unexpected-model-call');}});
+    stale.start({requestId:'stale',threadId:id},{id});
+    await waitFor(()=>notifications.some(value=>value.requestId==='stale'));
+    check('unstable-transcript-never-calls-model-or-applies-title',!modelStarted&&applied===null&&
+      notifications.at(-1).reason==='transcript-changed');
+    stale.close();
+
     currentId=id;let cancelled=0,started=false;
     const closing=makeManager({callFactory:()=>({run:()=>{started=true;return new Promise(()=>{});},cancel(){cancelled+=1;}})});
     closing.start({requestId:'closing',threadId:id},{id});
@@ -198,6 +218,12 @@ async function waitFor(predicate,timeout=3000){
     check('running-status-is-visible',await page.evaluate(()=>window.__codexAiRename.snapshot().visible&&window.__codexAiRename.snapshot().text.includes('整理会话')));
     await page.evaluate(value=>window.__codexAiRename.state(value),{requestId:pending.requestId,phase:'success',title:'feat：AI 重命名',running:false});
     check('success-status-shows-applied-title',await page.evaluate(()=>window.__codexAiRename.snapshot().text==='已重命名为 feat：AI 重命名'&&!window.__codexAiRename.snapshot().busy));
+    check('failure-status-explains-unavailable-chat-record',await page.evaluate(()=>{
+      const bridge=window.__codexAiRename;
+      bridge.request();
+      bridge.state({requestId:bridge.pull().requestId,phase:'failed',reason:'transcript-unavailable'});
+      return bridge.snapshot().text==='无法读取聊天记录，已保留原名'&&!bridge.snapshot().busy;
+    }));
     await page.evaluate(()=>window.__codexAiRename.remove());
     check('page-module-cleans-up',await page.locator('[data-bc-ai-rename-root],[id="better-codex-ai-rename-style"]').count()===0);
 

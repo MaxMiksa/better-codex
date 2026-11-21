@@ -145,14 +145,14 @@ function createAiRenameManager({settings,page,isActive,readTranscript=readThread
   }
   function failureReason(error){
     const value=error?.code||error?.message||'failed';
-    return /^(invalid-thread|empty|thread-changed|dialog-busy|title-row-missing|title-not-applied|inactive|format|type|description|language|characters|too-long|timeout|model|cancelled|codex-missing|failed)$/.test(value)?value:'failed';
+    return /^(invalid-thread|empty|transcript-unavailable|transcript-changed|thread-changed|dialog-busy|title-row-missing|title-not-applied|inactive|format|type|description|language|characters|too-long|timeout|model|cancelled|codex-missing|failed)$/.test(value)?value:'failed';
   }
   async function execute(request){
     const started=Date.now();
     last={phase:'running',reason:null,updatedAt:started};
     if(!await sameThread(request.threadId))throw new Error('thread-changed');
     const transcript=await readTranscript(settings.codexHome,request.threadId);
-    if(!transcript.messages.length)throw new Error('empty');
+    if(!transcript.messages.some(message=>message.role==='user'))throw new Error('empty');
     const executable=await resolveExecutable();
     client=callFactory({executable,codexHome:settings.codexHome});
     const title=await generateTitle(transcript.messages,{call:prompt=>client.run(prompt)});
@@ -178,7 +178,7 @@ function createAiRenameManager({settings,page,isActive,readTranscript=readThread
     running=true;
     execute(request).catch(error=>{
       last={phase:'failed',reason:failureReason(error),updatedAt:Date.now()};
-      notify({requestId:request.requestId,phase:'failed',running:false}).catch(()=>{});
+      notify({requestId:request.requestId,phase:'failed',reason:last.reason,running:false}).catch(()=>{});
     }).finally(()=>{
       running=false;client=null;
     });

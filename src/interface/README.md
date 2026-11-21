@@ -98,7 +98,7 @@ Prompt 读取 Codex Home 的 `prompts` 一级目录，只显示可用的 UTF-8 M
 
 斜杠菜单的聊天管理组在“重命名”后提供“AI 重命名”。点击只生成本次会话标题，不发送聊天消息；菜单会清除触发用的 `/` 并关闭，不改写已有草稿。
 
-- 读取当前本地已保存聊天：优先从 `thread_history_*.sqlite` 取全部 `userMessage`，以及每轮由 `final_agent_item_id` 或 `final_answer` 确认的助手最终回复；注入的 AGENTS.md 与 environment context 不计入，图片记为 `[图片]`。历史库不可用时回退只读 rollout，仍只取用户消息与 `final_answer`，不读 commentary、reasoning 或工具输出。
+- 只读取 Codex 当前为该聊天登记的会话文件，并核对文件中的聊天 ID；不使用可能仍指向旧记录的历史索引，也不拼接同 ID 的其他文件。读取期间路径或文件发生变化时重试一次；仍不稳定、无法读取或没有用户消息时保留原标题并说明原因。正文只取用户消息和助手 `final_answer`，不读 commentary、reasoning 或工具输出；注入的 AGENTS.md 与 environment context 不计入，图片记为 `[图片]`。
 - 发给 Luna 的聊天正文使用 `【第 1 轮】`、`【用户消息 1】` 和 `【模型回复 1】`，正文另起一行，两个角色在每轮内各自重新编号。用户消息不截短；每条助手最终回复按中英文句子边界只保留第一句话。沿用本地轮次与消息顺序；没有轮次标记时，把助手回复后出现的用户消息视为下一轮。没有最终回复的轮次不补造回复。
 - 通过本机官方 Codex CLI 的 `exec --ephemeral -m gpt-6-luna -s read-only` 生成标题，沿用同一 Codex Home。仅这次命名调用使用 Luna 支持的最低推理档 `low`，直接返回标题 JSON，不修改日常聊天的模型设置。提示词只经 stdin 传入，不落临时提示词文件；聊天正文不写状态、日志或运行历史，只保留成功与否、耗时和标题长度等元数据。
 - 标题统一为 `类型：描述`，使用中文冒号，前后不加空格。模型返回半角冒号时，保存前也会转换成这个格式。类型使用 `feat`、`bug`、`ui`、`docs`、`refactor`、`chore`；修复类统一为 `bug`。描述始终中文，专有词可保留英文，总长度不超过 24 个 Unicode 字符。

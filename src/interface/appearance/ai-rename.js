@@ -1,7 +1,8 @@
 // Transient status and request bridge for AI naming; no draft or chat content is retained.
 (() => {
   if(window.__codexAiRename)return;
-  const fallback={running:'AI 正在整理会话…',success:'已重命名为 {title}',failed:'AI 重命名失败，已保留原名',noChat:'请先打开已保存的聊天',busy:'AI 重命名正在处理'};
+  const fallback={running:'AI 正在整理会话…',success:'已重命名为 {title}',failed:'AI 重命名失败，已保留原名',noChat:'请先打开已保存的聊天',busy:'AI 重命名正在处理',
+    unavailable:'无法读取聊天记录，已保留原名',changing:'聊天记录仍在更新，请稍后重试',noMessages:'没有可用于命名的用户消息'};
   const t=(key,values={})=>window.__codexHudI18n?.t?.(key,values)??(fallback[key.replace(/^aiRename\./,'')]||key).replace(/\{(\w+)\}/g,(match,name)=>Object.hasOwn(values,name)?String(values[name]):match);
   const style=document.createElement('style');style.id='better-codex-ai-rename-style';
   style.textContent=`[data-bc-ai-rename-root]{position:fixed;z-index:2147483002;display:flex;align-items:center;gap:8px;max-width:min(440px,calc(100vw - 24px));min-height:36px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--color-border-primary,#ffffff24) 88%,transparent);border-radius:12px;background:color-mix(in srgb,var(--color-background-elevated,#2b2b2b) 94%,transparent);color:var(--color-text-primary,var(--color-text,currentColor));box-shadow:0 12px 34px #0006;font:500 13px/1.35 var(--font-sans,'Segoe UI',sans-serif);pointer-events:none;transform:translate(-50%,-100%)}
@@ -59,7 +60,13 @@
     busy=Boolean(value.running);
     if(staleTimer){clearTimeout(staleTimer);staleTimer=0;}
     if(value.phase==='success'){activeId=null;show('success',t('aiRename.success',{title:value.title||''}));}
-    else if(value.phase==='failed'){activeId=null;show('failed',t('aiRename.failed'));}
+    else if(value.phase==='failed'){
+      activeId=null;
+      const message=value.reason==='transcript-unavailable'?t('aiRename.unavailable'):
+        value.reason==='transcript-changed'?t('aiRename.changing'):
+        value.reason==='empty'?t('aiRename.noMessages'):t('aiRename.failed');
+      show('failed',message);
+    }
   }
   function remove(){
     if(timer)clearTimeout(timer);if(staleTimer)clearTimeout(staleTimer);

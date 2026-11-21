@@ -292,7 +292,10 @@
     "aiRename.success": "Renamed to {title}",
     "aiRename.failed": "AI rename failed; original name kept",
     "aiRename.noChat": "Open a saved chat first",
-    "aiRename.busy": "AI rename is already running"
+    "aiRename.busy": "AI rename is already running",
+    "aiRename.unavailable": "Could not read this chat; original name kept",
+    "aiRename.changing": "The chat is still updating; try again shortly",
+    "aiRename.noMessages": "No user messages to name this chat from"
   },
   "zh-CN": {
     "responseAverage": "本轮最近一次有效的 magpie 速度；有新值再更新，下一轮清空。",
@@ -576,7 +579,10 @@
     "aiRename.success": "已重命名为 {title}",
     "aiRename.failed": "AI 重命名失败，已保留原名",
     "aiRename.noChat": "请先打开已保存的聊天",
-    "aiRename.busy": "AI 重命名正在处理"
+    "aiRename.busy": "AI 重命名正在处理",
+    "aiRename.unavailable": "无法读取聊天记录，已保留原名",
+    "aiRename.changing": "聊天记录仍在更新，请稍后重试",
+    "aiRename.noMessages": "没有可用于命名的用户消息"
   }
 }
 
