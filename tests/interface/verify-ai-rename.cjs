@@ -29,15 +29,21 @@ async function waitFor(predicate,timeout=3000){
   check('saved-order-migrates-after-native-rename',commandMenu.normalizeItemOrder({chat:['archive','new','rename']}).chat.join('|')==='archive|new|rename|ai-rename');
   check('ai-rename-default-visible',commandMenu.normalize()['ai-rename']===true);
 
-  check('title-examples-normalize',rename.normalizeTitle('feat: AI 重命名')==='feat: AI 重命名'&&
-    rename.normalizeTitle('bug: 小怪倒计时消失')==='bug: 小怪倒计时消失'&&
-    rename.normalizeTitle('feat: 命令行界面 prompt')==='feat: 命令行界面 prompt');
-  check('fix-normalizes-to-bug',rename.normalizeTitle('fix: 地图标记消失')==='bug: 地图标记消失');
-  check('scope-is-removed',rename.normalizeTitle('feat(ui): 命令栏图标')==='feat: 命令栏图标');
-  check('quotes-and-periods-are-removed',rename.normalizeTitle('"`bug: 小怪倒计时消失。`"')==='bug: 小怪倒计时消失');
+  check('title-separator-is-fullwidth-and-unspaced',rename.normalizeTitle('feat: AI 重命名')==='feat：AI 重命名'&&
+    rename.normalizeTitle('bug ： 小怪倒计时消失')==='bug：小怪倒计时消失'&&
+    rename.normalizeTitle('feat：命令行界面 prompt')==='feat：命令行界面 prompt');
+  check('fix-normalizes-to-bug',rename.normalizeTitle('fix: 地图标记消失')==='bug：地图标记消失');
+  check('scope-is-removed',rename.normalizeTitle('feat(ui): 命令栏图标')==='feat：命令栏图标');
+  check('quotes-and-periods-are-removed',rename.normalizeTitle('"`bug: 小怪倒计时消失。`"')==='bug：小怪倒计时消失');
   assert.throws(()=>rename.normalizeTitle('feat: 这是一个超过二十四个字符的非常非常长的标题内容'),error=>error.code==='too-long');
   check('overlong-title-is-rejected',true);
-  check('fenced-json-title',rename.parseTitleResponse('```json\n{"title":"feat: AI 重命名"}\n```')==='feat: AI 重命名');
+  check('fenced-json-title',rename.parseTitleResponse('```json\n{"title":"feat：AI 重命名"}\n```')==='feat：AI 重命名');
+  check('configured-title-length-includes-only-one-separator',Array.from(rename.normalizeTitle('feat: '+'字'.repeat(19))).length===24);
+  const prompt=rename.titlePrompt('测试正文');
+  check('prompt-and-examples-use-chinese-separator',prompt.includes('{"title":"类型：描述"}')&&
+    prompt.includes('冒号前后不加空格')&&rename.EXAMPLES.every(example=>/^[a-z]+：\S/u.test(example)));
+  check('prompt-weighs-user-goal-changes-over-followups',prompt.includes('明确改变目标时，以新目标为准')&&
+    prompt.includes('排查同一功能或询问实现细节，仍按原主题命名'));
 
   const injected=transcript.contentText([
     {type:'input_text',text:'# AGENTS.md instructions for fixture'},
@@ -104,7 +110,7 @@ async function waitFor(predicate,timeout=3000){
     calls.push(prompt);
     return '{"title":"feat: AI 重命名"}';
   }});
-  check('generate-title-uses-model-output',title==='feat: AI 重命名'&&calls.length===1&&calls[0].includes('风格示例'));
+  check('generate-title-uses-model-output',title==='feat：AI 重命名'&&calls.length===1&&calls[0].includes('风格示例'));
   check('model-receives-round-formatted-session',calls[0].endsWith('<session>\n【第 1 轮】\n【用户消息 1】\n做一个 AI 重命名命令\n</session>'));
   check('older-untagged-messages-can-start-another-round',transcript.formatTranscript([
     {role:'user',text:'第一条'},{role:'assistant',text:'答复'},{role:'user',text:'下一条'}
@@ -116,7 +122,7 @@ async function waitFor(predicate,timeout=3000){
     if(prompt.includes('分段压缩器')){summaryCalls+=1;return '{"summary":"长会话分段摘要"}';}
     return '{"title":"feat: 超长会话"}';
   }});
-  check('long-title-compresses-middle',compressed==='feat: 超长会话'&&summaryCalls>0);
+  check('long-title-compresses-middle',compressed==='feat：超长会话'&&summaryCalls>0);
 
   let currentId=id,notifications=[],applied=null,readCount=0;
   globalThis.window={
@@ -137,8 +143,8 @@ async function waitFor(predicate,timeout=3000){
     const manager=makeManager();
     manager.start({requestId:'success',threadId:id},{id});
     await waitFor(()=>notifications.some(value=>value.requestId==='success'));
-    check('manager-applies-generated-title-to-current-chat',applied?.threadId===id&&applied.title==='feat: AI 重命名'&&
-      manager.status().phase==='success'&&notifications.at(-1).title==='feat: AI 重命名');
+    check('manager-applies-generated-title-to-current-chat',applied?.threadId===id&&applied.title==='feat：AI 重命名'&&
+      manager.status().phase==='success'&&notifications.at(-1).title==='feat：AI 重命名');
     manager.close();
 
     currentId=id;applied=null;notifications=[];
@@ -185,8 +191,8 @@ async function waitFor(predicate,timeout=3000){
     const pending=await page.evaluate(()=>window.__codexAiRename.pull());
     check('page-request-binds-thread-and-generation',requested&&pending.threadId==='00000000-0000-4000-8000-000000000001'&&pending.generation===7);
     check('running-status-is-visible',await page.evaluate(()=>window.__codexAiRename.snapshot().visible&&window.__codexAiRename.snapshot().text.includes('整理会话')));
-    await page.evaluate(value=>window.__codexAiRename.state(value),{requestId:pending.requestId,phase:'success',title:'feat: AI 重命名',running:false});
-    check('success-status-shows-applied-title',await page.evaluate(()=>window.__codexAiRename.snapshot().text==='已重命名为 feat: AI 重命名'&&!window.__codexAiRename.snapshot().busy));
+    await page.evaluate(value=>window.__codexAiRename.state(value),{requestId:pending.requestId,phase:'success',title:'feat：AI 重命名',running:false});
+    check('success-status-shows-applied-title',await page.evaluate(()=>window.__codexAiRename.snapshot().text==='已重命名为 feat：AI 重命名'&&!window.__codexAiRename.snapshot().busy));
     await page.evaluate(()=>window.__codexAiRename.remove());
     check('page-module-cleans-up',await page.locator('[data-bc-ai-rename-root],[id="better-codex-ai-rename-style"]').count()===0);
 
@@ -218,9 +224,9 @@ async function waitFor(predicate,timeout=3000){
       });
       document.body.append(row);
     },id);
-    await applyThreadTitle(page,id,'feat: AI 重命名',{timeout:2000});
+    await applyThreadTitle(page,id,'feat：AI 重命名',{timeout:2000});
     check('native-rename-targets-current-chat-and-submits-title',
-      await page.locator(`[data-app-action-sidebar-thread-id="local:${id}"] [data-thread-title]`).textContent()==='feat: AI 重命名');
+      await page.locator(`[data-app-action-sidebar-thread-id="local:${id}"] [data-thread-title]`).textContent()==='feat：AI 重命名');
 
     await page.evaluate(({id,otherId})=>{
       const row=document.querySelector('[data-app-action-sidebar-thread-id="local:'+id+'"]');
