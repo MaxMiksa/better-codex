@@ -21,10 +21,14 @@ async function until(fn,label,timeout=12000){
 // page, collector, settings and CDP behavior otherwise runs from production files.
 function browserAdapter(realPath,url,guard){
   const real=require(realPath),pages=new WeakMap(),contexts=new WeakMap();
+  const fixtureGuard='location.origin==='+JSON.stringify(new URL(url).origin)+'&&location.pathname==='+JSON.stringify(new URL(url).pathname);
   const pageProxy=page=>{
     if(!pages.has(page))pages.set(page,new Proxy(page,{get(target,key){
       if(key==='url')return ()=>target.url()===url||target.url().startsWith(url+'?')?'app://-/index.html'+target.url().slice(url.length):target.url();
       if(key==='context')return ()=>contextProxy(target.context());
+      if(key==='evaluate')return (fn,arg)=>typeof fn==='function'&&fn.toString().includes(guard)
+        ? target.evaluate('('+fn.toString().replace(guard,fixtureGuard)+')('+JSON.stringify(arg)+')')
+        : target.evaluate(fn,arg);
       const value=target[key];return typeof value==='function'?value.bind(target):value;
     }}));
     return pages.get(page);
@@ -37,8 +41,7 @@ function browserAdapter(realPath,url,guard){
         const session=await target.newCDPSession(raw);
         return new Proxy(session,{get(object,property){
           if(property==='send')return (method,params)=>{
-            if(method==='Runtime.evaluate')params={...params,expression:params.expression.replace(
-              guard,'location.origin==='+JSON.stringify(new URL(url).origin)+'&&location.pathname==='+JSON.stringify(new URL(url).pathname))};
+            if(method==='Runtime.evaluate')params={...params,expression:params.expression.replace(guard,fixtureGuard)};
             return object.send(method,params);
           };
           const value=object[property];return typeof value==='function'?value.bind(object):value;
@@ -98,6 +101,7 @@ async function finish(child){
   const sandbox=path.join(scratch,'settings sandbox 中文'),toolDir=path.join(sandbox,'tools/token-hud-local');
   const settingsPath=path.join(sandbox,'.runtime/token-hud/embedded/settings.json');
   fs.mkdirSync(path.join(home,'sessions'),{recursive:true});fs.mkdirSync(runtime,{recursive:true});
+  fs.mkdirSync(path.join(home,'prompts'));fs.writeFileSync(path.join(home,'prompts','First frame.md'),'Fixture only');
   fs.mkdirSync(path.dirname(settingsPath),{recursive:true});
   fs.cpSync(path.join(root,'tools/token-hud-local'),toolDir,{recursive:true,filter:source=>!source.includes('__pycache__')});
   fs.cpSync(path.join(root,'src'),path.join(sandbox,'src'),{recursive:true,filter:source=>!source.includes('__pycache__')});
@@ -131,10 +135,41 @@ async function finish(child){
     check('native-fallback-keeps-ttft-missing-in-both-windows',(await snapshot(p1)).ttft==='-s'&&(await snapshot(p2)).ttft==='-s');
     check('route-parameter-window-supported-without-accepting-other-documents',isMainPageUrl('app://-/index.html?initialRoute=fixture')&&!isMainPageUrl('app://-/detached-window.html?initialRoute=fixture')&&!isMainPageUrl('https://example.invalid/index.html'));
     check('all-enhancements-coexist-in-both-pages',(await snapshot(p1)).modules&&(await snapshot(p2)).modules&&(await snapshot(p1)).accentStyle&&(await snapshot(p2)).accentStyle&&(await snapshot(p1)).width===1232&&(await snapshot(p2)).width===1232);
+    async function firstPromptFrame(page,stall=false){
+      return page.evaluate(stall=>new Promise(resolve=>{
+        const binding=window.__betterCodexRequestPrompts;let request;
+        if(stall)window.__betterCodexRequestPrompts=value=>{request=value;};
+        const shell=document.createElement('div'),menu=document.createElement('div'),row=document.createElement('button');
+        menu.dataset.mentionListScrollArea='';row.dataset.listNavigationItem='true';row.textContent='New';
+        row.__reactFiber$fixture={memoizedProps:{children:{props:{item:{id:'new',title:'New'}}}}};
+        menu.__reactFiber$fixture={memoizedProps:{autocomplete:{ui:{active:true,trigger:'/'}}}};
+        menu.append(row);shell.append(menu);document.body.append(shell);
+        const deadline=performance.now()+1200;
+        const frame=()=>{
+          if(getComputedStyle(shell).visibility==='hidden'&&performance.now()<deadline){requestAnimationFrame(frame);return;}
+          const shown=()=>menu.querySelector('[data-bc-prompt-row] button')?.textContent??null;
+          const first=shown();let result=first;
+          if(stall){
+            window.__betterCodexRequestPrompts=binding;
+            window.__codexCommandMenu.promptState({requests:[request],entries:[{name:'Late response',body:'Fixture only'}]});
+            result=Boolean(request)&&first===shown()?first:null;
+          }
+          shell.remove();resolve(result);
+        };
+        requestAnimationFrame(frame);
+      }),stall);
+    }
+    check('native-prompt-is-present-in-the-first-visible-frame',await firstPromptFrame(p1)==='First frame');
+    fs.renameSync(path.join(home,'prompts','First frame.md'),path.join(home,'prompts','Next opening.md'));
+    check('next-opening-loads-file-changes-without-a-background-refresh',await firstPromptFrame(p1)==='Next opening');
+    check('slow-prompt-uses-the-last-snapshot-and-does-not-patch-the-open-menu',await firstPromptFrame(p1,true)==='Next opening');
+    await p2.locator('#composer [contenteditable="true"]').fill('/');
+    check('standalone-prompt-loads-through-the-same-on-demand-binding',await p2.locator('[data-bc-standalone-root]:not([hidden]) [data-bc-prompt-row] button').textContent({timeout:1500})==='Next opening');
+    await p2.keyboard.press('Escape');
     await store.patch({commandVisible:{side:false,reasoning:true},commandGroupOrder:['project','chat','context','other'],commandItemOrder:{chat:['rename','new','archive']}});
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences.commandVisible;return value.side===false&&value.reasoning===true&&value.new===true;}))).then(values=>values.every(Boolean)),'command preferences in both windows');
     check('command-preferences-persist-and-sync-across-windows',read(settingsPath).commandVisible.side===false);
-    await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat.join('|')==='rename|new|archive';}))).then(values=>values.every(Boolean)),'command order in both windows');
+    await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>{const value=window.__codexComposerHud.snapshot().preferences;return value.commandGroupOrder[0]==='project'&&value.commandItemOrder.chat.join('|')==='rename|ai-rename|new|archive';}))).then(values=>values.every(Boolean)),'command order in both windows');
     check('command-orders-persist-and-sync-across-windows',read(settingsPath).commandGroupOrder[0]==='project'&&read(settingsPath).commandItemOrder.chat[0]==='rename');
     await p1.evaluate(()=>document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#command-enabled').click());
     await until(async()=>Promise.all([p1,p2].map(page=>page.evaluate(()=>window.__codexComposerHud.snapshot().preferences.commandMenuEnabled===false))).then(values=>values.every(Boolean)),'command master disabled in both windows');

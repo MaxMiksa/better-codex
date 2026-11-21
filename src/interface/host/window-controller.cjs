@@ -6,6 +6,7 @@ const {readBinding}=require('../statistics/chat-binding.cjs');
 const {createAiRenameManager}=require('./ai-rename.cjs');
 const {isMainPageUrl,pageGuard}=require('./page-contract.cjs');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const promptBinding='__betterCodexRequestPrompts';
 const read=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return null;}};
 const {normalize:commandVisible,normalizeGroupOrder,normalizeItemOrder}=require('../appearance/command-menu.js');
 const METRIC_KEYS=['ttft','speed','cache','age'];
@@ -61,7 +62,7 @@ function patch(value={}){
 async function runWindow({page,state,settings,store,sources,readThemes,readPrompts,runtime,stopping}){
   const writer=createWriter(),write=writer.write;
   const active=()=>!state.stopped&&!stopping()&&!page.isClosed()&&isMainPageUrl(page.url());
-  let session,previous,settingsSaveError=null,promptsPending=false;
+  let session,previous,settingsSaveError=null;
   const collector=createCollector({settings,runtime});
   const aiRename=createAiRenameManager({settings,page,isActive:active});
   async function install(name,source){
@@ -80,9 +81,24 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
     });
     await page.evaluate(id=>{window.__betterCodexRuntime=id;},state.id);
   }
+  async function onPromptRequest({name,payload}){
+    if(name!==promptBinding||typeof payload!=='string'||payload.length>80||!active())return;
+    try{
+      const requested=await page.evaluate(({runtime,request})=>window.__betterCodexRuntime===runtime&&window.__codexCommandMenu?.promptRequests?.().includes(request),{runtime:state.id,request:payload});
+      if(!requested||!active())return;
+      const entries=await readPrompts();
+      if(active())await page.evaluate(({runtime,requests,entries})=>{
+        if(location.protocol==='app:'&&location.host==='-'&&location.pathname==='/index.html'&&window.__betterCodexRuntime===runtime)window.__codexCommandMenu?.promptState?.({requests,entries});
+      },{runtime:state.id,requests:[payload],entries});
+    }catch{} // Navigation or a disconnected reader must not interrupt ordinary window updates.
+  }
   try{
     fs.mkdirSync(runtime,{recursive:true});
     session=await page.context().newCDPSession(page);
+    if(readPrompts){
+      session.on('Runtime.bindingCalled',onPromptRequest);
+      await session.send('Runtime.addBinding',{name:promptBinding}).catch(()=>{});
+    }
     while(active()){
       const collectorStatus=collector.tick();
       try{
@@ -134,20 +150,10 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
             if(themes===null)customAccent.reason='config-unavailable';
           }
         }catch{customAccent={applied:false,reason:'theme-unavailable'};}
-        const promptRequests=await page.evaluate(value=>{
-          window.__codexComposerHud.settingsState(value);
-          return window.__codexCommandMenu?.promptRequests?.();
-        },{
+        await page.evaluate(value=>window.__codexComposerHud.settingsState(value),{
           ...currentPreferences,
           readingWidth:Number.isInteger(readingWidth?.maxWidth)?readingWidth.maxWidth:currentPreferences.readingWidth
         });
-        if(readPrompts&&!promptsPending&&promptRequests?.length){
-          promptsPending=true;
-          // Do not block this window's ordinary updates or publish prompt content in runtime state.
-          readPrompts().then(entries=>active()&&page.evaluate(value=>{
-            if(location.protocol==='app:'&&location.host==='-'&&location.pathname==='/index.html')window.__codexCommandMenu?.promptState?.(value);
-          },{requests:promptRequests,entries})).catch(()=>{}).finally(()=>{promptsPending=false;});
-        }
         const request=await page.evaluate(()=>window.__codexComposerHud.bindingRequest());
         if(request)await page.evaluate(value=>window.__codexComposerHud.bind(value),{...request,id:readBinding(request,path.join(settings.codexHome,'session_index.jsonl'))});
         const observation=await page.evaluate(()=>window.__codexComposerHud.snapshot());
@@ -188,7 +194,10 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
       delete window.__codexHudI18n;delete window.__codexHudLanguage;
       delete window.__betterCodexRuntime;
     }).catch(()=>{});
-    if(session)await session.detach().catch(()=>{});
+    if(session){
+      if(readPrompts){session.off('Runtime.bindingCalled',onPromptRequest);await session.send('Runtime.removeBinding',{name:promptBinding}).catch(()=>{});}
+      await session.detach().catch(()=>{});
+    }
     // Async removal retries transient Windows locks without blocking other windows.
     try{await fs.promises.rm(runtime,{recursive:true,force:true,maxRetries:4,retryDelay:50});}catch{}
   }
