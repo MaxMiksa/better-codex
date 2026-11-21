@@ -61,7 +61,8 @@ function historyMessages(home,threadId){
       if(!tables.has('thread_items')||!tables.has('thread_turns'))continue;
       const finals=new Set(db.prepare('SELECT final_agent_item_id FROM thread_turns WHERE thread_id=? AND final_agent_item_id IS NOT NULL').all(threadId)
         .map(row=>row.final_agent_item_id));
-      const rows=db.prepare(`SELECT item_id,rollout_ordinal,item_type,item_json FROM thread_items
+      const turnColumn=db.prepare('PRAGMA table_info(thread_items)').all().some(column=>column.name==='turn_id')?'turn_id':'NULL AS turn_id';
+      const rows=db.prepare(`SELECT item_id,rollout_ordinal,item_type,item_json,${turnColumn} FROM thread_items
         WHERE thread_id=? AND item_type IN ('userMessage','agentMessage') ORDER BY rollout_ordinal,item_id`).all(threadId);
       const messages=[],seen=new Set();
       for(const row of rows){
@@ -72,7 +73,7 @@ function historyMessages(home,threadId){
         const text=row.item_type==='userMessage'?contentText(item.content):typeof item.text==='string'?item.text:'';
         if(!text.trim())continue;
         seen.add(row.item_id);
-        messages.push({role:row.item_type==='userMessage'?'user':'assistant',text,ordinal:row.rollout_ordinal});
+        messages.push({role:row.item_type==='userMessage'?'user':'assistant',text,ordinal:row.rollout_ordinal,turnId:row.turn_id});
       }
       if(messages.length)return messages;
     }catch{}
@@ -89,21 +90,28 @@ async function rolloutMessages(file){
   const messages=[];
   const stream=fs.createReadStream(file,{encoding:'utf8'});
   const lines=readline.createInterface({input:stream,crlfDelay:Infinity});
-  let ordinal=0;
+  let ordinal=0,turnId=null;
   try{
     for await(const line of lines){
       if(!line.trim())continue;
       ordinal+=1;
       let row;
       try{row=JSON.parse(line);}catch{continue;}
-      if(row?.type!=='response_item'||row.payload?.type!=='message')continue;
-      const payload=row.payload;
+      const payload=row?.payload;
+      if(row?.type==='session_meta')turnId=null;
+      if(row?.type==='event_msg'){
+        if(/^(task_started|turn_started)$/.test(payload?.type))turnId=payload.turn_id||null;
+        if(/^(task_complete|task_completed|turn_complete|turn_aborted)$/.test(payload?.type)&&
+          (!payload.turn_id||payload.turn_id===turnId))turnId=null;
+      }
+      if(row?.type==='turn_context'&&payload?.turn_id)turnId=payload.turn_id;
+      if(row?.type!=='response_item'||payload?.type!=='message')continue;
       if(payload.role==='user'){
         const text=contentText(payload.content);
-        if(text.trim())messages.push({role:'user',text,ordinal});
+        if(text.trim())messages.push({role:'user',text,ordinal,turnId:payload.turn_id||turnId});
       }else if(payload.role==='assistant'&&payload.phase==='final_answer'){
         const text=responseText(payload);
-        if(text.trim())messages.push({role:'assistant',text,ordinal});
+        if(text.trim())messages.push({role:'assistant',text,ordinal,turnId:payload.turn_id||turnId});
       }
     }
   }finally{
@@ -126,7 +134,22 @@ async function readThreadTranscript(codexHome,threadId){
   return {messages:[],source:'none',thread:row||null};
 }
 function formatTranscript(messages){
-  return messages.map((message,index)=>`[${message.role==='user'?'用户':'助手'} ${index+1}]\n${String(message.text).trim()}`).join('\n\n');
+  let round=0,currentTurn=null,previousRole=null,users=0,answers=0;
+  return messages.map(({role,text,turnId})=>{
+    const user=role==='user';
+    const nextRound=!round||(turnId&&currentTurn?turnId!==currentTurn:user&&previousRole==='assistant');
+    let heading='';
+    if(nextRound){
+      heading=`【第 ${++round} 轮】\n`;
+      currentTurn=null;
+      users=0;
+      answers=0;
+    }
+    if(turnId)currentTurn=turnId;
+    previousRole=role;
+    const label=user?`用户消息 ${++users}`:`模型回复 ${++answers}`;
+    return `${heading}【${label}】\n${String(text).trim()}`;
+  }).join('\n\n');
 }
 function forwardBoundary(text,index){
   const target=Math.max(0,Math.min(text.length,index));

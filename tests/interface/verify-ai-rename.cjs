@@ -58,6 +58,10 @@ async function waitFor(predicate,timeout=3000){
     const rollout=path.join(root,'rollout.jsonl');
     fs.writeFileSync(rollout,[
       {type:'response_item',payload:{type:'message',role:'developer',content:[{type:'input_text',text:'developer'}]}},
+      {type:'event_msg',payload:{type:'task_started',turn_id:'r1'}},
+      {type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text:'未答复的用户消息'}]}},
+      {type:'event_msg',payload:{type:'turn_aborted',turn_id:'r1'}},
+      {type:'turn_context',payload:{turn_id:'r2'}},
       {type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text:'# AGENTS.md instructions for x'},{type:'input_text',text:'用户目标'}]}},
       {type:'response_item',payload:{type:'message',role:'assistant',phase:'commentary',content:[{type:'output_text',text:'commentary'}]}},
       {type:'response_item',payload:{type:'message',role:'assistant',phase:'final_answer',content:[{type:'output_text',text:'最终回复'}]}}
@@ -67,8 +71,10 @@ async function waitFor(predicate,timeout=3000){
     state.prepare('INSERT INTO threads VALUES (?,?,?,?,?)').run(id,'title',null,rollout,1);
     state.close();
     const fallback=await transcript.readThreadTranscript(root,id);
-    check('rollout-fallback-keeps-user-and-final-only',fallback.source==='rollout'&&fallback.messages.length===2&&
-      fallback.messages[0].text==='用户目标'&&fallback.messages[1].text==='最终回复');
+    check('rollout-fallback-keeps-user-and-final-only',fallback.source==='rollout'&&fallback.messages.map(message=>message.text).join('|')===
+      '未答复的用户消息|用户目标|最终回复');
+    check('rollout-boundaries-preserve-unanswered-turn',transcript.formatTranscript(fallback.messages)===
+      '【第 1 轮】\n【用户消息 1】\n未答复的用户消息\n\n【第 2 轮】\n【用户消息 1】\n用户目标\n\n【模型回复 1】\n最终回复');
 
     const history=new DatabaseSync(path.join(root,'thread_history_1.sqlite'));
     history.exec('CREATE TABLE thread_items (thread_id TEXT,turn_id TEXT,item_id TEXT,rollout_ordinal INTEGER,item_json TEXT,item_type TEXT)');
@@ -78,11 +84,17 @@ async function waitFor(predicate,timeout=3000){
     insert.run(id,'t1','a0',2,JSON.stringify({type:'agentMessage',phase:'commentary',text:'中间说明'}),'agentMessage');
     insert.run(id,'t1','a1',3,JSON.stringify({type:'agentMessage',phase:'final_answer',text:'最终答复'}),'agentMessage');
     insert.run(id,'t1','tool',4,JSON.stringify({type:'commandExecution',command:'fixture'}),'commandExecution');
+    insert.run(id,'t2','u2',5,JSON.stringify({type:'userMessage',content:[{type:'text',text:'后续需求'}]}),'userMessage');
+    insert.run(id,'t2','u3',6,JSON.stringify({type:'userMessage',content:[{type:'text',text:'补充消息'}]}),'userMessage');
+    insert.run(id,'t2','a2',7,JSON.stringify({type:'agentMessage',phase:'final_answer',text:'后续答复'}),'agentMessage');
     history.prepare('INSERT INTO thread_turns VALUES (?,?,?)').run(id,'t1','a1');
     history.close();
     const fromHistory=await transcript.readThreadTranscript(root,id);
-    check('history-prefers-user-and-final',fromHistory.source==='history'&&fromHistory.messages.map(message=>message.role).join('|')==='user|assistant'&&
+    check('history-prefers-user-and-final',fromHistory.source==='history'&&fromHistory.messages.map(message=>message.role).join('|')==='user|assistant|user|user|assistant'&&
       fromHistory.messages[1].text==='最终答复');
+    check('history-restarts-role-numbering-each-round',transcript.formatTranscript(fromHistory.messages)===
+      '【第 1 轮】\n【用户消息 1】\n用户信息\n\n【模型回复 1】\n最终答复\n\n'+
+      '【第 2 轮】\n【用户消息 1】\n后续需求\n\n【用户消息 2】\n补充消息\n\n【模型回复 1】\n后续答复');
   }finally{
     fs.rmSync(root,{recursive:true,force:true});
   }
@@ -93,6 +105,10 @@ async function waitFor(predicate,timeout=3000){
     return '{"title":"feat: AI 重命名"}';
   }});
   check('generate-title-uses-model-output',title==='feat: AI 重命名'&&calls.length===1&&calls[0].includes('风格示例'));
+  check('model-receives-round-formatted-session',calls[0].endsWith('<session>\n【第 1 轮】\n【用户消息 1】\n做一个 AI 重命名命令\n</session>'));
+  check('older-untagged-messages-can-start-another-round',transcript.formatTranscript([
+    {role:'user',text:'第一条'},{role:'assistant',text:'答复'},{role:'user',text:'下一条'}
+  ]).endsWith('【第 2 轮】\n【用户消息 1】\n下一条'));
 
   const longMessages=[{role:'user',text:longText}];
   let summaryCalls=0;
