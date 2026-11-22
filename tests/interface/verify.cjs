@@ -926,6 +926,39 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await openStandalone();
   await sendPrompts(await menuPromptRequests(),await readPrompts());
   check('standalone-cold-skill-cache-falls-back-to-prompt-without-using-unrelated-scope',await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-menu-heading]`).allTextContents().then(headings=>headings.join('|')==='Prompt'));
+  await page.keyboard.press('Escape');
+  await page.evaluate(()=>{
+    const {scope,cache}=window.skillCacheFixture,composer=document.querySelector('#composer');
+    const client=composer.__reactFiber$fixture.return.memoizedProps.value.queryClient;
+    const requests=[],queries=new Map();
+    for(const [root,name] of [['C:\\cold','cold-skill'],['C:\\next','next-skill']]){
+      const key=JSON.stringify(['skills','local',[root]]);
+      queries.set(key,{getObserversCount:()=>1,options:{queryFn(){}},fetch(){
+        requests.push(root);
+        return new Promise(resolve=>{this.complete=()=>{
+          cache.set(key,{data:[{skills:[{name,enabled:true,path:root+'\\SKILL.md'}]}]});resolve();
+        };});
+      }});
+    }
+    client.getQueryCache=()=>({find:({queryKey,exact})=>exact?queries.get(JSON.stringify(queryKey)):null});
+    Object.assign(window.skillCacheFixture,{requests,queries});
+  });
+  await openPromptMenu();
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  check('opening-slash-requests-the-exact-cold-skill-query-once',await page.evaluate(()=>{
+    const {requests}=window.skillCacheFixture;
+    for(let i=0;i<3;i++)window.__codexCommandMenu.update({});
+    return requests.join('|')==='C:\\cold';
+  }));
+  await page.evaluate(()=>{const fixture=window.skillCacheFixture;fixture.queries.values().next().value.complete();});
+  await page.locator(skillSelector+' button').waitFor({timeout:1500});
+  check('cold-skill-result-appears-without-reopening-or-touching-the-draft',(await page.locator(skillSelector+' button').allTextContents()).join('|')==='Cold Skill'&&await page.evaluate(()=>document.activeElement.textContent==='/'));
+  await page.evaluate(()=>{window.skillCacheFixture.scope.roots=['C:\\next'];});
+  await openStandalone();
+  await sendPrompts(await menuPromptRequests(),await readPrompts());
+  await page.evaluate(()=>{[...window.skillCacheFixture.queries.values()][1].complete();});
+  await page.locator(standaloneSelector+' [data-bc-skill-row] button').waitFor({timeout:1500});
+  check('standalone-loads-its-own-skills-not-the-previous-projects',(await page.locator(standaloneSelector+' [data-bc-skill-row] button').allTextContents()).join('|')==='Next Skill');
   await page.evaluate(()=>{document.querySelector('#composer').__reactFiber$fixture=null;delete window.skillCacheFixture;});
   await page.evaluate(()=>{window.menuFixtureController.ui.trigger='/';window.__codexCommandMenu.update({});window.__codexCommandMenu.remove();window.removeEventListener('keydown',window.nativeMenuKeys,true);});
   check('native-stop-restores-original-dom-and-order',await page.locator('#native-menu [data-bc-command],#better-codex-command-menu-style').count()===0&&await page.evaluate(()=>[...document.querySelector('#native-menu [data-mention-section-items]').children].map(row=>row.textContent).slice(0,2).join('|')==='reasoning|review-mode'));

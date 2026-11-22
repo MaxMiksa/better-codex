@@ -45,10 +45,11 @@
   let skillVisible=normalizeSkillVisible();
   const knownNativeSkills=new Map();
   const showSkill=id=>!Object.hasOwn(skillVisible,id)||skillVisible[id]!==false;
-  const standalone={element:null,editor:null,composer:null,query:'',request:null,loaded:false,entries:[],open:false,timer:0,promptTimer:0};
+  const standalone={element:null,editor:null,composer:null,query:'',request:null,loaded:false,promptFrozen:false,entries:[],open:false,timer:0,promptTimer:0};
   const discovered=new Map(),managed=new Set(),selections=new WeakMap(),views=new Map(),openings=new Map(),proxySources=new WeakMap(),columns=new WeakMap();
   const headings={skills:'Skills',prompts:'Prompt'},instance=String(Math.random()),namesOrder=new Intl.Collator(undefined,{sensitivity:'base',numeric:true});
-  let nextOpening=0,lastPrompts=[];
+  let nextOpening=0,lastPrompts=null;
+  const skillLoads=new WeakMap();
   const style=document.createElement('style');style.id='better-codex-command-menu-style';
   // Native rows use viewport intersection to replace offscreen icons with text placeholders.
   // Keep source geometry in the viewport without exposing or laying out duplicate controls.
@@ -87,8 +88,11 @@
   function requestPrompts(opening){
     if(typeof window.__betterCodexRequestPrompts!=='function')return;
     const request=opening.request;
-    // A slow or disconnected reader must neither trap the menu nor patch its visible layout later.
-    opening.promptTimer=setTimeout(()=>applyPrompts([request],lastPrompts,false),180);
+    // Keep the first frame bounded. A cold window can still use its own late reply.
+    opening.promptTimer=setTimeout(()=>{
+      opening.promptFrozen=lastPrompts!==null;
+      applyPrompts([request],lastPrompts??[],false);
+    },180);
     try{window.__betterCodexRequestPrompts(request);}catch{}
   }
   function eligible(root,value=autocomplete(root)){return enabled&&value?.ui?.active===true&&value.ui.trigger==='/'&&!value.submenuCommand;}
@@ -125,10 +129,26 @@
       capture(current);if(current.sibling)stack.push(current.sibling);if(current.child)stack.push(current.child);
     }
     if(!scope||!viewController?.view?.editable||viewController.view.isDestroyed)return null;
-    let data;
-    try{data=client.getQueryData(['skills',scope.hostId,scope.roots])?.data;}catch{return null;}
-    if(!Array.isArray(data))return null;
-    return {controller:viewController,skills:data.flatMap(entry=>Array.isArray(entry?.skills)?entry.skills:[])};
+    const key=['skills',scope.hostId,scope.roots];
+    try{
+      const data=client.getQueryData(key)?.data;
+      const pending=Array.isArray(data)?null:client.getQueryCache?.().find({queryKey:key,exact:true});
+      return {controller:viewController,pending,skills:Array.isArray(data)?data.flatMap(entry=>Array.isArray(entry?.skills)?entry.skills:[]):[]};
+    }catch{return null;}
+  }
+  function loadSkills(opening,query){
+    // Codex registers this local read even when its "$" picker has not enabled it.
+    // Reuse only the exact mounted query; never copy results from another project.
+    if(!query?.getObserversCount?.()||typeof query.options?.queryFn!=='function'||typeof query.fetch!=='function')return;
+    if(!opening.skillQueries)opening.skillQueries=new WeakSet();
+    if(opening.skillQueries.has(query))return;
+    opening.skillQueries.add(query);
+    if(skillLoads.has(query))return;
+    const load=Promise.resolve().then(()=>query.fetch(undefined,{cancelRefetch:false}));
+    skillLoads.set(query,load);
+    load.then(()=>{
+      if(!disposed&&enabled)window.dispatchEvent(new Event('better-codex-command-catalog'));
+    },()=>{}).finally(()=>{skillLoads.delete(query);schedule();});
   }
   function usableSkill(skill){return skill?.enabled===true&&skill.isPublic!==false&&typeof skill.name==='string'&&skill.name.trim()&&typeof skill.path==='string'&&skill.path;}
   function skillTitle(skill){
@@ -146,9 +166,10 @@
     }
     return [...entries].sort((a,b)=>namesOrder.compare(a[1],b[1])).map(([id,title])=>({id,title}));
   }
-  function cachedSkills(focused,query){
+  function cachedSkills(focused,query,opening){
     if(typeof query!=='string')return [];
     const context=nativeSkillContext(focused),seen=new Set(),needle=query.toLocaleLowerCase();
+    if(opening&&context?.pending)loadSkills(opening,context.pending);
     return (context?.skills??[]).flatMap(skill=>{
       if(!usableSkill(skill)||seen.has(skill.path))return [];
       seen.add(skill.path);
@@ -201,7 +222,7 @@
   function standaloneGroups(){
     const query=standalone.query.toLocaleLowerCase();
     const entries=standalone.entries.filter(entry=>!query||entry.name.toLocaleLowerCase().includes(query)).map(({name})=>({row:'prompt:'+name,item:{id:'prompt:'+name,title:name}}));
-    const skills=cachedSkills({editor:standalone.editor,composer:standalone.composer},standalone.query);
+    const skills=cachedSkills({editor:standalone.editor,composer:standalone.composer},standalone.query,standalone);
     return {entries,skillGroups:nameLayout('skills',skills),promptGroups:nameLayout('prompts',entries)};
   }
   function positionStandalone(){
@@ -212,8 +233,10 @@
     element.style.top=Math.max(margin,rect.top-8-element.getBoundingClientRect().height)+'px';element.style.bottom='auto';
   }
   function renderStandalone(){
-    if(!standalone.open||standalone.promptTimer)return false;
+    if(!standalone.open)return false;
+    if(focusedEditor()?.editor!==standalone.editor){closeStandalone();return false;}
     const {entries,skillGroups,promptGroups}=standaloneGroups();
+    if(standalone.promptTimer)return false;
     if(!skillGroups.length&&!promptGroups.length){if(standalone.element)standalone.element.hidden=true;return false;}
     const element=ensureStandalone();element.hidden=false;build(element,entries,[],skillGroups,promptGroups);
     const visible=rows(element),selected=selections.get(element);select(element,visible.includes(selected)?selected:visible[0]);positionStandalone();
@@ -222,7 +245,7 @@
   function closeStandalone(){
     if(standalone.timer){clearTimeout(standalone.timer);standalone.timer=0;}
     clearTimeout(standalone.promptTimer);standalone.promptTimer=0;
-    standalone.open=false;standalone.loaded=false;standalone.request=null;standalone.query='';standalone.entries=[];standalone.editor=null;standalone.composer=null;
+    standalone.open=false;standalone.loaded=false;standalone.promptFrozen=false;standalone.skillQueries=null;standalone.request=null;standalone.query='';standalone.entries=[];standalone.editor=null;standalone.composer=null;
     if(standalone.element){standalone.element.hidden=true;restore(standalone.element);}
   }
   function inspectStandalone(){
@@ -392,19 +415,29 @@
         const id=skillKey(item.title,item.id.slice(6));
         if(knownNativeSkills.get(id)!==item.title){knownNativeSkills.set(id,item.title);changed=true;}
       }
-      const skillGroups=nameLayout('skills',nativeSkills.length?nativeSkills.filter(({item})=>showSkill(skillKey(item.title,item.id.slice(6)))):cachedSkills(focusedEditor(),value.ui.query));
-      if(!hasNativeRows&&!skillGroups.length){restore(root);continue;}
-      attribute(root,'data-bc-command-root','');
-      attribute(root,'data-bc-command-empty',hasNativeRows?null:'');
-      entries.unshift({row:'ai-rename',item:{id:'ai-rename',title:label({id:'ai-rename'})}});
-      const extra=entries.filter(({item})=>!isSkill(item.id)&&!commands.some(command=>command.id===item.id)).map(({item})=>({...item,group:'other'}));
+      const focused=focusedEditor(),owner=root.closest('[data-codex-composer-root]');
+      const scoped=focused&&(!owner||owner===focused.composer)?focused:null;
+      if(!hasNativeRows&&(!scoped||typeof value.ui.query!=='string')){restore(root);continue;}
       if(!openings.has(root)){
         const opening={request:instance+':'+(++nextOpening),loaded:false,promptTimer:0,prompts:new Map(),promptGroups:[]};
         openings.set(root,opening);requestPrompts(opening);
       }
       const opening=openings.get(root);
+      const skillGroups=nameLayout('skills',nativeSkills.length?nativeSkills.filter(({item})=>showSkill(skillKey(item.title,item.id.slice(6)))):cachedSkills(scoped,value.ui.query,opening));
+      const needle=String(value.ui.query??'').toLocaleLowerCase();
+      const promptGroups=hasNativeRows||!needle?opening.promptGroups:nameLayout('prompts',opening.promptGroups.flatMap(group=>group.entries).filter(({item})=>item.title.toLocaleLowerCase().includes(needle)));
+      if(!hasNativeRows&&!skillGroups.length&&!promptGroups.length){
+        // Keep the request alive without hiding or intercepting an empty native menu.
+        views.get(root)?.surface.remove();views.delete(root);selections.delete(root);columns.delete(root);
+        for(const node of [...managed])if(root.contains(node)){clear(node);managed.delete(node);}
+        continue;
+      }
+      attribute(root,'data-bc-command-root','');
+      attribute(root,'data-bc-command-empty',hasNativeRows?null:'');
       attribute(root,'data-bc-prompt-pending',opening.promptTimer?'':null);
       if(opening.promptTimer)continue;
+      if(hasNativeRows)entries.unshift({row:'ai-rename',item:{id:'ai-rename',title:label({id:'ai-rename'})}});
+      const extra=entries.filter(({item})=>!isSkill(item.id)&&!commands.some(command=>command.id===item.id)).map(({item})=>({...item,group:'other'}));
       const ordered=orderedGroups(groupOrder,itemOrder,extra),flat=ordered.flatMap(group=>group.items);
       const skillRanks=new Map(skillGroups.flatMap(group=>group.entries).map(({item},index)=>[item.id,flat.length+index])),ranks=new Map(flat.map((item,index)=>[item.id,index]));
       for(const {row,item} of entries){
@@ -417,7 +450,7 @@
       for(const section of root.querySelectorAll('[data-mention-section-id]')){
         attribute(section,'data-bc-command-section','');attribute(section,'data-bc-section-hidden',hasNativeRows&&!section.querySelector('[data-bc-command]:not([data-bc-command-hidden]):not([data-bc-command-source])')?'':null);
       }
-      build(root,entries,ordered,skillGroups,opening.promptGroups);
+      build(root,entries,ordered,skillGroups,promptGroups);
       const visible=rows(root),native=visible.find(row=>typeof row!=='string'&&(row.getAttribute('aria-current')==='true'||row.getAttribute('aria-selected')==='true')),selected=selections.get(root);
       select(root,visible.includes(selected)?selected:native||visible[0]);if(root.scrollLeft)root.scrollLeft=0;
     }
@@ -474,8 +507,14 @@
     if(keep)lastPrompts=entries;
     const prompts=new Map(entries.map(({name,body})=>['prompt:'+name,body]));
     const promptGroups=nameLayout('prompts',entries.map(({name})=>{const id='prompt:'+name;return {row:id,item:{id,title:name}};}));
-    for(const [,opening] of targets){clearTimeout(opening.promptTimer);opening.promptTimer=0;opening.prompts=prompts;opening.promptGroups=promptGroups;opening.loaded=true;}
-    if(standaloneTarget){clearTimeout(standalone.promptTimer);standalone.promptTimer=0;standalone.entries=entries;standalone.loaded=true;}
+    for(const [,opening] of targets){
+      clearTimeout(opening.promptTimer);opening.promptTimer=0;opening.loaded=keep;
+      if(!keep||!opening.promptFrozen){opening.prompts=prompts;opening.promptGroups=promptGroups;}
+    }
+    if(standaloneTarget){
+      clearTimeout(standalone.promptTimer);standalone.promptTimer=0;standalone.loaded=keep;
+      if(!keep||!standalone.promptFrozen)standalone.entries=entries;
+    }
     refresh();
   }
   window.addEventListener('keydown',keydown,true);window.addEventListener('mousemove',pointermove,true);

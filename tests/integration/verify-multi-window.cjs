@@ -135,7 +135,7 @@ async function finish(child){
     check('native-fallback-keeps-ttft-missing-in-both-windows',(await snapshot(p1)).ttft==='-s'&&(await snapshot(p2)).ttft==='-s');
     check('route-parameter-window-supported-without-accepting-other-documents',isMainPageUrl('app://-/index.html?initialRoute=fixture')&&!isMainPageUrl('app://-/detached-window.html?initialRoute=fixture')&&!isMainPageUrl('https://example.invalid/index.html'));
     check('all-enhancements-coexist-in-both-pages',(await snapshot(p1)).modules&&(await snapshot(p2)).modules&&(await snapshot(p1)).accentStyle&&(await snapshot(p2)).accentStyle&&(await snapshot(p1)).width===1232&&(await snapshot(p2)).width===1232);
-    async function firstPromptFrame(page,stall=false){
+    async function firstPromptFrame(page,stall=null){
       return page.evaluate(stall=>new Promise(resolve=>{
         const binding=window.__betterCodexRequestPrompts;let request;
         if(stall)window.__betterCodexRequestPrompts=value=>{request=value;};
@@ -152,7 +152,7 @@ async function finish(child){
           if(stall){
             window.__betterCodexRequestPrompts=binding;
             window.__codexCommandMenu.promptState({requests:[request],entries:[{name:'Late response',body:'Fixture only'}]});
-            result=Boolean(request)&&first===shown()?first:null;
+            result=stall==='cold'?Boolean(request)&&first===null&&shown()==='Late response':Boolean(request)&&first===shown()?first:null;
           }
           shell.remove();resolve(result);
         };
@@ -162,7 +162,8 @@ async function finish(child){
     check('native-prompt-is-present-in-the-first-visible-frame',await firstPromptFrame(p1)==='First frame');
     fs.renameSync(path.join(home,'prompts','First frame.md'),path.join(home,'prompts','Next opening.md'));
     check('next-opening-loads-file-changes-without-a-background-refresh',await firstPromptFrame(p1)==='Next opening');
-    check('slow-prompt-uses-the-last-snapshot-and-does-not-patch-the-open-menu',await firstPromptFrame(p1,true)==='Next opening');
+    check('slow-prompt-uses-the-last-snapshot-and-does-not-patch-the-open-menu',await firstPromptFrame(p1,'warm')==='Next opening');
+    check('cold-window-accepts-its-own-prompt-reply-after-the-deadline',await firstPromptFrame(p2,'cold')===true);
     await p2.locator('#composer [contenteditable="true"]').fill('/');
     check('standalone-prompt-loads-through-the-same-on-demand-binding',await p2.locator('[data-bc-standalone-root]:not([hidden]) [data-bc-prompt-row] button').textContent({timeout:1500})==='Next opening');
     await p2.keyboard.press('Escape');
