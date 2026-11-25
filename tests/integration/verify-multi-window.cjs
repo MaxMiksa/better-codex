@@ -152,7 +152,11 @@ async function finish(child){
     check('fold-segments-are-keyboard-selectable-and-mutually-exclusive',await foldControl.getByRole('radio',{checked:true}).count()===1&&await foldControl.getByRole('radio',{name:'完全隐藏'}).isChecked());
     await p1.locator('#undo').click();await until(()=>bothFold('minimize'),'undo restores minimize');
     await p1.locator('#redo').click();await until(()=>bothFold('hide'),'redo restores hide');
+    const sendFold=p1.getByRole('switch',{name:'发送后自动隐藏'});
+    const bothSendFold=async value=>read(settingsPath).composerHideAfterSend===value&&(await Promise.all([p1,p2].map(page=>page.evaluate(value=>window.__codexComposerHud.snapshot().preferences.composerHideAfterSend===value,value)))).every(Boolean);
+    await sendFold.click();await until(()=>bothSendFold(true),'send option saves and syncs');
     await foldOff.press('Space');await until(()=>bothFold('off'),'fold mode resets in both windows');
+    check('hide-after-send-is-synced-and-disabled-with-the-main-mode-off',await sendFold.isDisabled()&&await bothSendFold(true));
     check('fold-preference-saves-and-syncs-with-undo-and-redo',true);
     await p1.locator('#metrics').click();
     check('reply-font-and-native-reset-save-and-sync-across-windows',true);

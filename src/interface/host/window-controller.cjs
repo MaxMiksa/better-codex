@@ -32,6 +32,7 @@ function preferences(value={}){
   return {
     readingWidth:Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600?clampWidth(value.readingWidth):DEFAULT_PREFERENCES.readingWidth,
     composerAutoHide:COMPOSER_FOLD_MODES.includes(value.composerAutoHide)?value.composerAutoHide:'off',
+    composerHideAfterSend:value.composerHideAfterSend===true,
     assistantFontSize:isAssistantFontSize(value.assistantFontSize)?value.assistantFontSize:null,
     fileChangesDefaultCollapsed:typeof value.fileChangesDefaultCollapsed==='boolean'?value.fileChangesDefaultCollapsed:DEFAULT_PREFERENCES.fileChangesDefaultCollapsed,
     customAccent:typeof value.customAccent==='boolean'?value.customAccent:DEFAULT_PREFERENCES.customAccent,
@@ -52,6 +53,7 @@ function patch(value={}){
   const result={};
   if(Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600)result.readingWidth=clampWidth(value.readingWidth);
   if(COMPOSER_FOLD_MODES.includes(value.composerAutoHide))result.composerAutoHide=value.composerAutoHide;
+  if(typeof value.composerHideAfterSend==='boolean')result.composerHideAfterSend=value.composerHideAfterSend;
   if(isAssistantFontSize(value.assistantFontSize))result.assistantFontSize=value.assistantFontSize;
   if(typeof value.fileChangesDefaultCollapsed==='boolean')result.fileChangesDefaultCollapsed=value.fileChangesDefaultCollapsed;
   if(typeof value.customAccent==='boolean')result.customAccent=value.customAccent;

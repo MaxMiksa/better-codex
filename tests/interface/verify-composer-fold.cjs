@@ -99,7 +99,82 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('reduced-motion-opens-without-layout-animation',await focus()==='editor'&&await page.locator('[data-thread-find-composer]').evaluate(e=>e.getAnimations().length===0));
     await blur();await settled('hide');await page.locator('[data-turn-key]').evaluate(e=>e.remove());await settled(null);
     check('switching-to-empty-thread-restores-native-composer',await editor.isVisible());
-    await insertMessage();await settled('hide');await mode('off');await settled(null);
+    await insertMessage();await settled('hide');
+
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await twice();await settled(null);await blur();
+    const nextId='00000000-0000-4000-8000-000000000002';
+    const firstFrame=await page.evaluate(nextId=>new Promise(resolve=>requestAnimationFrame(()=>{
+      const shell=document.querySelector('[data-thread-find-composer]');
+      document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',nextId);
+      queueMicrotask(()=>resolve({state:shell.dataset.bcComposerFold,height:shell.offsetHeight,animations:shell.getAnimations().length}));
+    })),nextId);
+    check('navigating-during-a-frame-starts-hidden-without-a-collapse-animation',firstFrame.state==='hide'&&firstFrame.height===0&&firstFrame.animations===0);
+    await mode('minimize');await settled('minimize');await pill.click();await settled(null);await blur();
+    const replaced=await page.evaluate(nextId=>new Promise(resolve=>requestAnimationFrame(()=>{
+      const old=document.querySelector('[data-thread-find-composer]'),shell=old.cloneNode(true);
+      shell.querySelector('#codex-hud-expand-composer')?.remove();
+      shell.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',nextId);
+      old.replaceWith(shell);
+      queueMicrotask(()=>resolve({state:shell.dataset.bcComposerFold,animations:shell.getAnimations().length}));
+    })),id);
+    check('replacing-the-composer-starts-minimized-in-the-first-frame',replaced.state==='minimize'&&replaced.animations===0);
+    await page.locator('#transcript [data-turn-key]').evaluate((e,id)=>{e.firstElementChild.setAttribute('data-response-update-thread',id);},id);
+    await page.locator('[data-above-composer-conversation-id]').evaluate((e,id)=>e.setAttribute('data-above-composer-conversation-id',id),nextId);
+    check('old-transcript-cannot-hide-the-new-conversation-while-loading',await state()===null&&await editor.isVisible());
+    const staleReady=await page.evaluate(id=>new Promise(resolve=>requestAnimationFrame(()=>{
+      const shell=document.querySelector('[data-thread-find-composer]');
+      document.querySelector('#transcript [data-response-update-thread]').setAttribute('data-response-update-thread',id);
+      queueMicrotask(()=>resolve(shell.dataset.bcComposerFold==='minimize'&&shell.getAnimations().length===0));
+    })),nextId);
+    check('loaded-current-transcript-gets-the-preferred-state-before-paint',staleReady);
+
+    await pill.click();await settled(null);
+    await page.locator('#transcript [data-response-update-thread]').evaluate(e=>e.removeAttribute('data-response-update-thread'));
+    const simulate=async({button=false,home=false}={})=>page.evaluate(({button,home,empty})=>{
+      const composer=document.querySelector('#composer'),editor=document.querySelector('#editor');
+      const commit=()=>{
+        editor.innerHTML=empty;
+        document.querySelector('#model').setAttribute('aria-label','停止');
+        const transcript=document.querySelector('#transcript'),row=document.createElement('div');
+        row.dataset.turnKey='sent-'+String(transcript.children.length);
+        row.innerHTML='<span data-user-message-bubble data-user-message-has-prompt="true">Sent fixture</span>';
+        if(home){
+          composer.setAttribute('data-composer-placement','thread');
+          composer.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id','00000000-0000-4000-8000-000000000003');
+          transcript.replaceChildren(row);
+        }else transcript.append(row);
+      };
+      editor.innerHTML='<p>Outgoing fixture</p>';editor.focus();
+      if(button){
+        const send=document.createElement('button');send.setAttribute('aria-label','发送');composer.querySelector('footer').append(send);
+        send.addEventListener('click',()=>{commit();send.remove();},{once:true});
+      }else editor.addEventListener('keydown',e=>{e.preventDefault();commit();},{once:true});
+    },{button,home,empty});
+    const sendPref=value=>page.evaluate(value=>window.__codexComposerHud.settingsState({composerHideAfterSend:value}),value);
+    await simulate();await page.keyboard.press('Enter');await page.waitForTimeout(260);
+    check('sending-does-not-close-when-the-new-option-is-off',await state()===null&&await page.getByRole('button',{name:'停止'}).isVisible());
+    await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
+    await sendPref(true);await simulate();await page.keyboard.press('Enter');
+    await settled('moving');await settled('minimize');
+    check('accepted-keyboard-send-folds-while-generating-without-a-separate-stop',await pill.isVisible()&&!(await page.getByRole('button',{name:'停止'}).isVisible()));
+    await pill.click();await settled(null);
+    check('reopening-while-generating-restores-the-native-stop',await focus()==='editor'&&await page.getByRole('button',{name:'停止'}).isVisible());
+    await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
+    await edit('<p>Not sent</p>');
+    await page.evaluate(()=>document.querySelector('#editor').addEventListener('keydown',e=>e.preventDefault(),{once:true}));
+    await page.keyboard.press('Enter');await page.waitForTimeout(260);
+    check('unsent-enter-never-hides-the-draft',await state()===null&&await editor.innerText()==='Not sent');
+    await mode('hide');await simulate({button:true});await page.getByRole('button',{name:'发送',exact:true}).click();await settled('hide');
+    check('accepted-send-button-fully-hides-without-waiting-for-stop',!(await editor.isVisible())&&!(await pill.isVisible())&&await shape()===0);
+    await twice();await settled(null);
+    await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
+    await page.locator('#composer').evaluate(e=>e.setAttribute('data-composer-placement','home'));
+    await page.locator('#transcript').evaluate(e=>e.replaceChildren());
+    await simulate({home:true});await page.keyboard.press('Enter');await settled('hide');
+    check('first-confirmed-send-from-home-folds-the-new-conversation',!(await editor.isVisible())&&await shape()===0);
+
+    await mode('off');await settled(null);
     check('off-cleans-layout-styles-and-controls-without-reload',await editor.isVisible()&&await pill.count()===0&&await page.locator('#codex-hud-composer-fold').count()===0);
     console.log(count+' composer fold checks passed');
   }finally{await browser.close();}
