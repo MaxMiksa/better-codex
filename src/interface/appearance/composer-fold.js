@@ -135,8 +135,8 @@
     const target=event.composedPath()[0],button=target instanceof Element?target.closest('button'):null;
     if(!button?.hasAttribute('data-interactive-row-button')||button.matches(':disabled,[aria-disabled="true"]'))return;
     const row=button.closest(sidebarRow);
-    if(!row||document.activeElement!==button)return;
-    sidebarClick={row,button,expires:performance.now()+sidebarTimeout};
+    if(!row)return;
+    sidebarClick={row,button,key:row.getAttribute(rowId),from:threadId??find()?.id,expires:performance.now()+sidebarTimeout};
     schedule();
   }
   function sidebarMatches(row,id){
@@ -154,20 +154,24 @@
     }
     return owners.size===1&&owners.has(id);
   }
-  function handoffSidebarFocus(){
-    if(!sidebarClick)return;
-    const {row,button,expires}=sidebarClick,{id,scroll}=binding;
-    if(performance.now()>expires||document.activeElement!==button||!row.contains(button)){
-      sidebarClick=null;return;
+  function matchingSidebarClick(){
+    if(!sidebarClick)return null;
+    const {row,button,key,expires}=sidebarClick,{id,scroll}=binding;
+    if(performance.now()>expires||!row.contains(button)||row.getAttribute(rowId)!==key){
+      sidebarClick=null;return null;
     }
-    if(row.getAttribute(rowActive)!=='true'||!visible(button)||!sidebarMatches(row,id)
-      ||!scroll.hasAttribute('tabindex')||!visible(scroll)||overlayOpen())return;
-    sidebarClick=null;
-    scroll.focus({preventScroll:true});
+    return scroll.hasAttribute('tabindex')&&visible(scroll)&&sidebarMatches(row,id)?sidebarClick:null;
   }
-  function canFold(sent){
+  function handoffSidebarFocus(){
+    const click=matchingSidebarClick();
+    if(!click||document.activeElement!==click.button||click.row.getAttribute(rowActive)!=='true'
+      ||!visible(click.button)||overlayOpen())return;
+    sidebarClick=null;
+    binding.scroll.focus({preventScroll:true});
+  }
+  function canFold(allowedFocus){
     const active=document.activeElement;
-    return !composing&&(!binding.root.contains(active)||sent&&(active===binding.editor||active===sent.button))&&!active?.closest('#codex-composer-hud')
+    return !composing&&(!binding.root.contains(active)||active===allowedFocus)&&!active?.closest('#codex-composer-hud')
       &&!binding.root.querySelector('[aria-expanded="true"]')&&!overlayOpen();
   }
   function updatePillSurface(){
@@ -218,14 +222,23 @@
     const label=window.__codexHudI18n.t('expandComposer');
     if(pillLabel.textContent!==label){pillLabel.textContent=label;pill.title=window.__codexHudI18n.t('composerFoldShortcut');}
     const sent=confirmSend(next);
-    if(sent&&safe(binding)&&canFold(sent)){
+    const active=document.activeElement;
+    if(sent&&safe(binding)&&canFold(active===sent.button?sent.button:binding.editor)){
       clearTimer();
-      const active=document.activeElement;
       if(active===binding.editor||active===sent.button)active.blur();
       transition(mode);return;
     }
     if(!safe(binding)){clearTimer();commit('open');resetKeys();return;}
-    if(entering&&canFold()){
+    // Native navigation may preserve or restore the caret before the destination is ready.
+    // Only override that focus for a matching mouse switch, never after user input.
+    const click=active===next.editor?matchingSidebarClick():null;
+    const restoredFocus=click&&click.from!==next.id;
+    if((entering||restoredFocus)&&canFold(restoredFocus?next.editor:undefined)){
+      if(restoredFocus){
+        sidebarClick=null;
+        next.scroll.focus({preventScroll:true});
+        if(next.root.contains(document.activeElement))return;
+      }
       if(mode==='minimize')updatePillSurface();
       commit(mode);handoffSidebarFocus();return;
     }
@@ -281,10 +294,18 @@
     document.head.append(style);listeners=new AbortController();
     const on=(target,type,fn)=>target.addEventListener(type,fn,{capture:true,signal:listeners.signal});
     on(window,'keydown',keydown);on(window,'keyup',keyup);
-    on(document,'focusin',event=>{if(event.target!==sidebarClick?.button)sidebarClick=null;enterAt=-Infinity;schedule();});
+    on(document,'focusin',event=>{
+      const target=event.target;
+      if(sidebarClick&&target!==sidebarClick.button
+        &&!(target instanceof Element&&target.matches('[data-codex-composer="true"],.thread-scroll-container')&&main(target)))sidebarClick=null;
+      enterAt=-Infinity;schedule();
+    });
     on(document,'focusout',schedule);
     on(document,'input',event=>{
-      if(sendAttempt&&event.isTrusted&&event.inputType?.startsWith('insert'))sendAttempt=null;
+      if(event.isTrusted){
+        sidebarClick=null;
+        if(event.inputType?.startsWith('insert'))sendAttempt=null;
+      }
       schedule();
     });on(document,'click',event=>{armSend(event);armSidebarFocus(event);});
     on(document,'pointerdown',event=>{
@@ -293,7 +314,7 @@
       schedule();
     });on(document,'pointerup',schedule);
     on(document,'compositionstart',()=>{composing=true;sidebarClick=null;resetKeys();schedule();});on(document,'compositionend',()=>{composing=false;schedule();});
-    on(window,'blur',()=>{composing=false;sidebarClick=null;resetKeys();});on(window,'resize',schedule);on(window,'languagechange',schedule);
+    on(window,'blur',event=>{composing=false;if(event.target===window)sidebarClick=null;resetKeys();});on(window,'resize',schedule);on(window,'languagechange',schedule);
     on(reduced,'change',()=>{if(binding&&animation.length)commit(folded==='opening'?'open':mode);});
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:[
       ...entryAttributes,rowActive,rowId,'data-response-update-thread',

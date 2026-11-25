@@ -190,6 +190,28 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await page.locator('#chat-b').click();await page.waitForFunction(()=>document.activeElement.id==='timeline');
     await twice();await settled(null);
     check('temporary-sidebar-id-can-wake-a-fully-hidden-input-for-its-own-chat',await focus()==='editor'&&await activationCount()===5&&await page.evaluate(()=>window.nativeEnter===0));
+
+    await page.locator('#chat-a').click();await selected('a',id);
+    await editor.evaluate(e=>e.focus());
+    check('automatic-editor-focus-is-not-moved-while-the-old-transcript-is-mounted',await focus()==='editor'&&await state()===null);
+    const restoredEntry=await page.evaluate(id=>new Promise(resolve=>requestAnimationFrame(()=>{
+      document.querySelector('#transcript [data-response-update-thread]').setAttribute('data-response-update-thread',id);
+      queueMicrotask(()=>{
+        const shell=document.querySelector('[data-thread-find-composer]');
+        resolve({focus:document.activeElement.id,fold:shell.dataset.bcComposerFold,animations:shell.getAnimations().length});
+      });
+    })),id);
+    check('historical-chat-autofocus-is-redirected-and-hidden-before-paint',restoredEntry.focus==='timeline'&&restoredEntry.fold==='hide'&&restoredEntry.animations===0);
+    await page.locator('#chat-b').click();await selected('b',nextId);
+    await editor.evaluate(e=>e.focus());await editor.click();
+    await loaded(nextId);
+    check('user-clicking-editor-during-navigation-keeps-the-empty-input-open',await focus()==='editor'&&await state()===null);
+    await page.locator('#chat-a').evaluate(e=>e.addEventListener('mousedown',event=>event.preventDefault(),{once:true}));
+    await page.locator('#chat-a').click();
+    check('sidebar-can-change-chats-without-taking-focus-first',await focus()==='editor');
+    await selected('a',id);await loaded(id);
+    check('retained-editor-focus-also-yields-on-confirmed-mouse-navigation',await focus()==='timeline'&&await state()==='hide');
+
     await mode('minimize');await blur();await settled('minimize');
     await pill.click();await settled(null);
     await page.locator('#transcript [data-response-update-thread]').evaluate(e=>e.removeAttribute('data-response-update-thread'));
@@ -230,7 +252,7 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('accepted-keyboard-send-folds-with-mirrored-active-task-markers-and-no-separate-stop',await pill.isVisible()&&!(await page.getByRole('button',{name:'停止'}).isVisible()));
     await pill.click();await settled(null);
     check('reopening-while-generating-restores-the-native-stop',await focus()==='editor'&&await page.getByRole('button',{name:'停止'}).isVisible());
-    await page.locator('#fixed-portal').evaluate((e,id)=>e.setAttribute('data-above-composer-conversation-id',id),id);
+    await page.locator('#fixed-portal').evaluate((e,id)=>e.setAttribute('data-above-composer-conversation-id',id),nextId);
     await blur();await page.waitForTimeout(430);
     check('different-conversation-markers-still-keep-the-composer-open',await state()===null&&await editor.isVisible());
     await page.locator('#fixed-portal').evaluate(e=>e.remove());
