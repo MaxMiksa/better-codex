@@ -4,6 +4,47 @@
   const marker = 'data-codex-hud-reading-width';
   const style = document.createElement('style');
   style.id = 'codex-hud-reading-width';
+  const titleMarker = 'data-codex-hud-centered-title';
+  const titleBar = '[data-app-shell-main-titlebar] [data-app-shell-header-toolbar]';
+  const titleStyle = document.createElement('style');
+  titleStyle.id = 'codex-hud-centered-title';
+  let titleGroup, titleObservers = [];
+  function clearTitle() {
+    titleGroup?.removeAttribute(titleMarker);
+    titleGroup = undefined;
+    titleStyle.remove();
+    titleResizer.disconnect();
+    titleObservers = [];
+  }
+  function alignTitle() {
+    const active = document.querySelector('[data-app-shell-active-page="true"]');
+    const visible = e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0 && getComputedStyle(e).visibility === 'visible';
+    const groups = [...(active?.querySelectorAll(`${titleBar} > div > .w-fit:has(> .text-conversation-title)`) ?? [])].filter(visible);
+    const panes = [...(active?.querySelectorAll('[data-app-shell-main-surface] .thread-scroll-container') ?? [])].filter(visible);
+    if(groups.length !== 1 || panes.length !== 1) { clearTitle(); return; }
+    const [group] = groups, [pane] = panes, lane = group.parentElement;
+    if(group !== titleGroup) {
+      titleGroup?.removeAttribute(titleMarker);
+      titleGroup = group;
+      group.setAttribute(titleMarker, '');
+    }
+    const observing = [group, lane, pane];
+    if(observing.some((e, i) => e !== titleObservers[i])) {
+      titleResizer.disconnect();
+      observing.forEach(e => titleResizer.observe(e));
+      titleObservers = observing;
+    }
+    const region = pane.getBoundingClientRect(), slot = lane.getBoundingClientRect();
+    const width = group.getBoundingClientRect().width;
+    const room = Math.max(0, slot.width - width);
+    const fromLeft = region.left + (region.width - width) / 2 - slot.left;
+    // Use the pane's real center, but keep the title in its original lane so tools stay put.
+    const offset = getComputedStyle(lane).direction === 'rtl' ? room - fromLeft : fromLeft;
+    const css = `[${titleMarker}]{position:relative;inset-inline-start:${Math.min(room, Math.max(0, offset))}px;}`;
+    if(titleStyle.textContent !== css) titleStyle.textContent = css;
+    if(!titleStyle.isConnected) document.head.append(titleStyle);
+  }
+  const titleResizer = new ResizeObserver(alignTitle);
   const fontStyle = document.createElement('style');
   fontStyle.id = 'codex-hud-assistant-font-size';
   const assistantReply = '.thread-scroll-container [data-markdown-text-style="assistant-message"]:not(:is([data-conversation-print], [data-conversation-print] *, [data-user-message-bubble] *, [data-codex-composer-root] *, [data-composer-body] *))';
@@ -157,6 +198,7 @@
     observed=watching;
   }
   function apply() {
+    alignTitle();
     const value = pending ?? preference;
     const maxWidth = value==='wide' ? 1152 : Number.isInteger(value) && value>=768 && value<=1600 ? value : 768;
     const mode = maxWidth===768 ? 'default' : 'custom';
@@ -191,7 +233,7 @@
   }
   // MutationObserver runs before rendering. Rebind mounted/revealed views without
   // waiting for the controller's statistics/settings polling interval.
-  const scope = '.thread-scroll-container,[class~="max-w-(--thread-body-max-width)"],[data-markdown-table]';
+  const scope = '.thread-scroll-container,[class~="max-w-(--thread-body-max-width)"],[data-markdown-table],[data-app-shell-header-toolbar],.text-conversation-title';
   const resizer = new ResizeObserver(()=>apply());
   const observer = new MutationObserver(records=>{
     let changed=false;
@@ -203,12 +245,12 @@
     const relevant=records.some(record=>{
       const element=record.target.nodeType===1?record.target:record.target.parentElement;
       if(element?.closest('#codex-composer-hud'))return false;
-      if(record.type==='attributes')return element?.matches(scope) || [...targets].some(target=>element?.contains(target)) || Boolean(element?.querySelector(scope));
+      if(record.type==='attributes')return record.attributeName==='data-app-shell-active-page' || element?.matches(scope) || [...targets].some(target=>element?.contains(target)) || Boolean(element?.querySelector(scope));
       return [...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1 && (node.matches(scope) || node.querySelector(scope)));
     });
     if(changed || relevant)apply();
   });
-  observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','style','hidden','aria-hidden','colspan','rowspan','data-thread-user-message-navigation-content','data-markdown-table','data-markdown-text-style']});
+  observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','style','hidden','aria-hidden','colspan','rowspan','data-app-shell-active-page','data-thread-user-message-navigation-content','data-markdown-table','data-markdown-text-style']});
   window.addEventListener('resize',apply);
   window.__codexReadingWidth = {
     update(value) { preference=value;return apply(); },
@@ -217,7 +259,7 @@
     setTableCentered(value) { const next=value!==false;if(next===tableCentered)return {tableCentered};tableCentered=next;return apply(); },
     preview(value) { if(Number.isInteger(value) && value>=768 && value<=1600)pending=value;return this.update(value); },
     settle(value) { if(pending===value)pending=null; },
-    remove() { observer.disconnect();resizer.disconnect();window.removeEventListener('resize',apply);fontStyle.remove();clear();clearTables(); delete window.__codexReadingWidth; }
+    remove() { observer.disconnect();resizer.disconnect();window.removeEventListener('resize',apply);fontStyle.remove();clearTitle();clear();clearTables(); delete window.__codexReadingWidth; }
   };
   return true;
 })()
