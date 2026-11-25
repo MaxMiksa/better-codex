@@ -12,6 +12,7 @@ const {normalize:commandVisible,normalizeSkillVisible,normalizeSectionOrder,norm
 const METRIC_KEYS=['ttft','speed','cache','age'];
 const DEFAULT_PREFERENCES={readingWidth:1152,fileChangesDefaultCollapsed:true,customAccent:true,tableEnabled:true,tableCentered:true,tableSortMode:'smart',
   metricOrder:[...METRIC_KEYS],metricVisible:Object.fromEntries(METRIC_KEYS.map(key=>[key,true]))};
+const isAssistantFontSize=value=>value===null||(Number.isInteger(value)&&value>=10&&value<=40);
 const clampWidth=value=>Math.max(768,Math.min(1600,Math.round(Number(value))));
 function metricOrder(value){
   const seen=new Set(),order=[];
@@ -29,6 +30,7 @@ function metricVisible(value){
 function preferences(value={}){
   return {
     readingWidth:Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600?clampWidth(value.readingWidth):DEFAULT_PREFERENCES.readingWidth,
+    assistantFontSize:isAssistantFontSize(value.assistantFontSize)?value.assistantFontSize:null,
     fileChangesDefaultCollapsed:typeof value.fileChangesDefaultCollapsed==='boolean'?value.fileChangesDefaultCollapsed:DEFAULT_PREFERENCES.fileChangesDefaultCollapsed,
     customAccent:typeof value.customAccent==='boolean'?value.customAccent:DEFAULT_PREFERENCES.customAccent,
     tableEnabled:typeof value.tableEnabled==='boolean'?value.tableEnabled:typeof value.tableOptimization==='boolean'?value.tableOptimization:DEFAULT_PREFERENCES.tableEnabled,
@@ -47,6 +49,7 @@ function preferences(value={}){
 function patch(value={}){
   const result={};
   if(Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600)result.readingWidth=clampWidth(value.readingWidth);
+  if(isAssistantFontSize(value.assistantFontSize))result.assistantFontSize=value.assistantFontSize;
   if(typeof value.fileChangesDefaultCollapsed==='boolean')result.fileChangesDefaultCollapsed=value.fileChangesDefaultCollapsed;
   if(typeof value.customAccent==='boolean')result.customAccent=value.customAccent;
   if(typeof value.tableEnabled==='boolean')result.tableEnabled=value.tableEnabled;

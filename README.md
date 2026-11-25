@@ -19,7 +19,7 @@ Images use real Codex screenshots; table content and statistics are examples.
 ## Latest source
 
 - **Four statistics:** time to first response (TTFT), output speed, cache percentage and sample age. Click the statistics to open settings; toggle individual fields or drag to reorder them.
-- **One settings panel:** adjust reading width from 768 to 1600px, choose whether file lists start collapsed, and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
+- **One settings panel:** adjust reading width from 768 to 1600 px and AI reply font size from 10 to 40 px. Leave the font field blank to follow Codex. You can also choose whether file lists start collapsed and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
 - **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle through sorting directions and the original order; hold Ctrl to select multiple columns in priority order, or Alt to preset/reverse a direction. Choose Smart, Ascending or Descending as the first-click direction in settings. Sorting changes only the current visual order; copying retains the source order.
 - **Reorder the slash-menu settings:** open **Interface settings → Command menu** for the two independent **Commands** and **Skills** sections. Drag their handles to reorder them. The Commands section keeps its button groups without subheadings.
 - **Choose which Skills appear in the slash menu:** open **Interface settings → Command menu → Skills** to show or hide individual Skills. Health, Excel Live Control, Spreadsheets, Visualize, and Create Statusline are hidden by default. Skills remain enabled and available through the native `$` picker.
@@ -54,7 +54,7 @@ Run `Stop.cmd` at any time to stop enhancements and restore the native layout. C
 | Name a chat with AI | The slash menu can summarize the current local chat with Luna into a short Chinese `feat：` / `bug：` style title and apply it through native rename; failures keep the original |
 | Start and maintain | Combined shortcut, separate login-start switch, startup checks and sanitized reports; optional monitoring restores the enhancement entry after Codex updates |
 
-Statistics follow the main input area's layout. Labels follow Codex's English/Simplified Chinese interface, falling back to the launch language when none is declared; other languages fall back to English. Chat mode keeps reading width without these statistics. Documents and blank pages keep their native layout.
+Statistics follow the main input area's layout. Labels follow Codex's English/Simplified Chinese interface, falling back to the launch language when none is declared; other languages fall back to English. Chat mode keeps reading width and reply font size without these statistics. Documents and blank pages keep their native layout.
 
 If a collector exits, only statistics become unavailable; reading width, file changes and appearance remain in place. Recovery is local and rate-limited, and data from an old collector is rejected.
 

@@ -4,6 +4,19 @@
   const marker = 'data-codex-hud-reading-width';
   const style = document.createElement('style');
   style.id = 'codex-hud-reading-width';
+  const fontStyle = document.createElement('style');
+  fontStyle.id = 'codex-hud-assistant-font-size';
+  const assistantReply = '.thread-scroll-container [data-markdown-text-style="assistant-message"]:not(:is([data-conversation-print], [data-conversation-print] *, [data-user-message-bubble] *, [data-codex-composer-root] *, [data-composer-body] *))';
+  function setAssistantFontSize(value) {
+    if (!Number.isInteger(value) || value < 10 || value > 40) {
+      fontStyle.remove();
+      return;
+    }
+    // Feed the native Markdown typography; its existing heading, table and line-height ratios still apply.
+    const css = `${assistantReply}{--codex-chat-font-size:${value}px;}`;
+    if (fontStyle.textContent !== css) fontStyle.textContent = css;
+    if (!fontStyle.isConnected) document.head.append(fontStyle);
+  }
   const tableMarker = 'data-codex-hud-reading-table';
   const tableStyle = document.createElement('style');
   tableStyle.id = 'codex-hud-reading-tables';
@@ -199,11 +212,12 @@
   window.addEventListener('resize',apply);
   window.__codexReadingWidth = {
     update(value) { preference=value;return apply(); },
+    setAssistantFontSize,
     setTablesEnabled(value) { const next=value!==false;if(next===tableEnabled)return {tableEnabled,tables:tables.size};tableEnabled=next;return apply(); },
     setTableCentered(value) { const next=value!==false;if(next===tableCentered)return {tableCentered};tableCentered=next;return apply(); },
     preview(value) { if(Number.isInteger(value) && value>=768 && value<=1600)pending=value;return this.update(value); },
     settle(value) { if(pending===value)pending=null; },
-    remove() { observer.disconnect();resizer.disconnect();window.removeEventListener('resize',apply);clear();clearTables(); delete window.__codexReadingWidth; }
+    remove() { observer.disconnect();resizer.disconnect();window.removeEventListener('resize',apply);fontStyle.remove();clear();clearTables(); delete window.__codexReadingWidth; }
   };
   return true;
 })()

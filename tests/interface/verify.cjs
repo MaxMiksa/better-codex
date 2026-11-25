@@ -15,7 +15,8 @@ const html=`<!doctype html><html lang="zh-CN"><style>
 :root{--color-text:#eee;--color-text-tertiary:#aaa;--color-surface:#292929;--thread-content-max-width:48rem;font-family:'Segoe UI',sans-serif}body{margin:0;background:#181818;color:var(--color-text)}
 aside{position:absolute;width:1px;height:1px}#composer{position:absolute;left:96px;right:61px;top:78px;height:146px;padding:18px;box-sizing:border-box;background:#3f3f3f;border:1px solid #494949;border-radius:32px}
 [contenteditable]{height:62px;font-size:20px;outline:none}footer{position:absolute;left:18px;right:12px;bottom:12px;display:flex;justify-content:space-between;height:40px}footer>div{display:flex;align-items:center;gap:16px}button{background:none;border:0;color:inherit;font:18px 'Segoe UI';height:40px;padding:0 4px}#access{color:#ff8c4a}#send{background:#fff;color:#111;border-radius:50%;width:40px}
-</style><div class="thread-scroll-container" style="height:40px"><div class="max-w-(--thread-body-max-width)" style="width:100%;max-width:var(--thread-body-max-width);--thread-body-max-width:var(--thread-content-max-width)">Layout fixture</div></div><aside data-app-action-sidebar-thread-active="true" data-app-action-sidebar-thread-kind="local" data-app-action-sidebar-thread-host-id="local" data-app-action-sidebar-thread-id="local:${id}"></aside>
+:root{--codex-chat-font-size:16px}.reply-typography{--markdown-font-size:var(--codex-chat-font-size);font-size:var(--markdown-font-size)}.reply-typography h2{font-size:1.25em}
+</style><div class="thread-scroll-container" style="height:40px"><div class="max-w-(--thread-body-max-width)" style="width:100%;max-width:var(--thread-body-max-width);--thread-body-max-width:var(--thread-content-max-width)">Layout fixture<div id="fixture-reply" class="reply-typography" data-markdown-text-style="assistant-message"><p>Reply</p><h2>Heading</h2></div></div></div><aside data-app-action-sidebar-thread-active="true" data-app-action-sidebar-thread-kind="local" data-app-action-sidebar-thread-host-id="local" data-app-action-sidebar-thread-id="local:${id}"></aside>
 <div id="composer" data-codex-composer-root><div contenteditable="true" role="textbox">输入内容</div><footer><div><button id="add">＋</button><button id="access">♧ 完全访问</button></div><div><button id="model">GPT-6 Astra 高⌄</button><button id="mic">♩</button><button id="send">↑</button></div></footer></div>`;
 const results=[];
 function check(name,condition){assert.ok(condition,name);results.push({name,passed:true});}
@@ -185,6 +186,40 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('late-save-ack-keeps-newer-choice',await page.evaluate(value=>{window.__codexComposerHud.settingsAck(value);return window.__codexComposerHud.settingsRequest()?.value.readingWidth===1040;},oldRequest));
   await page.evaluate(()=>{const request=window.__codexComposerHud.settingsRequest();window.__codexComposerHud.settingsAck(request);window.__codexComposerHud.readingState(window.__codexReadingWidth.update(request.value.readingWidth));});
   check('settings-ack-clears-save-request',await page.evaluate(()=>window.__codexComposerHud.settingsRequest()===null&&document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#save-state-text').textContent==='已保存'));
+  const fontInput=page.getByRole('textbox',{name:'AI 回复字号'});
+  const replySize=()=>page.locator('#fixture-reply p').evaluate(e=>getComputedStyle(e).fontSize);
+  check('localized-enhancement-labels',await page.evaluate(()=>{
+    const root=document.querySelector('#codex-composer-hud').shadowRoot;
+    return ['#table-label','#slash-label','#files-default-label','#accent-label'].map(id=>root.querySelector(id).textContent).join('|')==='表格优化|命令界面优化|diff 界面优化|配色自定义修复';
+  }));
+  check('reply-font-default-follows-native',await fontInput.inputValue()===''&&await fontInput.getAttribute('placeholder')==='跟随原生'&&await replySize()==='16px');
+  await fontInput.fill('24');await fontInput.press('Enter');
+  check('reply-font-above-16-applies-and-queues-save',await replySize()==='24px'&&await page.evaluate(()=>{
+    const reply=document.querySelector('#fixture-reply');
+    return getComputedStyle(reply.querySelector('h2')).fontSize==='30px'&&getComputedStyle(document.querySelector('#composer [contenteditable]')).fontSize==='20px'&&window.__codexComposerHud.settingsRequest()?.value.assistantFontSize===24;
+  }));
+  check('reply-font-affects-new-replies-not-users-print-or-documents',await page.evaluate(()=>{
+    const reply=document.querySelector('#fixture-reply'),fixture=document.createElement('div');
+    fixture.innerHTML='<div class="thread-scroll-container"><div class="reply-typography" data-markdown-text-style="assistant-message"></div><div data-user-message-bubble><div class="reply-typography" data-markdown-text-style="assistant-message"></div></div><div data-conversation-print><div class="reply-typography" data-markdown-text-style="assistant-message"></div></div></div><div class="reply-typography" data-markdown-text-style="assistant-message"></div>';
+    reply.parentElement.append(fixture);
+    const nested=[...fixture.querySelectorAll('.reply-typography')].map(e=>getComputedStyle(e).fontSize);
+    fixture.remove();
+    const mounted=reply.cloneNode(true);reply.after(mounted);
+    const size=getComputedStyle(mounted).fontSize;mounted.remove();
+    return size==='24px'&&nested.join('|')==='24px|16px|16px|24px';
+  }));
+  check('assistant-typography-outside-conversation-unchanged',await page.evaluate(()=>{
+    const block=document.querySelector('#fixture-reply').cloneNode(true);document.body.append(block);
+    const size=getComputedStyle(block).fontSize;block.remove();return size==='16px';
+  }));
+  await fontInput.fill('99');await fontInput.press('Tab');
+  check('invalid-reply-font-retains-last-value',await fontInput.inputValue()==='24'&&await replySize()==='24px');
+  await panel.locator('#undo').click();
+  check('reply-font-undo-restores-native',await replySize()==='16px'&&await fontInput.inputValue()==='');
+  await panel.locator('#redo').click();
+  check('reply-font-redo-restores-override',await replySize()==='24px'&&await fontInput.inputValue()==='24');
+  await fontInput.fill('');await fontInput.press('Tab');
+  check('clearing-font-removes-style-and-persists-native',await replySize()==='16px'&&await page.evaluate(()=>window.__codexComposerHud.settingsRequest()?.value.assistantFontSize===null&&!document.getElementById('codex-hud-assistant-font-size')));
   await metricGroup.locator('[data-metric-key="cache"]').click();
   check('metric-click-hides-current-field',await page.evaluate(()=>{const root=document.querySelector('#codex-composer-hud').shadowRoot,button=root.querySelector('#metric-group [data-metric-key="cache"]');return button.dataset.state==='off'&&button.getAttribute('aria-pressed')==='false'&&![...root.querySelectorAll('#metrics .metric')].some(e=>e.dataset.metricKey==='cache'&&!e.hidden);}));
   await metricGroup.locator('[data-metric-key="ttft"]').click();await metricGroup.locator('[data-metric-key="speed"]').click();await metricGroup.locator('[data-metric-key="age"]').click();

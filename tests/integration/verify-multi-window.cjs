@@ -135,6 +135,15 @@ async function finish(child){
     check('native-fallback-keeps-ttft-missing-in-both-windows',(await snapshot(p1)).ttft==='-s'&&(await snapshot(p2)).ttft==='-s');
     check('route-parameter-window-supported-without-accepting-other-documents',isMainPageUrl('app://-/index.html?initialRoute=fixture')&&!isMainPageUrl('app://-/detached-window.html?initialRoute=fixture')&&!isMainPageUrl('https://example.invalid/index.html'));
     check('all-enhancements-coexist-in-both-pages',(await snapshot(p1)).modules&&(await snapshot(p2)).modules&&(await snapshot(p1)).accentStyle&&(await snapshot(p2)).accentStyle&&(await snapshot(p1)).width===1232&&(await snapshot(p2)).width===1232);
+    const replySize=page=>page.locator('#fixture-reply p').evaluate(e=>getComputedStyle(e).fontSize);
+    await p1.locator('#metrics').click();
+    const fontInput=p1.locator('#assistant-font-size');
+    await fontInput.fill('23');await fontInput.press('Enter');
+    await until(async()=>read(settingsPath).assistantFontSize===23&&await replySize(p1)==='23px'&&await replySize(p2)==='23px','font saved and synchronized');
+    await fontInput.fill('');await fontInput.press('Enter');
+    await until(async()=>read(settingsPath).assistantFontSize===null&&await replySize(p1)==='16px'&&await replySize(p2)==='16px','native font saved and synchronized');
+    await p1.locator('#metrics').click();
+    check('reply-font-and-native-reset-save-and-sync-across-windows',true);
     async function firstPromptFrame(page,stall=null){
       return page.evaluate(stall=>new Promise(resolve=>{
         const binding=window.__betterCodexRequestPrompts;let request;
@@ -279,7 +288,7 @@ async function finish(child){
     });
     await until(async()=>await p1.evaluate(()=>{
       const root=document.querySelector('#codex-composer-hud')?.shadowRoot;
-      return root?.querySelector('#table-label')?.textContent==='表格'&&
+      return root?.querySelector('#table-label')?.textContent==='表格优化'&&
         root.querySelector('#table-centered-label')?.textContent==='表格整体居中'&&
         [...root.querySelectorAll('[data-table-sort-mode]')].map(button=>button.textContent).join('|')==='智能|默认升序|默认降序'&&
         typeof window.__codexReadingWidth?.setTablesEnabled==='function'&&
