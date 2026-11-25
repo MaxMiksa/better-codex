@@ -35,6 +35,11 @@
       "{browser}"
     ]
   },
+  "workspace-tree": {
+    "kind": "node",
+    "path": "tests/interface/verify-workspace-tree.cjs",
+    "args": ["{evidence}"]
+  },
   "accent": {
     "kind": "node",
     "path": "tests/interface/verify-custom-accent.cjs",

@@ -156,6 +156,15 @@ async function finish(child){
     await p1.locator('#undo').click();
     await until(async()=>read(settingsPath).chatTitleCentered===true&&await bothTitles(true),'undo re-centers both titles');
     check('chat-title-default-toggle-persistence-undo-and-multi-window-layout',await titleSwitch.isChecked());
+    const treeSwitch=p1.getByRole('switch',{name:'工作区文件树',exact:true});
+    const bothTreePrefs=async enabled=>(await Promise.all([p1,p2].map(page=>page.evaluate(
+      expected=>window.__codexComposerHud.snapshot().preferences.workspaceTreeEnabled===expected,enabled)))).every(Boolean);
+    check('workspace-tree-setting-defaults-on',await treeSwitch.isChecked()&&await bothTreePrefs(true));
+    await treeSwitch.click();
+    await until(async()=>read(settingsPath).workspaceTreeEnabled===false&&await bothTreePrefs(false),'workspace tree setting disabled in both windows');
+    await p1.locator('#undo').click();
+    await until(async()=>read(settingsPath).workspaceTreeEnabled===true&&await bothTreePrefs(true),'workspace tree setting restored in both windows');
+    check('workspace-tree-setting-persists-and-undo-syncs',await treeSwitch.isChecked());
     await Promise.all([p1,p2].map(page=>page.locator('#fixture-title-pane').evaluate(node=>node.remove())));
     const fontInput=p1.locator('#assistant-font-size');
     await fontInput.fill('23');await fontInput.press('Enter');

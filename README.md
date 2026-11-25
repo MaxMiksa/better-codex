@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.7"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.7-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.26"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.26-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -19,6 +19,7 @@ Images use real Codex screenshots; table content and statistics are examples.
 ## Latest source
 
 - **Four statistics:** time to first response (TTFT), output speed, cache percentage and sample age. Click the statistics to open settings; toggle individual fields or drag to reorder them.
+- **Workspace files:** click the folder tree in a chat header to browse the current local project or worktree in a live, read-only pane. Turn it off in **Interface settings → Workspace files** without affecting the native file viewer.
 - **One settings panel:** adjust reading width from 768 to 1600 px and AI reply font size from 10 to 40 px. Leave the font field blank to follow Codex. You can also choose whether file lists start collapsed and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
 - **Auto-hide the input:** choose **Off**, **Minimize** or **Hide** in Interface settings. An empty input collapses when it loses focus in an existing chat, even while a task is running. After clicking a chat in the sidebar, press Enter twice to open and focus its input, or click **Expand input** in Minimize mode. With **Hide after sending** enabled, successful sends also collapse the input if it still has focus. Blank new chats, unsent drafts and attachments stay visible.
 - **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle through sorting directions and the original order; hold Ctrl to select multiple columns in priority order, or Alt to preset/reverse a direction. Choose Smart, Ascending or Descending as the first-click direction in settings. Sorting changes only the current visual order; copying retains the source order.
@@ -36,7 +37,7 @@ TTFT uses the first model response in the current turn. Speed uses magpie's late
 
 ## Get started
 
-1. Download `better-codex-v0.5.7-windows-x64-portable.zip` from [v0.5.7 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.7).
+1. Download `better-codex-v0.5.26-windows-x64-portable.zip` from [v0.5.26 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.26).
 2. **Extract the entire ZIP** to a writable folder you plan to keep.
 3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No Python/Node.js installation or first-launch dependency download is needed.
 
@@ -44,7 +45,7 @@ The shortcut runs the startup check when Codex isn't running. If Codex is alread
 
 Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
 
-## v0.5.7 features
+## v0.5.26 features
 
 | Task | What you get |
 | --- | --- |
@@ -109,7 +110,7 @@ Local state can contain chat identifiers, titles, paths and usage. **Do not uplo
 
 ## Development and credits
 
-For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.7-source.zip`. Current source installation needs Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. Use `-PnpmExecutable <path>` if that pnpm version is outside PATH. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
+For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.26-source.zip`. Current source installation needs Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. Use `-PnpmExecutable <path>` if that pnpm version is outside PATH. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
 
 The local collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions and licenses.
 
