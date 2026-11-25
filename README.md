@@ -39,7 +39,7 @@ TTFT uses the first model response in the current turn. Speed uses magpie's late
 2. **Extract the entire ZIP** to a writable folder you plan to keep.
 3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No Python/Node.js installation or first-launch dependency download is needed.
 
-The startup check runs minimized and opens the full window only when something needs attention. Once checks pass, it stays minimized or returns to the taskbar if it opened automatically, then closes after 30 seconds. When missing enhancements or a completed Codex update are confirmed, a **15-second relaunch countdown** starts after all checks finish. Click to act immediately; **X / Esc cancels**. Recovery requests normal exit, never forces termination, and does not loop after failure. Cancel while you have work to preserve, then relaunch when convenient.
+The shortcut runs the startup check when Codex isn't running. If Codex is already running, even in the background, clicking the taskbar icon brings it forward without starting another check. The startup check runs minimized and opens the full window only when something needs attention. Once checks pass, it stays minimized or returns to the taskbar if it opened automatically, then closes after 30 seconds. When missing enhancements or a completed Codex update are confirmed, a **15-second relaunch countdown** starts after all checks finish. Click to act immediately; **X / Esc cancels**. Recovery requests normal exit, never forces termination, and does not loop after failure. Cancel while you have work to preserve, then relaunch when convenient.
 
 Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
 
@@ -96,7 +96,7 @@ To uninstall, disable login startup, run Stop.cmd, unpin the shortcut, and delet
 
 Speed is the **completed response average** from a known request boundary to the usage record, including waiting/reasoning and excluding known tool execution. Output usage includes reasoning and tool-call tokens. It is not a live per-token rate or a pure model decoding benchmark, and does not promise faster generation. Cloud-only chats cannot supply local statistics.
 
-Checks send no model message, do not verify model authentication, and do not control VPN software. Uncertain sandbox or proxy conditions stay unconfirmed. Clicking an already-running taskbar group may only activate the app without reopening checks.
+Checks send no model message, do not verify model authentication, and do not control VPN software. Uncertain sandbox or proxy conditions stay unconfirmed.
 
 Codex UI updates may need adaptation. All app versions, window layouts and display scales have not been fully validated. The launcher is unsigned, so Windows may show a publisher prompt.
 

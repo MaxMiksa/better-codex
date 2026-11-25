@@ -135,6 +135,8 @@ function Wait-ComposerModelGateway($Settings, [string]$SettingsPath) {
 }
 
 function Invoke-ComposerLaunch([switch]$CheckOnly) {
+    if (-not $CheckOnly -and -not $RecoveryActivation -and -not $StartupCheckStarted -and
+        -not (Test-CodexRunning)) { Start-ComposerStartupCheck }
     $workspace = $script:BetterCodexRoot
     $settingsPath = Join-Path $workspace '.runtime/token-hud/embedded/settings.json'
     $runtime = Join-Path (Split-Path -Parent $settingsPath) 'runtime'
@@ -198,8 +200,6 @@ if (-not $FunctionsOnly) {
         Invoke-ComposerRelaunch
         return
     }
-    if (-not $CheckOnly -and -not $RecoveryActivation -and
-        -not $StartupCheckStarted -and $TaskMode -eq 'Launch') { Start-ComposerStartupCheck }
     $mutex = [Threading.Mutex]::new($false, 'Local\CodexComposerHudLauncher')
     $held = $false
     try {

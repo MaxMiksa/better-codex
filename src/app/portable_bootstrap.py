@@ -106,8 +106,6 @@ def main():
         return 0
     launch = [str(POWERSHELL), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
               str(HERE / 'Start-ComposerHud.ps1')]
-    if os.environ.get('BETTER_CODEX_STARTUP_CHECK_STARTED') == '1':
-        launch.append('-StartupCheckStarted')
     result = subprocess.run(launch, check=True, capture_output=True,
                             encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
     receipt = json.loads(result.stdout.lstrip('\ufeff'))

@@ -102,6 +102,41 @@ Assert-Launch 'old-running-package-not-assumed-current' (-not $plan.attach -and 
 function Invoke-CodexActivation([string]$Arguments) { $script:activationArguments=$Arguments; return 987 }
 function Write-ComposerLaunchReceipt($Runtime,$Receipt) { }
 function Get-Content { throw 'synthetic unreadable settings' }
+$script:launchSteps = [Collections.Generic.List[string]]::new()
+& {
+    function Start-ComposerStartupCheck { $script:launchSteps.Add('diagnostics') }
+    function Get-Content { $script:launchSteps.Add('preparation'); throw 'synthetic unreadable settings' }
+    function Invoke-CodexActivation([string]$Arguments) { $script:launchSteps.Add('activation'); return 987 }
+    $script:codexRunning = $true
+    function Test-CodexRunning { $script:launchSteps.Add('verify-running'); return $script:codexRunning }
+
+    $receipt = Invoke-ComposerLaunch
+    Assert-Launch 'running-codex-is-activated-without-startup-check' ($receipt.activationSucceeded -and
+        ($script:launchSteps -join ',') -eq 'verify-running,preparation,activation')
+
+    $script:codexRunning = $false
+    $script:launchSteps.Clear()
+    $receipt = Invoke-ComposerLaunch
+    Assert-Launch 'cold-launch-starts-check-before-preparation-and-activation' ($receipt.activationSucceeded -and
+        ($script:launchSteps -join ',') -eq 'verify-running,diagnostics,preparation,activation')
+
+    $script:launchSteps.Clear()
+    $receipt = Invoke-ComposerLaunch -CheckOnly
+    Assert-Launch 'read-only-launch-does-not-run-automatic-check' (($script:launchSteps -join ',') -eq 'preparation')
+
+    $script:launchSteps.Clear()
+    $StartupCheckStarted = $true
+    $receipt = Invoke-ComposerLaunch
+    Assert-Launch 'existing-diagnostic-session-is-not-duplicated-on-cold-relaunch' (($script:launchSteps -join ',') -eq 'preparation,activation')
+
+    $script:launchSteps.Clear()
+    $StartupCheckStarted = $false
+    $RecoveryActivation = $true
+    $receipt = Invoke-ComposerLaunch
+    Assert-Launch 'recovery-activation-does-not-run-automatic-check' (($script:launchSteps -join ',') -eq 'preparation,activation')
+}
+# The remaining launch-plan tests mock their own process snapshots; never open a real check.
+function Test-CodexRunning { $true }
 $receipt = Invoke-ComposerLaunch
 Assert-Launch 'unreadable-hud-settings-still-activate-codex' ($receipt.activationSucceeded -and $receipt.hudReason -eq 'hud-preparation-failed' -and $script:activationArguments -eq '')
 $script:activationArguments = 'untouched'
