@@ -76,20 +76,43 @@
     }
   }
   const rowSelector='[data-app-action-sidebar-thread-id]';
-  const localId=/^local:([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i;
+  const uuid=/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
   const menuSelector='[role="menu"][data-state="open"]';
   const menuEntries='[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]';
   let opening=null;
   const menuEntriesFor=menu=>[...menu.querySelectorAll(menuEntries)]
     .filter(item=>item.closest('[role="menu"]')===menu&&!item.hasAttribute('data-bc-sidebar-ai-rename'));
+  function sidebarThreadId(row){
+    if(row.getAttribute('data-app-action-sidebar-thread-host-id')!=='local'||
+      row.getAttribute('data-app-action-sidebar-thread-kind')!=='local')return null;
+    const raw=row.getAttribute('data-app-action-sidebar-thread-id')||'';
+    if(!raw.startsWith('local:'))return null;
+    const local=raw.slice('local:'.length);
+    if(uuid.test(local))return local;
+    if(!local.startsWith('client-new-thread:'))return null;
+    const alias=local.slice('client-new-thread:'.length);
+    if(!uuid.test(alias))return null;
+    // Newly opened rows may retain a UI-only key after Codex has assigned a
+    // persisted ID. Accept only a local component that explicitly owns this row.
+    const fiberKey=Object.getOwnPropertyNames(row).find(key=>key.startsWith('__reactFiber$'));
+    if(!fiberKey)return null;
+    const ids=new Set();
+    for(let fiber=row[fiberKey],depth=0;fiber&&depth<12;fiber=fiber.return,depth+=1){
+      const props=fiber.memoizedProps;
+      if(props?.rowRef?.current!==row||props.hostId!=='local'||props.isCodexCloudTask||
+        typeof props.conversationId!=='string'||!uuid.test(props.conversationId))continue;
+      const id=props.conversationId.toLowerCase();
+      if(id!==alias.toLowerCase())ids.add(id);
+    }
+    return ids.size===1?ids.values().next().value:null;
+  }
   function arm(event){
     if(!(event.target instanceof Element))return;
     if(event.target.closest('[role="menu"]'))return;
     opening=null;
     const row=event.target.closest(rowSelector);
-    if(!row||row.getAttribute('data-app-action-sidebar-thread-host-id')!=='local'||
-      row.getAttribute('data-app-action-sidebar-thread-kind')!=='local')return;
-    const id=localId.exec(row.getAttribute('data-app-action-sidebar-thread-id')||'')?.[1];
+    if(!row)return;
+    const id=sidebarThreadId(row);
     if(!id)return;
     // Desktop hover buttons can open the menu without aria-haspopup. The
     // chat's primary button is not a menu trigger; still verify the opened menu.

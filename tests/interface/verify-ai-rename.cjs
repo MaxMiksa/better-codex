@@ -328,6 +328,32 @@ async function waitFor(predicate,timeout=3000){
     check('sidebar-ellipsis-adds-same-top-item',await top.textContent()==='AI 重命名');
     await top.click();
     check('sidebar-ellipsis-binds-its-own-row',await page.evaluate(()=>window.__codexAiRename.pull().threadId)===id);
+    await page.evaluate(({id,otherId})=>{
+      const bridge=window.__codexAiRename,requestId=window.fastRequests.pop();
+      bridge.state({requestId,phase:'success',title:'feat：AI 重命名'});
+      const row=document.querySelector('[data-app-action-sidebar-thread-id="local:'+otherId+'"]');
+      const wrongRow=document.querySelector('[data-app-action-sidebar-thread-id="local:'+id+'"]');
+      row.dataset.appActionSidebarThreadId='local:client-new-thread:'+id;
+      const owner=conversationId=>({memoizedProps:{hostId:'local',rowRef:{current:row},conversationId}});
+      row.__reactFiber$fixture={memoizedProps:{hostId:'local',rowRef:{current:wrongRow},
+        conversationId:'00000000-0000-4000-8000-000000000004'},
+        return:{...owner(otherId),return:owner(otherId)}};
+    },{id,otherId});
+    const aliasedRow=page.locator('[data-app-action-sidebar-thread-id^="local:client-new-thread:"]');
+    await aliasedRow.locator('span').click({button:'right'});
+    check('temporary-sidebar-key-still-displays-the-action-first',await top.textContent()==='AI 重命名');
+    await top.click();
+    const aliasedRequest=await page.evaluate(()=>{
+      const bridge=window.__codexAiRename,request=bridge.pull();
+      bridge.state({requestId:request.requestId,phase:'success',title:'feat：AI 重命名'});
+      return request;
+    });
+    check('temporary-sidebar-key-binds-only-the-owning-component-session',aliasedRequest.threadId===otherId);
+    await aliasedRow.evaluate(row=>{
+      row.__reactFiber$fixture.return.return.memoizedProps.conversationId='00000000-0000-4000-8000-000000000003';
+    });
+    await aliasedRow.locator('button').click();
+    check('ambiguous-sidebar-alias-keeps-the-native-menu-unchanged',await top.textContent()==='重命名');
     await page.evaluate(()=>window.__codexAiRename.remove());
     check('page-module-cleans-up',await page.locator('[data-bc-ai-rename-root],[id="better-codex-ai-rename-style"],[data-bc-sidebar-ai-rename]').count()===0);
   }finally{
