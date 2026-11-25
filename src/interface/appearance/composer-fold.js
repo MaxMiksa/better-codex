@@ -28,7 +28,7 @@
   `;
   const pill=document.createElement('button');
   pill.type='button';pill.id='codex-hud-expand-composer';pill.hidden=true;
-  pill.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg><span></span>';
+  pill.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 22V4a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H8zM8 7h8m-8 3.5h8M8 14h5"/></svg><span></span>';
   const pillLabel=pill.lastElementChild;
   let mode='off',binding=null,threadId=null,folded='open',animation=[],listeners=null,frame=0;
   let foldAfterSend=false,sendAttempt=null,sidebarClick=null;
