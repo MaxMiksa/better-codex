@@ -28,7 +28,7 @@
   pill.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg><span></span>';
   const pillLabel=pill.lastElementChild;
   let mode='off',binding=null,threadId=null,folded='open',animation=[],listeners=null,frame=0,timer=0;
-  let foldAfterSend=false,sendAttempt=null,sentId=null;
+  let foldAfterSend=false,sendAttempt=null;
   let enterAt=-Infinity,pressed=false,swallow=false,composing=false;
   const visible=e=>Boolean(e?.getClientRects().length&&e.getBoundingClientRect().height>0&&getComputedStyle(e).visibility==='visible'&&!e.closest(inactive));
   const clearTimer=()=>{clearTimeout(timer);timer=0;};
@@ -85,13 +85,13 @@
   const actionLabel=node=>node.getAttribute('aria-label')||node.getAttribute('title')||'';
   const sendAction=node=>/^(?:send(?:\s+(?:message|prompt|now))?|发送(?:消息|提示词|提示)?)(?:\s*[(（].*)?$/i.test(actionLabel(node));
   const stopAction=node=>/^(stop|interrupt|停止|中断)/i.test(actionLabel(node));
-  function safe(fields,allowStop=false){
+  function safe(fields){
     const {root,body}=fields;
     if(!emptyDraft(fields)||root.querySelector('[data-codex-composer-request-navigation],[data-composer-expanded],[data-codex-composer-queue],button[data-dictation-button][data-state="on"]'))return false;
     const controls=[...body.querySelectorAll('button')].filter(node=>!node.closest('[hidden],[aria-hidden="true"],[inert]'));
-    const busy=controls.some(stopAction);
-    return (allowStop||!busy)&&!controls.some(node=>/^(cancel|取消)/i.test(actionLabel(node)))
-      &&(busy||controls.some(node=>node.matches('[data-dictation-button]')||sendAction(node)));
+    // Stop is a normal composer action during a run, not a pending decision.
+    return !controls.some(node=>/^(cancel|取消)/i.test(actionLabel(node)))
+      &&controls.some(node=>node.matches('[data-dictation-button]')||sendAction(node)||stopAction(node));
   }
   function latestUserTurn({scroll,root}){
     const bubbles=scroll.querySelectorAll('[data-turn-key] [data-user-message-bubble]:not(:is([data-conversation-print] *,[data-codex-composer-root] *,[data-app-shell-active-page="false"] *))');
@@ -164,7 +164,6 @@
     const next=find();
     if(!next||!ready(next)){
       if(next?.id!==threadId)threadId=null;
-      if(next?.id!==sentId)sentId=null;
       detach();return;
     }
     const entering=next.id!==threadId;
@@ -172,7 +171,6 @@
     if(entering&&next.scroll.querySelector('[data-turn-key] [data-response-update-thread]')
       &&!next.scroll.querySelector('[data-turn-key] [data-response-update-thread="'+next.id+'"]')){detach();return;}
     threadId=next.id;
-    if(sentId!==next.id)sentId=null;
     if(next.root!==binding?.root||next.id!==binding?.id||next.track!==binding?.track){
       detach();binding=next;pill.hidden=true;binding.shell.append(pill);
     }else binding=next;
@@ -180,13 +178,13 @@
     const label=window.__codexHudI18n.t('expandComposer');
     if(pillLabel.textContent!==label){pillLabel.textContent=label;pill.title=window.__codexHudI18n.t('composerFoldShortcut');}
     const sent=confirmSend(next);
-    if(sent&&safe(binding,true)&&canFold(sent)){
-      clearTimer();sentId=next.id;
+    if(sent&&safe(binding)&&canFold(sent)){
+      clearTimer();
       const active=document.activeElement;
       if(active===binding.editor||active===sent.button)active.blur();
       transition(mode);return;
     }
-    if(!safe(binding,sentId===next.id||folded==='opening')){sentId=null;clearTimer();commit('open');resetKeys();return;}
+    if(!safe(binding)){clearTimer();commit('open');resetKeys();return;}
     if(entering&&canFold()){
       if(mode==='minimize')updatePillSurface();
       commit(mode);return;
@@ -205,7 +203,7 @@
   function wake(){
     const latest=find();
     if(!binding||latest?.root!==binding.root||latest?.id!==binding.id||!ready(latest)){detach();return false;}
-    sentId=null;sendAttempt=null;binding=latest;transition('open');binding.editor.focus({preventScroll:true});return true;
+    sendAttempt=null;binding=latest;transition('open');binding.editor.focus({preventScroll:true});return true;
   }
   const consume=event=>{event.preventDefault();event.stopImmediatePropagation();};
   function keydown(event){
@@ -261,7 +259,7 @@
   }
   function stop(){
     listeners?.abort();listeners=null;observer.disconnect();cancelAnimationFrame(frame);frame=0;
-    composing=false;threadId=null;sendAttempt=null;sentId=null;detach();style.remove();
+    composing=false;threadId=null;sendAttempt=null;detach();style.remove();
   }
   pill.addEventListener('click',wake);
   window.__codexComposerFold={
@@ -271,7 +269,7 @@
       if(!afterSendChanged&&mode===next)return;
       mode=next;
       foldAfterSend=afterSend===true;
-      if(!foldAfterSend){sendAttempt=null;sentId=null;}
+      if(!foldAfterSend)sendAttempt=null;
       if(next==='off')stop();else if(!listeners)start();else schedule();
     },
     hides(root){return binding?.root===root&&folded!=='open';},

@@ -90,11 +90,22 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await twice();check('visible-dialog-prevents-global-wakeup',await state()==='hide');
     await page.locator('#transcript [role="dialog"]').evaluate(e=>e.remove());
     await page.locator('#model').evaluate(e=>e.setAttribute('aria-label','停止'));
+    await page.waitForTimeout(260);
+    check('running-action-alone-does-not-reopen-a-hidden-composer-without-send-pref',await state()==='hide');
+    await twice();await settled(null);
+    check('double-enter-during-a-run-restores-the-native-stop',await focus()==='editor'&&await page.getByRole('button',{name:'停止'}).isVisible());
+    await blur();await settled('hide');
+    check('blur-after-manual-wake-refolds-during-a-run-without-send-pref',await shape()===0);
+    await page.locator('#composer').evaluate(e=>{
+      const approval=document.createElement('div');approval.id='approval';
+      approval.setAttribute('data-codex-composer-request-navigation','');e.append(approval);
+    });
     await settled(null);await page.waitForTimeout(260);
-    check('new-stop-action-restores-and-keeps-native-controls-visible',await page.getByRole('button',{name:'停止'}).isVisible());
-    await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
+    check('native-approval-restores-and-keeps-composer-visible-during-a-run',await state()===null&&await editor.isVisible());
+    await page.locator('#approval').evaluate(e=>e.remove());
     await settled('moving');await twice();await settled(null);
     check('double-enter-can-reverse-an-in-progress-collapse',await focus()==='editor'&&await shape()===openHeight);
+    await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
     await blur();await page.emulateMedia({reducedMotion:'reduce'});await settled('hide');await twice();await settled(null);
     check('reduced-motion-opens-without-layout-animation',await focus()==='editor'&&await page.locator('[data-thread-find-composer]').evaluate(e=>e.getAnimations().length===0));
     await blur();await settled('hide');await page.locator('[data-turn-key]').evaluate(e=>e.remove());await settled(null);
@@ -106,10 +117,12 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     const nextId='00000000-0000-4000-8000-000000000002';
     const firstFrame=await page.evaluate(nextId=>new Promise(resolve=>requestAnimationFrame(()=>{
       const shell=document.querySelector('[data-thread-find-composer]');
+      document.querySelector('#model').setAttribute('aria-label','停止');
       document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',nextId);
       queueMicrotask(()=>resolve({state:shell.dataset.bcComposerFold,height:shell.offsetHeight,animations:shell.getAnimations().length}));
     })),nextId);
-    check('navigating-during-a-frame-starts-hidden-without-a-collapse-animation',firstFrame.state==='hide'&&firstFrame.height===0&&firstFrame.animations===0);
+    check('navigating-to-running-thread-starts-hidden-without-a-collapse-animation',firstFrame.state==='hide'&&firstFrame.height===0&&firstFrame.animations===0);
+    await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
     await mode('minimize');await settled('minimize');await pill.click();await settled(null);await blur();
     const replaced=await page.evaluate(nextId=>new Promise(resolve=>requestAnimationFrame(()=>{
       const old=document.querySelector('[data-thread-find-composer]'),shell=old.cloneNode(true);
@@ -153,7 +166,10 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     },{button,home,empty});
     const sendPref=value=>page.evaluate(value=>window.__codexComposerHud.settingsState({composerHideAfterSend:value}),value);
     await simulate();await page.keyboard.press('Enter');await page.waitForTimeout(260);
-    check('sending-does-not-close-when-the-new-option-is-off',await state()===null&&await page.getByRole('button',{name:'停止'}).isVisible());
+    check('sending-with-focus-does-not-close-when-the-send-option-is-off',await focus()==='editor'&&await state()===null&&await page.getByRole('button',{name:'停止'}).isVisible());
+    await blur();await settled('minimize');
+    check('ordinary-blur-still-minimizes-after-sending-with-the-send-option-off',await pill.isVisible()&&!(await editor.isVisible()));
+    await pill.click();await settled(null);
     await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
     await sendPref(true);await simulate();await page.keyboard.press('Enter');
     await settled('moving');await settled('minimize');
