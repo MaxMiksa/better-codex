@@ -10,7 +10,7 @@
   const uuid=/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
   const entryAttributes=['data-above-composer-conversation-id','data-composer-placement','data-app-shell-active-page','data-app-shell-focus-area','data-right-panel-composer-overlay-content'];
   const stateAttr='data-bc-composer-fold',trackAttr='data-bc-composer-fold-track';
-  const foldDelay=180,doubleEnter=350,sendTimeout=3500,sidebarTimeout=3000;
+  const doubleEnter=350,sendTimeout=3500,sidebarTimeout=3000;
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
   const style=document.createElement('style');
   style.id='codex-hud-composer-fold';
@@ -30,11 +30,10 @@
   pill.type='button';pill.id='codex-hud-expand-composer';pill.hidden=true;
   pill.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg><span></span>';
   const pillLabel=pill.lastElementChild;
-  let mode='off',binding=null,threadId=null,folded='open',animation=[],listeners=null,frame=0,timer=0;
+  let mode='off',binding=null,threadId=null,folded='open',animation=[],listeners=null,frame=0;
   let foldAfterSend=false,sendAttempt=null,sidebarClick=null;
-  let enterAt=-Infinity,pressed=false,swallow=false,composing=false;
+  let enterAt=-Infinity,pressed=false,swallow=false,composing=false,escapeHeld=false;
   const visible=e=>Boolean(e?.getClientRects().length&&e.getBoundingClientRect().height>0&&getComputedStyle(e).visibility==='visible'&&!e.closest(inactive));
-  const clearTimer=()=>{clearTimeout(timer);timer=0;};
   const resetKeys=()=>{enterAt=-Infinity;pressed=false;swallow=false;};
   function stopAnimation(){const previous=animation;animation=[];for(const motion of previous)motion.cancel();}
   function commit(next){
@@ -48,7 +47,7 @@
     folded=next;
   }
   function detach(){
-    clearTimer();resetKeys();
+    resetKeys();
     if(binding){commit('open');pill.remove();binding=null;}
   }
   function main(root){
@@ -192,7 +191,7 @@
     const scale=mini?Math.min(1,pill.getBoundingClientRect().width/Math.max(1,shell.getBoundingClientRect().width)):.96;
     shell.setAttribute(stateAttr,'moving');track.setAttribute(trackAttr,'');
     shell.toggleAttribute('data-bc-fold-closing',next!=='open');
-    const options={duration:220,easing:'cubic-bezier(.22,.75,.25,1)',fill:'both'};
+    const options={duration:next==='open'?220:150,easing:'cubic-bezier(.22,.75,.25,1)',fill:'both'};
     const startingVisible=previous==='open'||previous==='opening'||previous==='closing';
     const motion=shell.animate([{height:start+'px'},{height:end+'px'}],options);
     animation=[motion,track.animate([
@@ -224,11 +223,10 @@
     const sent=confirmSend(next);
     const active=document.activeElement;
     if(sent&&safe(binding)&&canFold(active===sent.button?sent.button:binding.editor)){
-      clearTimer();
       if(active===binding.editor||active===sent.button)active.blur();
       transition(mode);return;
     }
-    if(!safe(binding)){clearTimer();commit('open');resetKeys();return;}
+    if(!safe(binding)){commit('open');resetKeys();return;}
     // Native navigation may preserve or restore the caret before the destination is ready.
     // Only override that focus for a matching mouse switch, never after user input.
     const click=active===next.editor?matchingSidebarClick():null;
@@ -243,16 +241,8 @@
       commit(mode);handoffSidebarFocus();return;
     }
     if(folded==='closing'){if(!canFold())transition('open');else handoffSidebarFocus();return;}
-    if(folded==='opening')return;
-    if(folded!=='open'){if(folded!==mode)transition(mode);handoffSidebarFocus();return;}
-    if(!canFold()){clearTimer();return;}
-    if(!timer)timer=setTimeout(()=>{
-      timer=0;
-      const latest=find();
-      if(latest&&binding&&latest.root===binding.root&&latest.id===binding.id&&ready(latest)&&safe(latest)&&canFold()){
-        transition(mode);handoffSidebarFocus();
-      }
-    },foldDelay);
+    if(folded==='minimize'||folded==='hide'){if(folded!==mode)transition(mode);handoffSidebarFocus();return;}
+    if(canFold()){transition(mode);handoffSidebarFocus();}
   }
   function schedule(){if(!frame)frame=requestAnimationFrame(check);}
   function wake(){
@@ -261,13 +251,28 @@
     sendAttempt=null;binding=latest;transition('open');binding.editor.focus({preventScroll:true});return true;
   }
   const consume=event=>{event.preventDefault();event.stopImmediatePropagation();};
+  const plainKey=event=>!event.defaultPrevented&&!event.isComposing&&event.keyCode!==229&&!composing
+    &&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey;
+  function foldOnEscape(event){
+    if(escapeHeld){consume(event);return;}
+    const active=document.activeElement;
+    if(!event.isTrusted||!plainKey(event)||event.repeat||!binding||active!==binding.editor||!['open','opening'].includes(folded))return;
+    const next=find();
+    if(!next||next.root!==binding.root||next.id!==binding.id||next.track!==binding.track
+      ||next.editor!==active||!ready(next)||!safe(next)||!canFold(active))return;
+    binding=next;
+    escapeHeld=true;consume(event);
+    active.blur();
+    transition(mode);
+  }
   function keydown(event){
     sidebarClick=null;
+    if(event.key==='Escape'){enterAt=-Infinity;foldOnEscape(event);return;}
     if(swallow&&event.key==='Enter'&&event.repeat){consume(event);return;}
     if(event.key==='Enter')armSend(event);
     const target=event.composedPath()[0],inside=target===document.body||target===document.documentElement
       ||(target instanceof Element&&binding?.scroll.contains(target)&&(!target.closest(interactive)||target===binding.scroll));
-    if(event.defaultPrevented||event.key!=='Enter'||event.isComposing||event.keyCode===229||composing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey
+    if(event.key!=='Enter'||!plainKey(event)
       ||!inside||!binding||!['minimize','hide','closing'].includes(folded)||overlayOpen()){
       enterAt=-Infinity;return;
     }
@@ -279,7 +284,10 @@
       if(wake()){swallow=true;consume(event);}
     }else enterAt=now;
   }
-  function keyup(event){if(event.key==='Enter'){pressed=false;if(swallow){swallow=false;consume(event);}}}
+  function keyup(event){
+    if(event.key==='Escape'&&escapeHeld){escapeHeld=false;consume(event);}
+    if(event.key==='Enter'){pressed=false;if(swallow){swallow=false;consume(event);}}
+  }
   const observer=new MutationObserver(records=>{
     const native=records.filter(record=>record.target!==pill&&!pill.contains(record.target));
     if(!native.length)return;
@@ -314,7 +322,7 @@
       schedule();
     });on(document,'pointerup',schedule);
     on(document,'compositionstart',()=>{composing=true;sidebarClick=null;resetKeys();schedule();});on(document,'compositionend',()=>{composing=false;schedule();});
-    on(window,'blur',event=>{composing=false;if(event.target===window)sidebarClick=null;resetKeys();});on(window,'resize',schedule);on(window,'languagechange',schedule);
+    on(window,'blur',event=>{composing=false;if(event.target===window){sidebarClick=null;escapeHeld=false;}resetKeys();});on(window,'resize',schedule);on(window,'languagechange',schedule);
     on(reduced,'change',()=>{if(binding&&animation.length)commit(folded==='opening'?'open':mode);});
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:[
       ...entryAttributes,rowActive,rowId,'data-response-update-thread',
@@ -325,7 +333,7 @@
   }
   function stop(){
     listeners?.abort();listeners=null;observer.disconnect();cancelAnimationFrame(frame);frame=0;
-    composing=false;threadId=null;sendAttempt=null;sidebarClick=null;detach();style.remove();
+    composing=false;threadId=null;sendAttempt=null;sidebarClick=null;escapeHeld=false;detach();style.remove();
   }
   pill.addEventListener('click',wake);
   window.__codexComposerFold={

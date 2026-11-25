@@ -51,26 +51,48 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('id-alone-does-not-hide-an-empty-new-chat',await editor.isVisible()&&await state()===null);
     await editor.focus();await insertMessage();await page.waitForTimeout(260);
     check('first-message-does-not-hide-a-focused-composer',await editor.isVisible()&&await state()===null);
-    await blur();await settled('moving');
-    check('collapse-animates-the-native-layout',await page.locator('[data-thread-find-composer]').evaluate(e=>e.getAnimations().length===1));
+    await page.evaluate(()=>{
+      window.clickCollapse=new Promise(resolve=>document.querySelector('#editor').addEventListener('focusout',()=>requestAnimationFrame(()=>{
+        const shell=document.querySelector('[data-thread-find-composer]');
+        resolve({closing:shell.hasAttribute('data-bc-fold-closing'),duration:shell.getAnimations()[0]?.effect.getTiming().duration});
+      }),{once:true}));
+    });
+    await page.locator('#message-action').click();
+    const clickCollapse=await page.evaluate(()=>window.clickCollapse);
+    check('outside-click-starts-collapse-on-the-next-frame-with-a-shorter-animation',clickCollapse.closing&&clickCollapse.duration<200);
     await settled('minimize');
     check('minimize-leaves-real-keyboard-accessible-pill-and-less-height',await pill.isVisible()&&await pill.innerText()==='展开输入框'&&(await shape())<openHeight&&!(await editor.isVisible()));
     check('HUD-keeps-chat-binding-while-folded',await page.evaluate(()=>{const s=window.__codexComposerHud.snapshot();return Boolean(s.id)&&!s.visible&&s.compatibility.reason==='composer-folded';}));
-    await page.keyboard.press('Enter');
+    await blur();await page.keyboard.press('Enter');
     check('one-enter-does-not-open',await state()==='minimize');
     await page.keyboard.press('ArrowLeft');await page.keyboard.press('Enter');
     check('another-key-resets-the-pair',await state()==='minimize');
     await page.keyboard.press('Enter');await settled('moving');await settled(null);
     check('second-enter-opens-and-focuses-without-sending-or-replacing-editor',await focus()==='editor'&&await page.evaluate(()=>window.nativeEnter===0&&window.editorIdentity===document.activeElement)&&await shape()===openHeight);
-    await edit('<p>Unsent draft</p>');await blur();await page.waitForTimeout(260);
+    await page.evaluate(()=>{
+      window.nativeEsc=[];
+      for(const type of ['keydown','keyup'])document.addEventListener(type,e=>{if(e.key==='Escape')window.nativeEsc.push(type);});
+    });
+    await page.keyboard.down('Escape');await settled('minimize');
+    check('escape-folds-before-key-repeat-or-release',await focus()!=='editor'&&!await editor.isVisible());
+    await page.keyboard.down('Escape');await page.keyboard.up('Escape');
+    check('holding-escape-does-not-forward-repeats-to-native-actions',await page.evaluate(()=>window.nativeEsc.length===0));
+    await pill.click();await settled(null);
+    await edit('<p>Unsent draft</p>');await page.keyboard.press('Escape');
+    check('escape-leaves-a-draft-and-its-native-key-handling-intact',await focus()==='editor'&&await state()===null&&await page.evaluate(()=>window.nativeEsc.join(',')==='keydown,keyup'));
+    await blur();await page.waitForTimeout(260);
     check('unsent-draft-stays-visible',await state()===null&&await editor.innerText()==='Unsent draft');
     await edit(empty);
     await page.locator('[data-composer-attachments]').evaluate(e=>e.append(document.createElement('span')));
     await page.waitForTimeout(260);
     check('attachment-only-draft-stays-visible',await state()===null);
-    await page.locator('[data-composer-attachments]').evaluate(e=>e.replaceChildren());
-    await page.locator('#model').evaluate(e=>e.setAttribute('aria-expanded','true'));await page.waitForTimeout(260);
-    check('native-menu-protects-composer',await state()===null);
+    await page.evaluate(()=>{
+      document.querySelector('[data-composer-attachments]').replaceChildren();
+      document.querySelector('#model').setAttribute('aria-expanded','true');
+      document.querySelector('#editor').focus();
+    });
+    await page.keyboard.press('Escape');await blur();await page.waitForTimeout(260);
+    check('native-menu-keeps-the-composer-open-and-receives-escape',await state()===null&&await page.evaluate(()=>window.nativeEsc.length===4));
     await page.locator('#model').evaluate(e=>e.setAttribute('aria-expanded','false'));
     await settled('minimize');await pill.click();await settled(null);
     check('minimized-pill-click-focuses-native-editor',await focus()==='editor');
