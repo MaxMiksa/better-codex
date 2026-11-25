@@ -63,18 +63,19 @@
   }
   function registeredProject(root,projects){
     const path=root.toLowerCase();
-    let longest=0,ids=new Set();
+    let longest=0,matches=new Map();
     for(const project of projects){
       if(!idPattern.test(project?.id??'')||!Array.isArray(project.roots))continue;
       for(const item of project.roots){
         const base=allowedRoot(item?.path)?.toLowerCase();
         if(!base||base.length<longest||(path!==base&&!path.startsWith(base+'\\')))continue;
-        if(base.length>longest){longest=base.length;ids=new Set();}
-        ids.add(project.id.toLowerCase());
+        if(base.length>longest){longest=base.length;matches.clear();}
+        matches.set(project.id.toLowerCase(),project);
       }
     }
-    return ids.size===1?[...ids][0]:null;
+    return matches.size===1?matches.values().next().value:null;
   }
+  const projectName=value=>typeof value==='string'?value.trim():'';
   const storagePrefix='better-codex:workspace-tree-open:';
   const transient=new Map();
   function remembered(key){
@@ -90,9 +91,9 @@
     }catch{transient.set(key,open);}
   }
   const strings={
-    en:{title:'Workspace files',close:'Close workspace files',all:'All files',filter:'Filter files…',
+    en:{title:'Workspace files',close:'Close workspace files',filter:'Filter files…',
       loading:'Loading files…',readError:'Workspace files unavailable',empty:'No files',noMatches:'No matching files'},
-    zh:{title:'工作区文件树',close:'关闭工作区文件树',all:'所有文件',filter:'筛选文件…',
+    zh:{title:'工作区文件树',close:'关闭工作区文件树',filter:'筛选文件…',
       loading:'正在加载…',readError:'当前无法读取工作区文件',empty:'工作区为空',noMatches:'没有匹配的文件'}
   };
   const locale=()=>window.__codexHudI18n?.locale?.()??document.documentElement.lang;
@@ -104,16 +105,26 @@
 
   const triggerHost=document.createElement('span');
   triggerHost.dataset.bcWorkspaceTreeTrigger='';
-  triggerHost.style.cssText='display:inline-flex;flex:none;pointer-events:auto;-webkit-app-region:no-drag';
+  triggerHost.style.cssText='display:inline-flex;align-items:center;gap:8px;flex:0 1 auto;min-width:28px;max-width:32%;pointer-events:auto;-webkit-app-region:no-drag';
   const triggerShadow=triggerHost.attachShadow({mode:'open'});
   triggerShadow.innerHTML='<style>button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:7px;background:none;color:inherit;cursor:pointer;padding:0}button:where(:hover,[aria-expanded=true]){background:color-mix(in srgb,currentColor 9%,transparent)}button:focus-visible{outline:1px solid var(--codex-base-accent,currentColor);outline-offset:-2px}</style><button type="button" aria-expanded="false" aria-controls="bc-workspace-files"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h5l2 2h4v5H5a2 2 0 0 1-2-2Zm3 7v7h5m0-2h7l2 2v3h-9z"/></svg></button>';
   const trigger=triggerShadow.querySelector('button');
+  trigger.style.flex='none';
+  const projectLabel=document.createElement('span');
+  projectLabel.dataset.bcWorkspaceProjectName='';
+  projectLabel.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-inline-size:200px;font-size:var(--text-sm,13px);font-weight:600';
+  projectLabel.hidden=true;
+  triggerShadow.append(projectLabel);
   let enabled=false,disposed=false,frame=0,binding=null,surface=null,current=null;
 
   function label(){
     trigger.title=surface?t('workspaceTree.close'):t('workspaceTree.title');
     trigger.setAttribute('aria-label',trigger.title);
     trigger.setAttribute('aria-expanded',String(Boolean(surface)));
+    const name=binding?.name??'';
+    if(projectLabel.textContent!==name){
+      projectLabel.textContent=name;projectLabel.title=name;projectLabel.hidden=!name;
+    }
   }
   function disposeView(){
     if(!current)return;
@@ -164,8 +175,7 @@
     const {scope,root}=context;
     const {pane,input,status,wrap}=present(scope,root?'workspaceTree.loading':'workspaceTree.readError');
     if(!root)return;
-    const all=t('workspaceTree.all');
-    const view={context,tree:null,dirs:null,unsubscribe:null,expanded:[all],pathCount:0,updating:false};
+    const view={context,tree:null,dirs:null,unsubscribe:null,expanded:[],pathCount:0,updating:false};
     current=view;
     const isCurrent=()=>current===view&&binding===context&&pane.isConnected&&same(scope,layout());
     const displayStatus=()=>{
@@ -176,10 +186,9 @@
     };
     function onUpdate(paths){
       if(!isCurrent())return;
-      const prefixed=[all+'/',...paths.map(p=>all+'/'+p)];
       view.pathCount=paths.length;
       if(!view.tree){
-        view.tree=new bcTreeRenderer.FileTree({paths:prefixed,initialExpansion:'closed',initialExpandedPaths:view.expanded,
+        view.tree=new bcTreeRenderer.FileTree({paths,initialExpansion:'closed',
           flattenEmptyDirectories:false,icons:{set:'complete',colored:true},itemHeight:26,fileTreeSearchMode:'hide-non-matches'});
         view.tree.render({containerWrapper:wrap});
         view.unsubscribe=view.tree.subscribe(()=>{
@@ -190,11 +199,11 @@
             .map(row=>row.path.replace(/\/$/,''));
           if(expanded.length===view.expanded.length&&expanded.every((path,i)=>path===view.expanded[i]))return;
           view.expanded=expanded;
-          view.dirs.expand(expanded.filter(path=>path.startsWith(all+'/')).map(path=>path.slice(all.length+1)));
+          view.dirs.expand(expanded);
         });
       }else{
         view.updating=true;
-        try{view.tree.resetPaths(prefixed,{initialExpandedPaths:view.expanded});}
+        try{view.tree.resetPaths(paths,{initialExpandedPaths:view.expanded});}
         finally{view.updating=false;}
       }
       input.disabled=false;displayStatus();
@@ -226,16 +235,28 @@
     if(context.key&&remembered(context.key))open(context);
     else hide();
   }
+  async function loadProjectName(context,projectId){
+    const transport=bcWorkspaceTransport();
+    try{
+      const {project}=await transport.send('project/read',{projectId},1400);
+      if(binding!==context||!same(context.scope,layout())||project?.id?.toLowerCase()!==projectId)return;
+      const name=projectName(project.name);
+      if(name){context.name=name;label();}
+    }catch{/* The workspace folder name remains visible. */}
+    finally{transport.close();}
+  }
   async function resolve(context){
     const {scope}=context,transport=bcWorkspaceTransport();
     const valid=()=>binding===context&&same(scope,layout());
+    let explicitId=null;
     try{
       const result=await transport.send('thread/read',{threadId:scope.id,includeTurns:false},2400);
       if(!valid())return;
       const thread=result?.thread,root=thread?.id===scope.id&&allowedRoot(thread.cwd);
       if(root){
-        let projectId=idPattern.test(thread.projectId??'')?thread.projectId.toLowerCase():null;
-        if(!projectId){
+        explicitId=idPattern.test(thread.projectId??'')?thread.projectId.toLowerCase():null;
+        let registered=null;
+        if(!explicitId){
           // Chats without an explicit project ID still belong to a registered root.
           const projects=[];
           try{
@@ -249,10 +270,12 @@
               if(typeof cursor!=='string'||!cursor)break;
             }
           }catch{/* Older App Servers can still use the workspace path. */}
-          projectId=registeredProject(root,projects);
+          registered=registeredProject(root,projects);
         }
+        const projectId=explicitId??registered?.id.toLowerCase();
         context.root=root;
         context.key=projectId?'project:'+projectId:'root:'+root.toLowerCase();
+        context.name=projectName(registered?.name)||root.split('\\').at(-1);
       }
     }catch{/* A failed lookup never reuses another chat's files or project. */}
     finally{transport.close();}
@@ -260,6 +283,7 @@
     context.pending=false;
     if(context.intent!==null)setOpen(context,context.intent);
     else applyRemembered(context);
+    if(explicitId)void loadProjectName(context,explicitId);
   }
   function reconcile(){
     if(disposed)return null;

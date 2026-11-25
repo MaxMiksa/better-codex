@@ -24,7 +24,10 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await page.goto(url);
     await page.evaluate(({a,b,c,d,e,f,p,q})=>{
       const app=window.fixture={requests:[],nativeCalls:0,delay:0,watches:new Map(),
-        projectIds:{[c]:p,[b]:q},projects:[{id:p,roots:[{path:'d:/WORK/app/'}]},{id:q,roots:[{path:'D:\\work\\other'}]}],
+        projectIds:{[c]:p,[b]:q},projects:[
+          {id:p,name:'Registered project',roots:[{path:'d:/WORK/app/'}]},
+          {id:q,name:'Other project',roots:[{path:'D:\\work\\other'}]}
+        ],
         roots:{
           [a]:'D:\\work\\app',[b]:'D:\\work\\other',[c]:'C:\\Users\\Max\\.codex\\worktrees\\one\\app',
           [d]:'d:\\WORK\\app\\sub',[e]:'D:/work/unregistered/',[f]:'d:\\WORK\\unregistered'
@@ -60,6 +63,7 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
           let result,error;
           if(method==='thread/read')result={thread:{id:params.threadId,cwd:app.roots[params.threadId],projectId:app.projectIds[params.threadId]}};
           else if(method==='project/list')result={data:app.projects,nextCursor:null};
+          else if(method==='project/read')result={project:app.projects.find(p=>p.id===params.projectId)};
           else if(method==='fs/getMetadata')result={isDirectory:!!app.files[path],isFile:false,isSymlink:path===app.link};
           else if(method==='fs/watch'){app.watches.set(params.watchId,path);result={};}
           else if(method==='fs/unwatch'){app.watches.delete(params.watchId);result={};}
@@ -74,6 +78,7 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await page.addScriptTag({content:pageSource('zh-CN')});
     await page.addScriptTag({content:workspaceTreeSource({home:'C:\\Users\\Max',codexHome:'C:\\Users\\Max\\.codex'})});
     const pane=page.locator('[data-bc-workspace-files]'),trigger=page.locator('[data-bc-workspace-tree-trigger] button');
+    const projectName=page.locator('[data-bc-workspace-project-name]');
     const row=name=>pane.getByRole('treeitem',{name,exact:true});
     const ready=()=>pane.getByRole('searchbox').isEnabled();
     async function waitRow(name){await row(name).waitFor();}
@@ -88,6 +93,10 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await trigger.waitFor();
     check('a closed tree resolves identity without any filesystem access',await pane.count()===0&&
       await evalPage(()=>fixture.requests.every(r=>!r.method.startsWith('fs/'))));
+    await projectName.getByText('Registered project',{exact:true}).waitFor();
+    check('the registered project name appears beside the button even when closed',await pane.count()===0&&
+      await evalPage(()=>document.querySelector('[data-bc-workspace-tree-trigger]').shadowRoot
+        .querySelector('button').nextElementSibling.hasAttribute('data-bc-workspace-project-name')));
     await click();await waitRow('package.json');
     check('button and dock sit to the left without moving native controls',await ready()&&await evalPage(()=>{
       const own=document.querySelector('[data-bc-workspace-files]');
@@ -102,8 +111,9 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
       !document.querySelector('[data-tab-id],file-tree-container')&&customElements.get('file-tree-container')===fixture.nativeTag));
     check('only current thread and root are fetched',JSON.stringify(await roots())===JSON.stringify(['D:\\work\\app'])&&
       await evalPage(()=>fixture.requests[0].method==='thread/read'&&fixture.requests[0].params.includeTurns===false));
-    check('starts at expanded All files with named, collapsed directories',(await row('所有文件').getAttribute('aria-expanded'))==='true'&&
-      (await row('src').getAttribute('aria-expanded'))==='false'&&await row('empty').count()===1);
+    check('workspace folders and files are first-level rows without a synthetic root',
+      await row('所有文件').count()===0&&await row('src').getAttribute('aria-level')==='1'&&
+      await row('package.json').getAttribute('aria-level')==='1'&&await row('src').getAttribute('aria-expanded')==='false');
     check('does not turn malformed path components into rows',await row('name..').count()===0&&await row('..\\unsafe').count()===0);
     check('uses Pierre colored file type icons',await evalPage(()=>{
       const shadow=document.querySelector('[data-bc-workspace-files]').shadowRoot.querySelector('bc-workspace-file-tree').shadowRoot;
@@ -112,7 +122,9 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     }));
     await row('src').locator('[data-item-section="icon"]').click();
     await waitRow('index.ts');
-    check('expanding reads only the chosen directory',JSON.stringify(await roots())===JSON.stringify(['D:\\work\\app','D:\\work\\app\\src']));
+    check('expanding reads only the chosen directory and shows its children on level two',
+      JSON.stringify(await roots())===JSON.stringify(['D:\\work\\app','D:\\work\\app\\src'])&&
+      await row('index.ts').getAttribute('aria-level')==='2');
     await row('index.ts').click();
     check('selecting a file does not open a page',await page.locator('[role="tabpanel"]').count()===0&&
       await row('index.ts').getAttribute('aria-selected')==='true');
@@ -158,6 +170,8 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await change(c);await pane.getByText('正在加载…').waitFor();await waitRow('worktree.md');
     check('same registered project retains the open dock across sessions and switches to the current worktree',await evalPage(()=>
       fixture.pane===document.querySelector('[data-bc-workspace-files]'))&&await row('package.json').count()===0);
+    await projectName.getByText('Registered project',{exact:true}).waitFor();
+    check('a worktree uses its registered project name rather than its folder name');
     await change(d);await waitRow('child-root.md');
     check('an unassigned session below the registered root shares the same open state',await row('worktree.md').count()===0);
     await change(b);await noPane();
@@ -210,6 +224,8 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     }
     check('unsafe roots are rejected before filesystem RPC',await evalPage(()=>fixture.requests.filter(r=>r.method==='fs/getMetadata').length)===metadata);
     await change(e);await click();await waitRow('fallback.md');
+    await projectName.getByText('unregistered',{exact:true}).waitFor();
+    check('an unregistered project uses the workspace folder name');
     await change(f);
     await page.waitForFunction(()=>[...fixture.watches.values()].includes('d:\\WORK\\unregistered'));
     await waitRow('fallback.md');
