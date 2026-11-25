@@ -79,6 +79,9 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await page.addScriptTag({content:workspaceTreeSource({home:'C:\\Users\\Max',codexHome:'C:\\Users\\Max\\.codex'})});
     const pane=page.locator('[data-bc-workspace-files]'),trigger=page.locator('[data-bc-workspace-tree-trigger] button');
     const projectName=page.locator('[data-bc-workspace-project-name]');
+    const splitter=pane.getByRole('separator',{name:'调整文件树宽度'});
+    const widthKey='better-codex:workspace-tree-width';
+    const width=async()=>Math.round((await pane.boundingBox()).width);
     const row=name=>pane.getByRole('treeitem',{name,exact:true});
     const ready=()=>pane.getByRole('searchbox').isEnabled();
     async function waitRow(name){await row(name).waitFor();}
@@ -114,6 +117,30 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     check('workspace folders and files are first-level rows without a synthetic root',
       await row('所有文件').count()===0&&await row('src').getAttribute('aria-level')==='1'&&
       await row('package.json').getAttribute('aria-level')==='1'&&await row('src').getAttribute('aria-expanded')==='false');
+    check('splitter starts at the established default width',await width()===300&&await splitter.getAttribute('aria-valuenow')==='300');
+    const edge=await splitter.boundingBox();
+    const x=edge.x+edge.width/2,y=edge.y+edge.height/2;
+    await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+116,y,{steps:4});
+    check('dragging the edge previews the width without saving or reloading files',await width()===416&&
+      await page.evaluate(key=>localStorage.getItem(key),widthKey)===null&&(await roots()).length===1);
+    await page.mouse.up();
+    check('releasing the splitter saves the whole pane width',await page.evaluate(key=>localStorage.getItem(key),widthKey)==='416');
+    await splitter.press('ArrowLeft');
+    check('the focused splitter adjusts width with the keyboard',await width()===400&&await splitter.getAttribute('aria-valuenow')==='400');
+    const cancelEdge=await splitter.boundingBox();
+    const cx=cancelEdge.x+cancelEdge.width/2;
+    await page.mouse.move(cx,y);await page.mouse.down();await page.mouse.move(cx+42,y,{steps:2});
+    await page.keyboard.press('Escape');await page.mouse.up();
+    check('Escape cancels an in-progress drag without closing the pane',await width()===400&&
+      await page.evaluate(key=>localStorage.getItem(key),widthKey)==='400');
+    await page.setViewportSize({width:460,height:640});
+    await waits(()=>document.querySelector('[data-bc-workspace-files]').getBoundingClientRect().width<180);
+    check('narrow windows retain chat space without overwriting the saved width',
+      await evalPage(()=>document.querySelector('[data-app-shell-main-content-layout]').clientWidth>=300)&&
+      await page.evaluate(key=>localStorage.getItem(key),widthKey)==='400');
+    await page.setViewportSize({width:1060,height:640});
+    await waits(()=>document.querySelector('[data-bc-workspace-files]').getBoundingClientRect().width===400);
+    check('enlarging the window restores the preferred width',await width()===400);
     check('does not turn malformed path components into rows',await row('name..').count()===0&&await row('..\\unsafe').count()===0);
     check('uses Pierre colored file type icons',await evalPage(()=>{
       const shadow=document.querySelector('[data-bc-workspace-files]').shadowRoot.querySelector('bc-workspace-file-tree').shadowRoot;
@@ -177,6 +204,7 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await change(b);await noPane();
     check('a different project starts closed and releases the old directory watch',await waits(()=>fixture.watches.size===0));
     await click();await waitRow('other.md');
+    check('different projects share the panel width',await width()===400);
     await change(a);await waitRow('package.json');
     await click();await noPane();
     await change(c);await page.waitForTimeout(240);
@@ -189,6 +217,7 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await page.addScriptTag({content:workspaceTreeSource({home:'C:\\Users\\Max',codexHome:'C:\\Users\\Max\\.codex'})});
     await setEnabled(true);await waitRow('other.md');
     check('a new tree module restores the local project state');
+    check('a new tree module restores the saved panel width',await width()===400);
     const peer=await context.newPage();
     await peer.route(url,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Peer</title>'}));
     await peer.goto(url);
@@ -196,8 +225,13 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await noPane();
     await peer.evaluate(id=>localStorage.setItem('better-codex:workspace-tree-open:project:'+id,'1'),q);
     await waitRow('other.md');
+    await peer.evaluate(key=>localStorage.setItem(key,'352'),widthKey);
+    await waits(()=>document.querySelector('[data-bc-workspace-files]').getBoundingClientRect().width===352);
     await peer.close();
-    check('project open and close synchronize between windows');
+    check('project open state and width synchronize between windows');
+    await splitter.dblclick();
+    check('double-clicking the splitter restores the default width',await width()===300&&
+      await page.evaluate(key=>localStorage.getItem(key),widthKey)==='300');
     await click();await noPane();
     await evalPage(()=>{fixture.watchDelay=0;fixture.delay=175;});
     await change(a);

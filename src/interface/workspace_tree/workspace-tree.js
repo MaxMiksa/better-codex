@@ -77,6 +77,16 @@
   }
   const projectName=value=>typeof value==='string'?value.trim():'';
   const storagePrefix='better-codex:workspace-tree-open:';
+  const widthKey='better-codex:workspace-tree-width';
+  const defaultWidth=300,minWidth=180,maxWidth=720;
+  function readPreferredWidth(){
+    try{
+      const value=Number(window.localStorage.getItem(widthKey));
+      if(Number.isInteger(value)&&value>=minWidth&&value<=maxWidth)return value;
+    }catch{/* Local storage can be disabled. */}
+    return defaultWidth;
+  }
+  let preferredWidth=readPreferredWidth();
   const transient=new Map();
   function remembered(key){
     if(transient.has(key))return transient.get(key);
@@ -92,8 +102,10 @@
   }
   const strings={
     en:{title:'Workspace files',close:'Close workspace files',filter:'Filter files…',
+      resize:'Resize workspace file tree',resizeHint:'Drag to resize; double-click to reset',
       loading:'Loading files…',readError:'Workspace files unavailable',empty:'No files',noMatches:'No matching files'},
     zh:{title:'工作区文件树',close:'关闭工作区文件树',filter:'筛选文件…',
+      resize:'调整文件树宽度',resizeHint:'拖动调整宽度，双击恢复默认',
       loading:'正在加载…',readError:'当前无法读取工作区文件',empty:'工作区为空',noMatches:'没有匹配的文件'}
   };
   const locale=()=>window.__codexHudI18n?.locale?.()??document.documentElement.lang;
@@ -125,6 +137,10 @@
     if(projectLabel.textContent!==name){
       projectLabel.textContent=name;projectLabel.title=name;projectLabel.hidden=!name;
     }
+    if(surface){
+      surface.separator.setAttribute('aria-label',t('workspaceTree.resize'));
+      surface.separator.title=t('workspaceTree.resizeHint');
+    }
   }
   function disposeView(){
     if(!current)return;
@@ -132,18 +148,91 @@
     view.dirs?.close();view.unsubscribe?.();view.tree?.cleanUp();
   }
   function hide(focus=false){
-    disposeView();surface?.pane.remove();surface=null;
+    disposeView();surface?.sizer.dispose();surface?.pane.remove();surface=null;
     label();
     if(focus&&triggerHost.isConnected)trigger.focus({preventScroll:true});
+  }
+  function makeSizer(pane,separator){
+    let dock=null,drag=null,actual=defaultWidth,low=minWidth,high=maxWidth;
+    const clamp=value=>Math.round(Math.min(high,Math.max(low,value)));
+    function draw(){
+      actual=clamp(drag?.width??preferredWidth);
+      pane.style.setProperty('--bc-workspace-width',actual+'px');
+      separator.setAttribute('aria-valuenow',String(actual));
+    }
+    function measure(){
+      if(!dock)return;
+      const available=dock.clientWidth;
+      // Keep at least half of the dock for the chat, and more where it fits.
+      high=available>0?Math.max(1,Math.min(maxWidth,Math.floor(available/2),Math.max(96,available-320))):maxWidth;
+      low=Math.min(minWidth,high);
+      separator.setAttribute('aria-valuemin',String(low));
+      separator.setAttribute('aria-valuemax',String(high));
+      separator.setAttribute('aria-disabled',String(low===high));
+      draw();
+    }
+    const resizer=new ResizeObserver(measure);
+    function commit(width){
+      preferredWidth=width;
+      try{window.localStorage.setItem(widthKey,String(width));}catch{/* Keep this window's width. */}
+      draw();
+    }
+    function end(commitChange=false){
+      if(!drag)return;
+      const last=drag;drag=null;delete separator.dataset.dragging;
+      if(separator.hasPointerCapture(last.id))separator.releasePointerCapture(last.id);
+      const finalWidth=clamp(last.width);
+      if(commitChange&&finalWidth!==clamp(last.start))commit(finalWidth);
+      else draw();
+    }
+    const direction=()=>getComputedStyle(pane).direction==='rtl'?-1:1;
+    function preview(e){
+      if(drag?.id!==e.pointerId)return;
+      const width=clamp(drag.start+(e.clientX-drag.x)*drag.direction);
+      if(width!==drag.width){drag.width=width;draw();}
+    }
+    separator.addEventListener('pointerdown',e=>{
+      if(e.button!==0||!e.isPrimary||drag)return;
+      measure();
+      if(low===high)return;
+      e.preventDefault();
+      separator.focus({preventScroll:true});
+      separator.setPointerCapture(e.pointerId);
+      drag={id:e.pointerId,x:e.clientX,start:actual,width:actual,direction:direction()};
+      separator.dataset.dragging='';
+    });
+    separator.addEventListener('pointermove',preview);
+    separator.addEventListener('pointerup',e=>{if(drag?.id===e.pointerId){preview(e);end(true);}});
+    for(const type of ['pointercancel','lostpointercapture'])separator.addEventListener(type,e=>{
+      if(drag?.id===e.pointerId)end();
+    });
+    separator.addEventListener('dblclick',()=>{end();commit(defaultWidth);});
+    separator.addEventListener('keydown',e=>{
+      if(e.key==='Escape'&&drag){e.preventDefault();e.stopPropagation();end();return;}
+      if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)||drag)return;
+      e.preventDefault();e.stopPropagation();measure();
+      const step=(e.shiftKey?48:16)*direction();
+      const target=e.key==='Home'?low:e.key==='End'?high:clamp(actual+(e.key==='ArrowRight'?step:-step));
+      if(target!==actual)commit(target);
+    });
+    return {
+      mount(next){
+        if(dock!==next){resizer.disconnect();dock=next;resizer.observe(dock);}
+        measure();
+      },
+      draw,
+      cancel:()=>end(),
+      dispose(){resizer.disconnect();dock=null;end();}
+    };
   }
   function makeSurface(){
     const pane=document.createElement('aside');
     pane.id='bc-workspace-files';pane.dataset.bcWorkspaceFiles='';
-    pane.style.cssText='display:flex;flex:0 0 min(300px,45%);width:min(300px,45%);min-width:0;min-height:0;align-self:stretch';
+    pane.style.cssText='display:flex;position:relative;flex:0 0 var(--bc-workspace-width,min(300px,45%));min-width:0;min-height:0;align-self:stretch';
     const shadow=pane.attachShadow({mode:'open'});
     shadow.innerHTML='<style>'+
       ':host{box-sizing:border-box;border-inline-end:1px solid var(--color-token-border, color-mix(in srgb,currentColor 13%,transparent));background:var(--color-token-bg-primary,light-dark(#fff,#1c1c1c));color:var(--color-token-text-primary,inherit)}'+
-      '.dock{display:flex;flex-direction:column;min-height:0;min-width:0;width:100%;padding:8px 6px 0;box-sizing:border-box}'+
+      '.dock{display:flex;flex-direction:column;min-height:0;min-width:0;width:100%;padding:8px 6px 0;padding-inline-end:9px;box-sizing:border-box}'+
       'label{display:flex;gap:7px;align-items:center;margin:0 3px 7px;padding:0 9px;height:29px;flex:none;border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:7px}'+
       'label:focus-within{border-color:var(--codex-base-accent,currentColor)}label svg{flex:none;opacity:.65}'+
       'input{box-sizing:border-box;width:100%;min-width:0;padding:0;border:0;outline:none;background:none;color:inherit;font:inherit;font-size:13px}'+
@@ -151,23 +240,29 @@
       '.tree{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;overflow:hidden;--trees-theme-sidebar-bg:transparent;--trees-theme-sidebar-fg:var(--color-token-text-primary,currentColor);--trees-theme-list-hover-bg:color-mix(in srgb,currentColor 8%,transparent);--trees-theme-list-active-selection-bg:color-mix(in srgb,currentColor 13%,transparent)}'+
       '.tree>bc-workspace-file-tree{display:block;min-height:0;min-width:0;flex:1;height:100%}'+
       '.status{margin:8px 9px;font:inherit}'+
-      '</style><div class="dock"><label><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" autocomplete="off" spellcheck="false" disabled></label><div class="status" role="status"></div><div class="tree"></div></div>';
-    const input=shadow.querySelector('input'),status=shadow.querySelector('.status'),wrap=shadow.querySelector('.tree');
+      '.splitter{position:absolute;inset-block:0;inset-inline-end:0;width:8px;z-index:1;cursor:ew-resize;touch-action:none;user-select:none}'+
+      '.splitter::after{content:"";position:absolute;inset-block:0;inset-inline-end:0;width:2px;pointer-events:none}'+
+      '.splitter:where(:hover,:focus-visible,[data-dragging])::after{background:var(--codex-base-accent,currentColor)}'+
+      '.splitter:focus-visible{outline:none}'+
+      '</style><div class="dock"><label><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" autocomplete="off" spellcheck="false" disabled></label><div class="status" role="status"></div><div class="tree"></div></div><div class="splitter" role="separator" aria-orientation="vertical" tabindex="0"></div>';
+    const input=shadow.querySelector('input'),status=shadow.querySelector('.status'),wrap=shadow.querySelector('.tree'),separator=shadow.querySelector('.splitter');
     pane.addEventListener('keydown',event=>{
       if(event.key==='Escape'&&!event.defaultPrevented){
         event.preventDefault();event.stopPropagation();setOpen(reconcile(),false,true);
       }
     });
-    return {pane,input,status,wrap};
+    return {pane,input,status,wrap,separator,sizer:makeSizer(pane,separator)};
   }
   function present(scope,message){
     disposeView();
-    const {pane,input,status,wrap}=surface??=makeSurface();
+    const {pane,input,status,wrap,sizer}=surface??=makeSurface();
+    sizer.cancel();
     wrap.replaceChildren();input.oninput=null;input.value='';input.disabled=true;
     pane.setAttribute('aria-label',t('workspaceTree.title'));
     input.placeholder=t('workspaceTree.filter');input.setAttribute('aria-label',input.placeholder);
     status.textContent=t(message);status.hidden=false;
     if(scope.content.previousElementSibling!==pane)scope.content.before(pane);
+    sizer.mount(scope.dock);
     label();return surface;
   }
   function open(context){
@@ -297,6 +392,7 @@
       void resolve(binding);
     }else if(surface&&scope.content.previousElementSibling!==surface.pane){
       scope.content.before(surface.pane);
+      surface.sizer.mount(scope.dock);
     }
     label();return binding;
   }
@@ -308,6 +404,9 @@
     setOpen(context,!surface,true);
   });
   function storageChanged(event){
+    if(event.key===null||event.key===widthKey){
+      preferredWidth=readPreferredWidth();surface?.sizer.draw();
+    }
     if(!binding?.pending&&binding?.key&&(event.key===null||event.key===storagePrefix+binding.key)){
       const context=reconcile();
       if(context&&!context.pending&&context.key&&(event.key===null||event.key===storagePrefix+context.key)){
