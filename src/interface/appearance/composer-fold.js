@@ -5,9 +5,12 @@
   const inactive='[inert],[aria-hidden="true"],[data-app-shell-active-page="false"],[data-right-panel-composer-overlay-content="true"]';
   const popups='[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[role="combobox"][aria-expanded="true"],[data-state="open"][data-side],[popover]:popover-open';
   const interactive='button,a[href],input,textarea,select,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="option"],[role="tab"],[role="treeitem"],[role="checkbox"],[role="switch"],[role="radio"],[role="combobox"],[role="textbox"],[tabindex]';
+  const sidebarRow='[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-host-id="local"][data-app-action-sidebar-thread-kind="local"]';
+  const rowActive='data-app-action-sidebar-thread-active',rowId='data-app-action-sidebar-thread-id';
+  const uuid=/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
   const entryAttributes=['data-above-composer-conversation-id','data-composer-placement','data-app-shell-active-page','data-app-shell-focus-area','data-right-panel-composer-overlay-content'];
   const stateAttr='data-bc-composer-fold',trackAttr='data-bc-composer-fold-track';
-  const foldDelay=180,doubleEnter=350,sendTimeout=3500;
+  const foldDelay=180,doubleEnter=350,sendTimeout=3500,sidebarTimeout=3000;
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
   const style=document.createElement('style');
   style.id='codex-hud-composer-fold';
@@ -28,7 +31,7 @@
   pill.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg><span></span>';
   const pillLabel=pill.lastElementChild;
   let mode='off',binding=null,threadId=null,folded='open',animation=[],listeners=null,frame=0,timer=0;
-  let foldAfterSend=false,sendAttempt=null;
+  let foldAfterSend=false,sendAttempt=null,sidebarClick=null;
   let enterAt=-Infinity,pressed=false,swallow=false,composing=false;
   const visible=e=>Boolean(e?.getClientRects().length&&e.getBoundingClientRect().height>0&&getComputedStyle(e).visibility==='visible'&&!e.closest(inactive));
   const clearTimer=()=>{clearTimeout(timer);timer=0;};
@@ -64,11 +67,12 @@
     const root=roots[0],scroll=root.closest('.thread-scroll-container');
     const shell=root.closest('[data-thread-find-composer]'),backdrop=shell?.parentElement;
     const tracks=shell&&[...shell.children].filter(node=>node!==pill);
-    const ids=[...root.querySelectorAll('[data-above-composer-conversation-id]')];
-    const id=ids[0]?.getAttribute('data-above-composer-conversation-id');
+    // Codex mirrors the same conversation ID into a second portal while a task is running.
+    const ids=new Set([...root.querySelectorAll('[data-above-composer-conversation-id]')].map(node=>node.getAttribute('data-above-composer-conversation-id')));
+    const id=ids.values().next().value;
     if(!scroll||!backdrop?.matches('[data-thread-composer-backdrop]')||!backdrop.getBoundingClientRect().width||getComputedStyle(backdrop).visibility!=='visible'
       ||tracks.length!==1||!tracks[0].contains(root)
-      ||ids.length!==1||!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id))return null;
+      ||ids.size!==1||!uuid.test(id))return null;
     const fields=composerFields(root);
     return fields?{root,scroll,shell,track:tracks[0],id,...fields}:null;
   }
@@ -125,6 +129,42 @@
     return attempt;
   }
   function overlayOpen(){return window.__codexComposerHud?.settingsOpen?.()||[...document.querySelectorAll(popups)].some(visible);}
+  function armSidebarFocus(event){
+    if(!event.isTrusted||event.defaultPrevented||event.detail===0||event.button!==0||event.pointerType&&event.pointerType!=='mouse'
+      ||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||composing)return;
+    const target=event.composedPath()[0],button=target instanceof Element?target.closest('button'):null;
+    if(!button?.hasAttribute('data-interactive-row-button')||button.matches(':disabled,[aria-disabled="true"]'))return;
+    const row=button.closest(sidebarRow);
+    if(!row||document.activeElement!==button)return;
+    sidebarClick={row,button,expires:performance.now()+sidebarTimeout};
+    schedule();
+  }
+  function sidebarMatches(row,id){
+    const raw=row.getAttribute(rowId);
+    if(raw===`local:${id}`)return true;
+    const prefix='local:client-new-thread:',alias=raw?.slice(prefix.length);
+    if(!raw?.startsWith(prefix)||!uuid.test(alias))return false;
+    // A saved chat may still have a temporary sidebar ID. Match its owning local component only.
+    const key=Object.getOwnPropertyNames(row).find(name=>name.startsWith('__reactFiber$'));
+    const owners=new Set();
+    for(let fiber=key?row[key]:null,depth=0;fiber&&depth<12;fiber=fiber.return,depth++){
+      const props=fiber.memoizedProps,actual=props?.conversationId;
+      if(props?.rowRef?.current===row&&props.hostId==='local'&&!props.isCodexCloudTask
+        &&typeof actual==='string'&&uuid.test(actual)&&actual!==alias)owners.add(actual);
+    }
+    return owners.size===1&&owners.has(id);
+  }
+  function handoffSidebarFocus(){
+    if(!sidebarClick)return;
+    const {row,button,expires}=sidebarClick,{id,scroll}=binding;
+    if(performance.now()>expires||document.activeElement!==button||!row.contains(button)){
+      sidebarClick=null;return;
+    }
+    if(row.getAttribute(rowActive)!=='true'||!visible(button)||!sidebarMatches(row,id)
+      ||!scroll.hasAttribute('tabindex')||!visible(scroll)||overlayOpen())return;
+    sidebarClick=null;
+    scroll.focus({preventScroll:true});
+  }
   function canFold(sent){
     const active=document.activeElement;
     return !composing&&(!binding.root.contains(active)||sent&&(active===binding.editor||active===sent.button))&&!active?.closest('#codex-composer-hud')
@@ -187,16 +227,18 @@
     if(!safe(binding)){clearTimer();commit('open');resetKeys();return;}
     if(entering&&canFold()){
       if(mode==='minimize')updatePillSurface();
-      commit(mode);return;
+      commit(mode);handoffSidebarFocus();return;
     }
-    if(folded==='closing'){if(!canFold())transition('open');return;}
+    if(folded==='closing'){if(!canFold())transition('open');else handoffSidebarFocus();return;}
     if(folded==='opening')return;
-    if(folded!=='open'){if(folded!==mode)transition(mode);return;}
+    if(folded!=='open'){if(folded!==mode)transition(mode);handoffSidebarFocus();return;}
     if(!canFold()){clearTimer();return;}
     if(!timer)timer=setTimeout(()=>{
       timer=0;
       const latest=find();
-      if(latest&&binding&&latest.root===binding.root&&latest.id===binding.id&&ready(latest)&&safe(latest)&&canFold())transition(mode);
+      if(latest&&binding&&latest.root===binding.root&&latest.id===binding.id&&ready(latest)&&safe(latest)&&canFold()){
+        transition(mode);handoffSidebarFocus();
+      }
     },foldDelay);
   }
   function schedule(){if(!frame)frame=requestAnimationFrame(check);}
@@ -207,6 +249,7 @@
   }
   const consume=event=>{event.preventDefault();event.stopImmediatePropagation();};
   function keydown(event){
+    sidebarClick=null;
     if(swallow&&event.key==='Enter'&&event.repeat){consume(event);return;}
     if(event.key==='Enter')armSend(event);
     const target=event.composedPath()[0],inside=target===document.body||target===document.documentElement
@@ -229,6 +272,7 @@
     if(!native.length)return;
     // Navigation can commit during an animation frame; reconcile identity changes before paint.
     if(sendAttempt||!binding?.root.isConnected||native.some(record=>entryAttributes.includes(record.attributeName)
+      ||sidebarClick&&(record.attributeName===rowActive||record.attributeName===rowId)
       ||record.type==='childList'&&(record.target===binding.root||record.target===binding.shell))){
       cancelAnimationFrame(frame);check();
     }else schedule();
@@ -237,21 +281,22 @@
     document.head.append(style);listeners=new AbortController();
     const on=(target,type,fn)=>target.addEventListener(type,fn,{capture:true,signal:listeners.signal});
     on(window,'keydown',keydown);on(window,'keyup',keyup);
-    on(document,'focusin',()=>{enterAt=-Infinity;schedule();});on(document,'focusout',schedule);
+    on(document,'focusin',event=>{if(event.target!==sidebarClick?.button)sidebarClick=null;enterAt=-Infinity;schedule();});
+    on(document,'focusout',schedule);
     on(document,'input',event=>{
       if(sendAttempt&&event.isTrusted&&event.inputType?.startsWith('insert'))sendAttempt=null;
       schedule();
-    });on(document,'click',armSend);
+    });on(document,'click',event=>{armSend(event);armSidebarFocus(event);});
     on(document,'pointerdown',event=>{
-      enterAt=-Infinity;
+      enterAt=-Infinity;sidebarClick=null;
       if(sendAttempt&&!event.composedPath().includes(sendAttempt.root))sendAttempt=null;
       schedule();
     });on(document,'pointerup',schedule);
-    on(document,'compositionstart',()=>{composing=true;resetKeys();schedule();});on(document,'compositionend',()=>{composing=false;schedule();});
-    on(window,'blur',()=>{composing=false;resetKeys();});on(window,'resize',schedule);on(window,'languagechange',schedule);
+    on(document,'compositionstart',()=>{composing=true;sidebarClick=null;resetKeys();schedule();});on(document,'compositionend',()=>{composing=false;schedule();});
+    on(window,'blur',()=>{composing=false;sidebarClick=null;resetKeys();});on(window,'resize',schedule);on(window,'languagechange',schedule);
     on(reduced,'change',()=>{if(binding&&animation.length)commit(folded==='opening'?'open':mode);});
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:[
-      ...entryAttributes,'data-response-update-thread',
+      ...entryAttributes,rowActive,rowId,'data-response-update-thread',
       'data-empty-paragraph','data-composer-expanded','data-state','aria-label','aria-expanded','aria-hidden','inert','hidden'
     ]});
     observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
@@ -259,7 +304,7 @@
   }
   function stop(){
     listeners?.abort();listeners=null;observer.disconnect();cancelAnimationFrame(frame);frame=0;
-    composing=false;threadId=null;sendAttempt=null;detach();style.remove();
+    composing=false;threadId=null;sendAttempt=null;sidebarClick=null;detach();style.remove();
   }
   pill.addEventListener('click',wake);
   window.__codexComposerFold={

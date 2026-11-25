@@ -11,9 +11,10 @@ const html=`<!doctype html><html lang="zh-CN"><style>
   [contenteditable]{height:38px;outline:none} [contenteditable] p{margin:0}
   footer{display:flex;justify-content:space-between;margin-top:10px}
   button{height:28px}
-</style><div data-app-shell-focus-area="main" class="thread-scroll-container" tabindex="0">
+  nav{position:fixed;top:35px;left:5px;z-index:1}
+</style><div id="timeline" data-app-shell-focus-area="main" class="thread-scroll-container" tabindex="0">
   <div id="transcript"><button id="message-action">Message action</button></div>
-  <div data-thread-scroll-footer><div data-thread-composer-backdrop><div data-thread-find-composer>
+  <div data-thread-scroll-footer><div data-thread-composer-backdrop><div id="file-status" hidden><button>Files changed</button></div><div data-thread-find-composer>
     <div id="track"><div style="display:contents"><div id="composer" data-codex-composer-root data-composer-placement="thread">
       <div data-above-composer-conversation-id="${id}"></div><div data-composer-body>
       <div data-composer-attachments></div><div id="editor" contenteditable="true" data-codex-composer="true" role="textbox"><p data-empty-paragraph><br class="ProseMirror-trailingBreak"></p></div>
@@ -89,9 +90,12 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await page.locator('#transcript').evaluate(e=>{const popup=document.createElement('div');popup.role='dialog';popup.textContent='Fixture dialog';e.append(popup);});
     await twice();check('visible-dialog-prevents-global-wakeup',await state()==='hide');
     await page.locator('#transcript [role="dialog"]').evaluate(e=>e.remove());
-    await page.locator('#model').evaluate(e=>e.setAttribute('aria-label','停止'));
+    await page.evaluate(()=>{
+      document.querySelector('#model').setAttribute('aria-label','停止');
+      document.querySelector('#file-status').hidden=false;
+    });
     await page.waitForTimeout(260);
-    check('running-action-alone-does-not-reopen-a-hidden-composer-without-send-pref',await state()==='hide');
+    check('running-with-file-changes-keeps-badge-visible-and-input-hidden',await state()==='hide'&&await page.locator('#file-status').isVisible());
     await twice();await settled(null);
     check('double-enter-during-a-run-restores-the-native-stop',await focus()==='editor'&&await page.getByRole('button',{name:'停止'}).isVisible());
     await blur();await settled('hide');
@@ -142,9 +146,54 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     })),nextId);
     check('loaded-current-transcript-gets-the-preferred-state-before-paint',staleReady);
 
+    await page.evaluate(({id,nextId})=>{
+      const nav=document.createElement('nav');
+      const prefix='data-app-action-sidebar-thread-';
+      window.sidebarActivations=0;window.nativeEnter=0;
+      for(const [name,key] of [['a',id],['b','client-new-thread:00000000-0000-4000-8000-000000000010']]){
+        const row=document.createElement('div');
+        row.setAttribute(prefix+'row','');row.setAttribute(prefix+'kind','local');row.setAttribute(prefix+'host-id','local');
+        row.setAttribute(prefix+'id','local:'+key);row.setAttribute(prefix+'active',String(name==='b'));
+        if(name==='b')row.__reactFiber$fixture={memoizedProps:{rowRef:{current:row},hostId:'local',conversationId:nextId}};
+        const button=document.createElement('button');button.id='chat-'+name;button.setAttribute('data-interactive-row-button','');
+        const label=document.createElement('span');label.textContent=name;button.append(label);
+        button.addEventListener('click',()=>window.sidebarActivations++);
+        const menu=document.createElement('button');menu.id='menu-'+name;menu.textContent='…';
+        row.append(button,menu);nav.append(row);
+      }
+      document.body.prepend(nav);
+      document.querySelector('#editor').addEventListener('keydown',event=>{if(event.key==='Enter')window.nativeEnter++;});
+    },{id,nextId});
+    const selected=async(name,chatId)=>page.evaluate(({name,chatId})=>{
+      for(const b of document.querySelectorAll('nav [data-interactive-row-button]'))
+        b.parentElement.setAttribute('data-app-action-sidebar-thread-active',String(b.id==='chat-'+name));
+      document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',chatId);
+    },{name,chatId});
+    const loaded=chatId=>page.locator('#transcript [data-response-update-thread]').evaluate((e,id)=>e.setAttribute('data-response-update-thread',id),chatId);
+    const activationCount=()=>page.evaluate(()=>window.sidebarActivations);
+    await page.locator('#chat-a span').click();
+    check('sidebar-click-waits-for-the-matching-chat',await focus()==='chat-a'&&await state()==='minimize');
+    await selected('a',id);
+    check('sidebar-focus-stays-put-while-the-old-transcript-is-mounted',await focus()==='chat-a'&&await state()===null);
+    await loaded(id);
+    check('mouse-selection-focuses-timeline-after-the-target-chat-is-ready',await focus()==='timeline'&&await state()==='minimize');
+    await twice();await settled(null);
+    check('sidebar-click-then-double-enter-focuses-input-without-extra-activation-or-send',await focus()==='editor'&&await activationCount()===1&&await page.evaluate(()=>window.nativeEnter===0));
+    await blur();await settled('minimize');await page.locator('#chat-a').focus();await twice();
+    check('keyboard-activation-keeps-native-sidebar-focus-and-enter',await focus()==='chat-a'&&await state()==='minimize'&&await activationCount()===3);
+    await page.locator('#menu-a').click();await twice();
+    check('sidebar-menu-button-does-not-arm-focus-handoff',await focus()==='menu-a'&&await state()==='minimize');
+    await page.locator('#chat-b').click();await page.locator('#message-action').click();
+    await selected('b',nextId);await loaded(nextId);await settled('minimize');
+    check('new-user-interaction-cancels-delayed-sidebar-focus-handoff',await focus()==='message-action');
+    await mode('hide');await settled('hide');
+    await page.locator('#chat-b').click();await page.waitForFunction(()=>document.activeElement.id==='timeline');
+    await twice();await settled(null);
+    check('temporary-sidebar-id-can-wake-a-fully-hidden-input-for-its-own-chat',await focus()==='editor'&&await activationCount()===5&&await page.evaluate(()=>window.nativeEnter===0));
+    await mode('minimize');await blur();await settled('minimize');
     await pill.click();await settled(null);
     await page.locator('#transcript [data-response-update-thread]').evaluate(e=>e.removeAttribute('data-response-update-thread'));
-    const simulate=async({button=false,home=false}={})=>page.evaluate(({button,home,empty})=>{
+    const simulate=async({button=false,home=false,mirror=false}={})=>page.evaluate(({button,home,mirror,empty})=>{
       const composer=document.querySelector('#composer'),editor=document.querySelector('#editor');
       const commit=()=>{
         editor.innerHTML=empty;
@@ -157,13 +206,18 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
           composer.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id','00000000-0000-4000-8000-000000000003');
           transcript.replaceChildren(row);
         }else transcript.append(row);
+        if(mirror){
+          const first=composer.querySelector('[data-above-composer-conversation-id]');
+          const copy=first.cloneNode(false);
+          copy.id='fixed-portal';copy.setAttribute('data-above-composer-fixed-content-portal','');composer.append(copy);
+        }
       };
       editor.innerHTML='<p>Outgoing fixture</p>';editor.focus();
       if(button){
         const send=document.createElement('button');send.setAttribute('aria-label','发送');composer.querySelector('footer').append(send);
         send.addEventListener('click',()=>{commit();send.remove();},{once:true});
       }else editor.addEventListener('keydown',e=>{e.preventDefault();commit();},{once:true});
-    },{button,home,empty});
+    },{button,home,mirror,empty});
     const sendPref=value=>page.evaluate(value=>window.__codexComposerHud.settingsState({composerHideAfterSend:value}),value);
     await simulate();await page.keyboard.press('Enter');await page.waitForTimeout(260);
     check('sending-with-focus-does-not-close-when-the-send-option-is-off',await focus()==='editor'&&await state()===null&&await page.getByRole('button',{name:'停止'}).isVisible());
@@ -171,11 +225,16 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('ordinary-blur-still-minimizes-after-sending-with-the-send-option-off',await pill.isVisible()&&!(await editor.isVisible()));
     await pill.click();await settled(null);
     await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
-    await sendPref(true);await simulate();await page.keyboard.press('Enter');
+    await sendPref(true);await simulate({mirror:true});await page.keyboard.press('Enter');
     await settled('moving');await settled('minimize');
-    check('accepted-keyboard-send-folds-while-generating-without-a-separate-stop',await pill.isVisible()&&!(await page.getByRole('button',{name:'停止'}).isVisible()));
+    check('accepted-keyboard-send-folds-with-mirrored-active-task-markers-and-no-separate-stop',await pill.isVisible()&&!(await page.getByRole('button',{name:'停止'}).isVisible()));
     await pill.click();await settled(null);
     check('reopening-while-generating-restores-the-native-stop',await focus()==='editor'&&await page.getByRole('button',{name:'停止'}).isVisible());
+    await page.locator('#fixed-portal').evaluate((e,id)=>e.setAttribute('data-above-composer-conversation-id',id),id);
+    await blur();await page.waitForTimeout(430);
+    check('different-conversation-markers-still-keep-the-composer-open',await state()===null&&await editor.isVisible());
+    await page.locator('#fixed-portal').evaluate(e=>e.remove());
+    await settled('minimize');await pill.click();await settled(null);
     await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
     await edit('<p>Not sent</p>');
     await page.evaluate(()=>document.querySelector('#editor').addEventListener('keydown',e=>e.preventDefault(),{once:true}));
