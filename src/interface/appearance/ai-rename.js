@@ -91,8 +91,11 @@
       row.getAttribute('data-app-action-sidebar-thread-kind')!=='local')return;
     const id=localId.exec(row.getAttribute('data-app-action-sidebar-thread-id')||'')?.[1];
     if(!id)return;
-    const trigger=event.target.closest('[aria-haspopup="menu"]');
-    if((event.type==='pointerdown'||event.type==='click')&&(!trigger||!row.contains(trigger)))return;
+    // Desktop hover buttons can open the menu without aria-haspopup. The
+    // chat's primary button is not a menu trigger; still verify the opened menu.
+    const trigger=event.target.closest('[aria-haspopup="menu"],button,[role="button"]');
+    if((event.type==='pointerdown'||event.type==='click')&&
+      (!trigger||!row.contains(trigger)||trigger===row||trigger.hasAttribute('data-interactive-row-button')))return;
     opening={id,until:performance.now()+1800,alreadyOpen:new Set(document.querySelectorAll(menuSelector))};
   }
   function extendMenu(){

@@ -290,7 +290,7 @@ async function waitFor(predicate,timeout=3000){
       const sidebar=document.createElement('aside');
       sidebar.innerHTML=[id,otherId].map(value=>`<div data-app-action-sidebar-thread-id="local:${value}"
         data-app-action-sidebar-thread-kind="local" data-app-action-sidebar-thread-host-id="local">
-        <span>聊天</span><button aria-haspopup="menu">…</button></div>`).join('');
+        <span>聊天</span><button aria-label="聊天菜单">…</button></div>`).join('');
       document.body.append(sidebar);
       for(const row of sidebar.children){
         function open(event){
