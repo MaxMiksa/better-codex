@@ -11,6 +11,11 @@ const html=`<!doctype html><html lang="zh-CN"><style>
   [contenteditable]{height:38px;outline:none} [contenteditable] p{margin:0}
   footer{display:flex;justify-content:space-between;margin-top:10px}
   button{height:28px}
+  [data-above-composer-portal]{position:relative;display:grid}
+  [data-in-progress-fixed-content]{position:relative;height:32px}
+  [data-in-progress-fixed-content] > .absolute{position:absolute;inset:auto 0 4px;display:flex;justify-content:center;padding-bottom:4px}
+  .file-chip{display:flex;width:max-content;max-width:100%;min-width:0}
+  .file-chip button{max-width:100%;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
   nav{position:fixed;top:35px;left:5px;z-index:1}
 </style><div id="timeline" data-app-shell-focus-area="main" class="thread-scroll-container" tabindex="0">
   <div id="transcript"><button id="message-action">Message action</button></div>
@@ -122,6 +127,47 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('double-enter-during-a-run-restores-the-native-stop',await focus()==='editor'&&await page.getByRole('button',{name:'停止'}).isVisible());
     await blur();await settled('hide');
     check('blur-after-manual-wake-refolds-during-a-run-without-send-pref',await shape()===0);
+    await page.evaluate(id=>{
+      document.querySelector('#file-status').hidden=true;
+      const portal=document.querySelector('#composer > [data-above-composer-conversation-id]');
+      portal.setAttribute('data-above-composer-portal','');
+      portal.innerHTML=`<div data-in-progress-fixed-content><div class="absolute"><div class="file-chip">
+        <button id="native-diff">3 files changed +3 −3</button>
+        <div hidden data-above-composer-fixed-content-portal data-above-composer-conversation-id="${id}"></div>
+        </div></div></div>`;
+      window.nativeDiff=document.querySelector('#native-diff');window.nativeDiffClicks=0;
+      window.nativeDiff.addEventListener('click',()=>window.nativeDiffClicks++);
+    },id);
+    const diff=page.locator('#native-diff');
+    const compare=()=>page.evaluate(()=>{
+      const badge=document.querySelector('#native-diff').getBoundingClientRect();
+      const expand=document.querySelector('#codex-hud-expand-composer').getBoundingClientRect();
+      return {verticalDistance:Math.abs((badge.top+badge.bottom-expand.top-expand.bottom)/2),
+        overlap:badge.left<expand.right&&expand.left<badge.right,
+        sharedRow:document.querySelector('[data-thread-find-composer]').offsetHeight<badge.height+expand.height};
+    });
+    await diff.waitFor({state:'visible'});
+    check('native-fixed-status-alone-in-hide-without-an-input-slot',await state()==='hide'&&!(await editor.isVisible())&&!(await pill.isVisible())&&await shape()<=34);
+    await mode('minimize');await settled('minimize');
+    const dock=await compare();
+    check('minimized-native-status-and-expand-share-one-row-without-overlap',dock.verticalDistance<=1&&!dock.overlap&&dock.sharedRow);
+    await diff.click();
+    await diff.evaluate(e=>{e.textContent='125 files changed +1309 −12';});
+    await page.waitForTimeout(200);
+    check('native-status-click-and-live-count-do-not-expand-input',await state()==='minimize'&&await diff.evaluate(e=>e===window.nativeDiff&&window.nativeDiffClicks===1)&&!(await editor.isVisible()));
+    await page.setViewportSize({width:310,height:600});
+    await page.waitForTimeout(70);
+    const narrow=await compare();
+    check('narrow-dock-keeps-both-controls-accessible-without-overlap',narrow.verticalDistance>=28&&await diff.isVisible()&&await pill.isVisible());
+    await page.setViewportSize({width:900,height:600});
+    await pill.click();await settled(null);
+    check('opening-restores-original-status-layout-and-focus',await focus()==='editor'&&await diff.evaluate(e=>e===window.nativeDiff&&getComputedStyle(e.closest('.absolute')).position==='absolute'));
+    await page.keyboard.press('Escape');await settled('minimize');
+    check('escape-docks-the-same-status-without-hiding-it',await diff.isVisible()&&await diff.evaluate(e=>e===window.nativeDiff)&&(await compare()).verticalDistance<=1);
+    await diff.evaluate(e=>e.closest('[data-in-progress-fixed-content]').remove());
+    await blur();await settled('minimize');
+    check('removing-status-leaves-no-space-beside-the-minimized-pill',await shape()===34&&await page.locator('[data-bc-fold-status-path]').count()===0);
+    await mode('hide');await settled('hide');
     await page.locator('#composer').evaluate(e=>{
       const approval=document.createElement('div');approval.id='approval';
       approval.setAttribute('data-codex-composer-request-navigation','');e.append(approval);

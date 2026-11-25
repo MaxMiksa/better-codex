@@ -1,4 +1,4 @@
-// Fold only the confirmed main-thread composer; never move or edit native nodes.
+// Fold only the confirmed main-thread composer; never reparent or rewrite native content.
 (() => {
   if (window.__codexComposerFold) return;
   const rootSelector='[data-codex-composer-root][data-composer-placement="thread"]';
@@ -10,6 +10,8 @@
   const uuid=/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
   const entryAttributes=['data-above-composer-conversation-id','data-composer-placement','data-app-shell-active-page','data-app-shell-focus-area','data-right-panel-composer-overlay-content'];
   const stateAttr='data-bc-composer-fold',trackAttr='data-bc-composer-fold-track';
+  const pathAttr='data-bc-fold-status-path',statusAttr='data-bc-fold-status-row';
+  const collapsed=`:is([${stateAttr}="minimize"],[${stateAttr}="hide"])`;
   const doubleEnter=350,sendTimeout=3500,sidebarTimeout=3000;
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
   const style=document.createElement('style');
@@ -20,7 +22,11 @@
     #codex-hud-expand-composer:hover{background:color-mix(in srgb,var(--bc-composer-surface,var(--color-background-secondary,#323237)) 88%,currentColor)}
     #codex-hud-expand-composer:focus-visible{outline:2px solid var(--codex-base-accent,currentColor);outline-offset:-3px}
     #codex-hud-expand-composer[hidden]{display:none}
-    [${stateAttr}="minimize"]>[${trackAttr}],[${stateAttr}="hide"]>[${trackAttr}]{display:none!important}
+    ${collapsed}>[${trackAttr}]:not([${pathAttr}]),${collapsed} [${pathAttr}] > :not([${pathAttr}],[${statusAttr}]){display:none!important}
+    ${collapsed} [${pathAttr}]{display:contents!important}
+    ${collapsed}:has(>[${trackAttr}][${pathAttr}]){display:flex;flex-flow:row wrap;justify-content:center;align-items:center;gap:8px}
+    ${collapsed} [${statusAttr}]{width:max-content;max-width:100%;min-width:0;height:auto!important;align-self:center}
+    ${collapsed} [${statusAttr}]>div{position:relative!important;inset:auto!important;padding-bottom:0!important}
     [${stateAttr}="moving"]{position:relative;min-height:0!important;overflow:clip}
     [${stateAttr}="moving"]>[${trackAttr}]{position:absolute;inset:auto 0 0;transform-origin:center bottom}
     [${stateAttr}="moving"]>#codex-hud-expand-composer{position:absolute;inset:auto auto 0 50%;translate:-50% 0}
@@ -48,7 +54,7 @@
   }
   function detach(){
     resetKeys();
-    if(binding){commit('open');pill.remove();binding=null;}
+    if(binding){commit('open');setStatus(binding.status, false);pill.remove();binding=null;}
   }
   function main(root){
     const area=root.closest('[data-app-shell-focus-area]');
@@ -59,6 +65,35 @@
     if(bodies.length!==1||editors.length!==1||!bodies[0].contains(editors[0]))return null;
     const body=bodies[0],editor=editors[0],attachments=body.querySelectorAll('[data-composer-attachments]');
     return attachments.length===1?{body,editor,attachments:attachments[0]}:null;
+  }
+  function fixedStatus(root,track,id){
+    // The active turn ports its change/plan strip into this conversation's composer.
+    // Keep the original controls in place; only expose their confirmed path when folded.
+    const owner=`[data-above-composer-conversation-id="${id}"]`;
+    const rows=[...root.querySelectorAll(`[data-above-composer-portal]${owner}>[data-in-progress-fixed-content]`)];
+    if(rows.length!==1)return null;
+    const row=rows[0],layer=row.firstElementChild;
+    if(row.childElementCount!==1||!layer.matches('div.absolute')||!layer.querySelector('button')
+      ||!layer.querySelector(`[data-above-composer-fixed-content-portal]${owner}`))return null;
+    const path=[];
+    for(let node=row.parentElement;node;node=node.parentElement){
+      path.push(node);
+      if(node===track)return {row,layer,path};
+    }
+    return null;
+  }
+  function setStatus(status, enabled){
+    if(!status)return;
+    status.row.toggleAttribute(statusAttr,enabled);
+    for(const node of status.path)node.toggleAttribute(pathAttr,enabled);
+  }
+  function bind(next){
+    const before=binding?.status,after=next.status;
+    const changed=before?.row!==after?.row||before?.layer!==after?.layer
+      ||before?.path.some((node,index)=>node!==after?.path[index])||before?.path.length!==after?.path.length;
+    if(changed){setStatus(before,false);setStatus(after,true);}
+    binding=next;
+    if(changed&&animation.length)commit(folded==='opening'?'open':mode);
   }
   function find(){
     const roots=[...document.querySelectorAll(rootSelector)].filter(root=>main(root)&&(root===binding?.root||visible(root)));
@@ -73,7 +108,7 @@
       ||tracks.length!==1||!tracks[0].contains(root)
       ||ids.size!==1||!uuid.test(id))return null;
     const fields=composerFields(root);
-    return fields?{root,scroll,shell,track:tracks[0],id,...fields}:null;
+    return fields?{root,scroll,shell,track:tracks[0],id,...fields,status:fixedStatus(root,tracks[0],id)}:null;
   }
   function ready({scroll,root}){
     const message=scroll.querySelector('[data-turn-key] :is([data-user-message-bubble][data-user-message-has-prompt],[data-markdown-text-style="assistant-message"]):not(:is([data-conversation-print] *,[data-codex-composer-root] *,[data-app-shell-active-page="false"] *))');
@@ -177,15 +212,25 @@
     const background=getComputedStyle(binding.body.parentElement).backgroundColor;
     pill.style.setProperty('--bc-composer-surface',background==='rgba(0, 0, 0, 0)'?'':background);
   }
+  function relativeCenter(element,shell){
+    const rect=element.getBoundingClientRect(),bounds=shell.getBoundingClientRect();
+    return rect.width&&rect.height?[rect.left+rect.width/2-bounds.left,rect.top+rect.height/2-bounds.bottom]:null;
+  }
+  function shift(from,base){
+    return from&&base?`translate(${from[0]-base[0]}px,${from[1]-base[1]}px)`:'none';
+  }
   function transition(next){
-    const {shell,track}=binding;
+    const {shell,track,status,body}=binding;
     if(folded===next)return;
     if(reduced.matches){commit(next);return;}
     const start=shell.getBoundingClientRect().height,previous=folded;
-    const current=getComputedStyle(track),currentScale=current.scale,currentOpacity=current.opacity,miniOpacity=getComputedStyle(pill).opacity;
+    const surface=status?body:track;
+    const current=getComputedStyle(surface),currentScale=current.scale,currentOpacity=current.opacity,miniOpacity=getComputedStyle(pill).opacity;
+    const badgeFrom=status&&relativeCenter(status.layer,shell),pillFrom=status&&relativeCenter(pill,shell);
     if(previous==='open')updatePillSurface();
     commit(next);
     const end=shell.getBoundingClientRect().height;
+    const badgeTo=status&&relativeCenter(status.layer,shell),pillTo=status&&relativeCenter(pill,shell);
     const mini=next==='minimize'||previous==='minimize';
     pill.hidden=!mini;
     const scale=mini?Math.min(1,pill.getBoundingClientRect().width/Math.max(1,shell.getBoundingClientRect().width)):.96;
@@ -194,11 +239,23 @@
     const options={duration:next==='open'?220:150,easing:'cubic-bezier(.22,.75,.25,1)',fill:'both'};
     const startingVisible=previous==='open'||previous==='opening'||previous==='closing';
     const motion=shell.animate([{height:start+'px'},{height:end+'px'}],options);
-    animation=[motion,track.animate([
+    animation=[motion,surface.animate([
       {scale:startingVisible?currentScale:scale+' 1',opacity:startingVisible?currentOpacity:0},
       {scale:next==='open'?'1 1':scale+' 1',opacity:next==='open'?1:0}
     ],options)];
-    if(mini)animation.push(pill.animate([{opacity:previous==='minimize'?1:previous==='opening'||previous==='closing'?miniOpacity:0},{opacity:next==='minimize'?1:0}],options));
+    if(status){
+      const badgeBase=relativeCenter(status.layer,shell);
+      if(badgeFrom&&badgeTo&&badgeBase)animation.push(status.row.animate([
+        {transform:shift(badgeFrom,badgeBase)},{transform:shift(badgeTo,badgeBase)}
+      ],options));
+    }
+    if(mini){
+      const pillBase=status&&relativeCenter(pill,shell);
+      animation.push(pill.animate([
+        {opacity:previous==='minimize'?1:previous==='opening'||previous==='closing'?miniOpacity:0,transform:shift(pillFrom||pillTo,pillBase)},
+        {opacity:next==='minimize'?1:0,transform:shift(pillTo||pillFrom,pillBase)}
+      ],options));
+    }
     folded=next==='open'?'opening':'closing';
     motion.onfinish=()=>{if(animation[0]===motion)commit(next);};
   }
@@ -215,8 +272,8 @@
       &&!next.scroll.querySelector('[data-turn-key] [data-response-update-thread="'+next.id+'"]')){detach();return;}
     threadId=next.id;
     if(next.root!==binding?.root||next.id!==binding?.id||next.track!==binding?.track){
-      detach();binding=next;pill.hidden=true;binding.shell.append(pill);
-    }else binding=next;
+      detach();bind(next);pill.hidden=true;binding.shell.append(pill);
+    }else bind(next);
     if(!pill.isConnected)binding.shell.append(pill);
     const label=window.__codexHudI18n.t('expandComposer');
     if(pillLabel.textContent!==label){pillLabel.textContent=label;pill.title=window.__codexHudI18n.t('composerFoldShortcut');}
@@ -248,7 +305,7 @@
   function wake(){
     const latest=find();
     if(!binding||latest?.root!==binding.root||latest?.id!==binding.id||!ready(latest)){detach();return false;}
-    sendAttempt=null;binding=latest;transition('open');binding.editor.focus({preventScroll:true});return true;
+    sendAttempt=null;bind(latest);transition('open');binding.editor.focus({preventScroll:true});return true;
   }
   const consume=event=>{event.preventDefault();event.stopImmediatePropagation();};
   const plainKey=event=>!event.defaultPrevented&&!event.isComposing&&event.keyCode!==229&&!composing
@@ -260,7 +317,7 @@
     const next=find();
     if(!next||next.root!==binding.root||next.id!==binding.id||next.track!==binding.track
       ||next.editor!==active||!ready(next)||!safe(next)||!canFold(active))return;
-    binding=next;
+    bind(next);
     escapeHeld=true;consume(event);
     active.blur();
     transition(mode);
