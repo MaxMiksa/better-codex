@@ -16,7 +16,7 @@ async function main(){
   const readThemes=createThemeReader(path.join(settings.codexHome,'config.toml'));
   const readPrompts=createPromptReader(settings.codexHome);
   try{
-    for(const [key,file] of Object.entries({commands:'../appearance/command-menu.js',aiRename:'../appearance/ai-rename.js',hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
+    for(const [key,file] of Object.entries({commands:'../appearance/command-menu.js',aiRename:'../appearance/ai-rename.js',fold:'../appearance/composer-fold.js',hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
       sources[key]=fs.readFileSync(path.join(__dirname,file),'utf8');
     }
     while(browser.isConnected()&&!fs.existsSync(stop)){

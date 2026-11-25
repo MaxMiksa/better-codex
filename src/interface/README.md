@@ -96,6 +96,10 @@ Prompt 读取 Codex Home 的 `prompts` 一级目录，只显示可用的 UTF-8 M
 
 菜单在独立展示区域创建横排按钮；原生行保留原位置并临时隐藏。仅在已确认的顶层 `/` 菜单中接管方向键、Home/End、回车和 Tab：左右同行循环，普通上下逐行移动，Ctrl+↑/↓ 按命令组、Skills、Prompt 跳转，首尾循环。上下移动保留期望列，尽量选择最接近该列的条目，标题不参与导航。空结果阻止提交隐藏项；输入法组合、其他修饰键、设置区域、子菜单和原生 `@`、`$` 提及保持原行为。原生结构或元数据无法完整识别时还原整个菜单；关闭总开关或停止增强删除展示区域、还原原生菜单和键盘。
 
+## 自动隐藏输入框
+
+在「界面设置 → 自动隐藏输入框」选择「关闭」（默认）、「最小化」或「完全隐藏」。只有已显示消息的主聊天才允许收起；空白新聊天、草稿、附件和原生待操作状态保持显示。启用后，空闲的空输入框离开焦点才收起。最小化可点击「展开输入框」，两种收起方式都支持快速连按两次 Enter 展开并聚焦。展开不会提交内容；需要改设置时先展开，再点原来的统计条。切换时保留原生编辑器，未识别的布局保持原样。
+
 ## AI 重命名
 
 斜杠菜单的聊天管理组在“重命名”后提供“AI 重命名”。点击只生成本次会话标题，不发送聊天消息；菜单会清除触发用的 `/` 并关闭，不改写已有草稿。
@@ -121,7 +125,7 @@ Prompt 读取 Codex Home 的 `prompts` 一级目录，只显示可用的 UTF-8 M
 
 ## 验证
 
-从项目根按改动运行 scripts/check.py 的 `metrics`、`collector-session`、`composer`、`ai-rename`、`width`、`table-sort`、`files`、`accent` 或 `multi-window`；需要依赖路径时用 `--dependencies .runtime/token-hud/embedded/settings.json`，只读取依赖字段。
+从项目根按改动运行 scripts/check.py 的 `metrics`、`collector-session`、`composer`、`composer-fold`、`ai-rename`、`width`、`table-sort`、`files`、`accent` 或 `multi-window`；需要依赖路径时用 `--dependencies .runtime/token-hud/embedded/settings.json`，只读取依赖字段。
 
 这些检查使用合成数据和独立浏览器，不连接或重启现用 Codex。真实布局、DPI 与长期表现的当前验收状态在本机 PROJECT.md 维护。
 

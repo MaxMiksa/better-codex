@@ -12,6 +12,7 @@ const {normalize:commandVisible,normalizeSkillVisible,normalizeSectionOrder,norm
 const METRIC_KEYS=['ttft','speed','cache','age'];
 const DEFAULT_PREFERENCES={readingWidth:1152,fileChangesDefaultCollapsed:true,customAccent:true,tableEnabled:true,tableCentered:true,tableSortMode:'smart',
   metricOrder:[...METRIC_KEYS],metricVisible:Object.fromEntries(METRIC_KEYS.map(key=>[key,true]))};
+const COMPOSER_FOLD_MODES=['off','minimize','hide'];
 const isAssistantFontSize=value=>value===null||(Number.isInteger(value)&&value>=10&&value<=40);
 const clampWidth=value=>Math.max(768,Math.min(1600,Math.round(Number(value))));
 function metricOrder(value){
@@ -30,6 +31,7 @@ function metricVisible(value){
 function preferences(value={}){
   return {
     readingWidth:Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600?clampWidth(value.readingWidth):DEFAULT_PREFERENCES.readingWidth,
+    composerAutoHide:COMPOSER_FOLD_MODES.includes(value.composerAutoHide)?value.composerAutoHide:'off',
     assistantFontSize:isAssistantFontSize(value.assistantFontSize)?value.assistantFontSize:null,
     fileChangesDefaultCollapsed:typeof value.fileChangesDefaultCollapsed==='boolean'?value.fileChangesDefaultCollapsed:DEFAULT_PREFERENCES.fileChangesDefaultCollapsed,
     customAccent:typeof value.customAccent==='boolean'?value.customAccent:DEFAULT_PREFERENCES.customAccent,
@@ -49,6 +51,7 @@ function preferences(value={}){
 function patch(value={}){
   const result={};
   if(Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600)result.readingWidth=clampWidth(value.readingWidth);
+  if(COMPOSER_FOLD_MODES.includes(value.composerAutoHide))result.composerAutoHide=value.composerAutoHide;
   if(isAssistantFontSize(value.assistantFontSize))result.assistantFontSize=value.assistantFontSize;
   if(typeof value.fileChangesDefaultCollapsed==='boolean')result.fileChangesDefaultCollapsed=value.fileChangesDefaultCollapsed;
   if(typeof value.customAccent==='boolean')result.customAccent=value.customAccent;
@@ -80,7 +83,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
   async function ensureRuntime(){
     if(await page.evaluate(()=>window.__betterCodexRuntime)===state.id)return;
     await page.evaluate(()=>{
-      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexAiRename','__codexCommandMenu']){
+      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexComposerFold','__codexAiRename','__codexCommandMenu']){
         try{window[name]?.remove();}catch{}
         delete window[name];
       }
@@ -113,6 +116,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
         await install('__codexHudI18n',sources.i18n);
         if(sources.commands)await install('__codexCommandMenu',sources.commands);
         if(sources.aiRename)await install('__codexAiRename',sources.aiRename);
+        if(sources.fold)await install('__codexComposerFold',sources.fold);
         await install('__codexComposerHud',sources.hud);
         let currentPreferences=preferences(store.read());
         try{
@@ -195,7 +199,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
     aiRename.close();
     await collector.stop();
     if(!page.isClosed())await page.evaluate(()=>{
-      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexAiRename','__codexCommandMenu']){
+      for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexComposerFold','__codexAiRename','__codexCommandMenu']){
         try{window[name]?.remove();}catch{}
       }
       delete window.__codexHudI18n;delete window.__codexHudLanguage;

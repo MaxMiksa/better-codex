@@ -142,6 +142,18 @@ async function finish(child){
     await until(async()=>read(settingsPath).assistantFontSize===23&&await replySize(p1)==='23px'&&await replySize(p2)==='23px','font saved and synchronized');
     await fontInput.fill('');await fontInput.press('Enter');
     await until(async()=>read(settingsPath).assistantFontSize===null&&await replySize(p1)==='16px'&&await replySize(p2)==='16px','native font saved and synchronized');
+    const foldControl=p1.getByRole('radiogroup',{name:'自动隐藏输入框'});
+    const foldOff=foldControl.getByRole('radio',{name:'关闭',exact:true});
+    const bothFold=async value=>read(settingsPath).composerAutoHide===value&&(await Promise.all([p1,p2].map(page=>page.evaluate(value=>window.__codexComposerFold&&window.__codexComposerHud.snapshot().preferences.composerAutoHide===value,value)))).every(Boolean);
+    await foldOff.press('ArrowRight');
+    await until(()=>bothFold('minimize'),'segmented control saves and syncs minimize');
+    await foldControl.getByRole('radio',{name:'最小化'}).press('ArrowRight');
+    await until(()=>bothFold('hide'),'segmented control saves and syncs hide');
+    check('fold-segments-are-keyboard-selectable-and-mutually-exclusive',await foldControl.getByRole('radio',{checked:true}).count()===1&&await foldControl.getByRole('radio',{name:'完全隐藏'}).isChecked());
+    await p1.locator('#undo').click();await until(()=>bothFold('minimize'),'undo restores minimize');
+    await p1.locator('#redo').click();await until(()=>bothFold('hide'),'redo restores hide');
+    await foldOff.press('Space');await until(()=>bothFold('off'),'fold mode resets in both windows');
+    check('fold-preference-saves-and-syncs-with-undo-and-redo',true);
     await p1.locator('#metrics').click();
     check('reply-font-and-native-reset-save-and-sync-across-windows',true);
     async function firstPromptFrame(page,stall=null){

@@ -6,7 +6,7 @@
 
 | 改动 | case |
 | --- | --- |
-| 数据与页面 | metrics、collector-session、composer、ai-rename、width、table-sort、files、accent |
+| 数据与页面 | metrics、collector-session、composer、composer-fold、ai-rename、width、table-sort、files、accent |
 | 启动与恢复 | diagnostics、diagnostic-worker、management、relaunch、session-activity、updates、supervisor、launcher-5、launcher-7、entry-wrappers |
 | 原生交互 | native-close、native-exit、native-countdown、native-recovery-guard |
 | 跨模块 | i18n、relocation、multi-window、structure |
@@ -14,6 +14,8 @@
 | 本机提示词 | prompt-manager、prompt-updates、prompt-diagnostics；公开源码副本不提供 |
 
 `interface/`、`lifecycle/`、`prompts/` 存域内检查，`integration/` 覆盖跨域，`helpers/` 仅含测试自建窗口的捕获工具。
+
+`composer-fold` 验证空白聊天、草稿、附件、正在运行与原生交互的保护，以及两种收起、双按 Enter 唤醒、动画反转和减少动态效果。分段控件的键盘选择、保存、撤销、重做和跨窗口同步由 `multi-window` 覆盖。
 
 `width` 覆盖正文宽度和表格独立排版：总开关关闭时移除全部表格排版、重新开启时恢复、单独关闭居中后恢复原生起始对齐并保留列宽增强、768–1600px 正文变化不拉伸表格、短数据列 20px / 长文字列 32px 间距、流式内容变化后重新选择间距、短列和数字紧凑、说明列展开与舒适换行、窄窗多长列保留可读下限并局部滚动、分栏边界、新表格挂载与文本节点增长/缩短、几何缓存复用及字体变化重测、多面板和未知布局隔离、原生操作/对齐保留及停止还原。额外覆盖按整行换行收益扩展说明列、实际行高下降、短列不变、孤立长值、多长列共用预算、嵌套段落/显式换行、正文宽度独立、窄窗边界与内容缩短释放宽度；另覆盖六列长说明表的整表上限、大屏两侧留白、超宽屏保持宽度、字体放大后的绝对上限及窄窗滚动/可读下限。全部使用合成页面，不替代现用聊天表格的视觉确认。
 

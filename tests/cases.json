@@ -11,6 +11,11 @@
       "{browser}"
     ]
   },
+  "composer-fold": {
+    "kind": "node",
+    "path": "tests/interface/verify-composer-fold.cjs",
+    "args": ["{browser}"]
+  },
   "width": {
     "kind": "node",
     "path": "tests/interface/verify-reading-width.cjs",
