@@ -3,10 +3,10 @@ const {createCollector}=require('./collector-session.cjs');
 const {formatMetrics}=require('../statistics/metrics-view.cjs');
 const {createWriter}=require('./runtime-writer.cjs');
 const {readBinding}=require('../statistics/chat-binding.cjs');
-const {createAiRenameManager}=require('./ai-rename.cjs');
 const {isMainPageUrl,pageGuard}=require('./page-contract.cjs');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const promptBinding='__betterCodexRequestPrompts';
+const renameBinding='__betterCodexRequestAiRename';
 const read=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return null;}};
 const {normalize:commandVisible,normalizeSkillVisible,normalizeSectionOrder,normalizeGroupOrder,normalizeItemOrder}=require('../appearance/command-menu.js');
 const METRIC_KEYS=['ttft','speed','cache','age'];
@@ -69,12 +69,12 @@ function patch(value={}){
   return result;
 }
 
-async function runWindow({page,state,settings,store,sources,readThemes,readPrompts,runtime,stopping}){
+async function runWindow({page,state,settings,store,sources,readThemes,readPrompts,aiRename,runtime,stopping}){
   const writer=createWriter(),write=writer.write;
   const active=()=>!state.stopped&&!stopping()&&!page.isClosed()&&isMainPageUrl(page.url());
   let session,previous,settingsSaveError=null;
   const collector=createCollector({settings,runtime});
-  const aiRename=createAiRenameManager({settings,page,isActive:active});
+  let renameStatus={phase:'idle',reason:null,updatedAt:0};
   async function install(name,source){
     if(!await page.evaluate(name=>Boolean(window[name]),name)){
       await session.send('Runtime.evaluate',{expression:'if('+pageGuard+'){'+source+'\n}'});
@@ -102,9 +102,30 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
       },{runtime:state.id,requests:[payload],entries});
     }catch{} // Navigation or a disconnected reader must not interrupt ordinary window updates.
   }
+  async function acceptRename(requestId){
+    if(!active())return;
+    const request=await page.evaluate(({runtime,requestId})=>
+      window.__betterCodexRuntime===runtime?window.__codexAiRename?.pull?.(requestId):null,
+    {runtime:state.id,requestId});
+    if(!request)return;
+    aiRename.start(request,(status,value)=>{
+      renameStatus=status;
+      if(value.running||!active())return;
+      page.evaluate(({runtime,value})=>{
+        if(window.__betterCodexRuntime===runtime)window.__codexAiRename?.state?.(value);
+      },{runtime:state.id,value}).catch(()=>{});
+    });
+  }
+  function onRenameRequest({name,payload}){
+    if(name===renameBinding&&typeof payload==='string'&&payload.length<=80)acceptRename(payload).catch(()=>{});
+  }
   try{
     fs.mkdirSync(runtime,{recursive:true});
     session=await page.context().newCDPSession(page);
+    if(sources.aiRename){
+      session.on('Runtime.bindingCalled',onRenameRequest);
+      await session.send('Runtime.addBinding',{name:renameBinding}).catch(()=>{});
+    }
     if(readPrompts){
       session.on('Runtime.bindingCalled',onPromptRequest);
       await session.send('Runtime.addBinding',{name:promptBinding}).catch(()=>{});
@@ -168,10 +189,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
         const request=await page.evaluate(()=>window.__codexComposerHud.bindingRequest());
         if(request)await page.evaluate(value=>window.__codexComposerHud.bind(value),{...request,id:readBinding(request,path.join(settings.codexHome,'session_index.jsonl'))});
         const observation=await page.evaluate(()=>window.__codexComposerHud.snapshot());
-        if(observation.id&&active()){
-          const aiRenameRequest=await page.evaluate(()=>window.__codexAiRename?.pull?.());
-          if(aiRenameRequest)aiRename.start(aiRenameRequest,observation);
-        }
+        if(sources.aiRename)await acceptRename(); // fallback if a fast-path binding is unavailable
         if(observation.id!==previous){
           if(write(path.join(runtime,'selection.json'),{thread_id:observation.id,title:'',binding_mode:'manual'}))previous=observation.id;
         }
@@ -185,7 +203,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
           ...formatMetrics(data,observation.id,Date.now(),observation.locale)});
         state.status={...observation,rendered,readingWidth,tableSort,fileChanges,customAccent,preferences:currentPreferences,
           settingsSaveError,collector:collectorStatus,
-          collectorBound:data?.thread_id===observation.id&&data?.binding==='ok',aiRename:aiRename.status(),
+          collectorBound:data?.thread_id===observation.id&&data?.binding==='ok',aiRename:renameStatus,
           writes:writer.diagnostics(),checkedAt:Date.now()};
         write(path.join(runtime,'view-status.json'),state.status);
       }catch(error){
@@ -196,7 +214,6 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
     }
   }finally{
     // Each worker owns only its page, CDP session, collector and runtime directory.
-    aiRename.close();
     await collector.stop();
     if(!page.isClosed())await page.evaluate(()=>{
       for(const name of ['__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexComposerFold','__codexAiRename','__codexCommandMenu']){
@@ -206,6 +223,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
       delete window.__betterCodexRuntime;
     }).catch(()=>{});
     if(session){
+      if(sources.aiRename){session.off('Runtime.bindingCalled',onRenameRequest);await session.send('Runtime.removeBinding',{name:renameBinding}).catch(()=>{});}
       if(readPrompts){session.off('Runtime.bindingCalled',onPromptRequest);await session.send('Runtime.removeBinding',{name:promptBinding}).catch(()=>{});}
       await session.detach().catch(()=>{});
     }

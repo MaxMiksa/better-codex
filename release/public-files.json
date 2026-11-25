@@ -45,7 +45,7 @@
     "src/interface/host/controller.cjs",
     "src/interface/host/page-contract.cjs",
     "src/interface/host/prompt-directory.cjs",
-    "src/interface/host/native-rename.cjs",
+    "src/interface/host/thread-title-api.cjs",
     "src/interface/host/runtime-writer.cjs",
     "src/interface/host/session-transcript.cjs",
     "src/interface/host/window-controller.cjs",

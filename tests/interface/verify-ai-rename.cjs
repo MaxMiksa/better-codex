@@ -10,7 +10,9 @@ const commandMenu=require('../../src/interface/appearance/command-menu.js');
 const i18nSource=require('../../src/platform/i18n/i18n.js').pageSource('zh-CN');
 const browserPath=process.env.HUD_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const aiRenameSource=fs.readFileSync(path.join(__dirname,'../../src/interface/appearance/ai-rename.js'),'utf8');
-const {applyThreadTitle}=require('../../src/interface/host/native-rename.cjs');
+const {setDesktopThreadTitle,setThreadTitle}=require('../../src/interface/host/thread-title-api.cjs');
+const {PassThrough}=require('node:stream');
+const {EventEmitter}=require('node:events');
 const id='00000000-0000-4000-8000-000000000001',otherId='00000000-0000-4000-8000-000000000002';
 const results=[];
 function check(name,condition){assert.ok(condition,name);results.push(name);}
@@ -44,7 +46,7 @@ async function waitFor(predicate,timeout=3000){
     prompt.includes('冒号前后不加空格')&&rename.EXAMPLES.every(example=>/^[a-z]+：\S/u.test(example)));
   check('prompt-centers-the-whole-session-on-core-subjects',prompt.includes('围绕哪个核心关键词或核心对象展开工作')&&
     prompt.includes('默认选一个核心关键词或核心对象，通常不超过两个')&&
-    prompt.includes('加上动词组成简洁短语')&&!prompt.includes('以新目标为准'));
+    prompt.includes('核心关键词或核心对象的名称')&&!prompt.includes('以新目标为准'));
 
   const injected=transcript.contentText([
     {type:'input_text',text:'# AGENTS.md instructions for fixture'},
@@ -139,66 +141,124 @@ async function waitFor(predicate,timeout=3000){
   check('long-session-retains-all-user-text-and-only-first-reply-sentence',longText.length>70000&&
     longCalls[0].endsWith(`<session>\n【第 1 轮】\n【用户消息 1】\n${longText}\n\n【模型回复 1】\n结果已确认。\n</session>`));
 
-  let currentId=id,notifications=[],applied=null,readCount=0;
-  globalThis.window={
-    __codexComposerHud:{snapshot:()=>({id:currentId})},
-    __codexAiRename:{state:value=>notifications.push(value)}
-  };
-  const fakePage={evaluate:(fn,arg)=>Promise.resolve(fn(arg))};
   const transcriptMessages=[{role:'user',text:'做一个 AI 重命名命令'}];
+  let applied=[],readIds=[],states=[];
+  const onState=(status,notice)=>states.push({status,notice});
   const makeManager=(options={})=>rename.createAiRenameManager({
-    settings:{codexHome:'fixture'},page:fakePage,
-    isActive:options.isActive||(()=>true),
-    readTranscript:options.readTranscript||(async()=>{readCount+=1;return {messages:transcriptMessages};}),
+    settings:{codexHome:'fixture'},
+    readTranscript:async(home,threadId)=>{readIds.push(threadId);return {messages:transcriptMessages};},
     resolveExecutable:async()=>'codex.exe',
-    callFactory:options.callFactory||(()=>({run:async()=>'{"title":"feat: AI 重命名"}',cancel(){}})),
-    applyTitle:options.applyTitle||(async(page,threadId,title)=>applied={threadId,title})
+    callFactory:()=>({run:async()=>'{"title":"feat: AI 重命名"}',cancel(){}}),
+    applyTitle:async({threadId,title})=>applied.push({threadId,title}),
+    ...options
   });
+  let finishModel,started=false;
+  const manager=makeManager({callFactory:()=>({
+    run:()=>{started=true;return new Promise(resolve=>{finishModel=resolve;});},cancel(){}
+  })});
+  const trigger={requestId:'bound',threadId:id};
+  const job=manager.start(trigger,onState);
+  trigger.threadId=otherId;
+  manager.start({requestId:'duplicate',threadId:id.toUpperCase()},onState);
+  await waitFor(()=>started);
+  finishModel('{"title":"feat: AI 重命名"}');
+  await job;
+  check('manager-sticks-to-bound-session-and-deduplicates',readIds.length===1&&readIds[0]===id&&
+    applied.length===1&&applied[0].threadId===id&&applied[0].title==='feat：AI 重命名'&&
+    states.some(({status})=>status.reason==='busy'));
+  check('manager-reports-model-and-save-times-without-title',states.at(-1).status.phase==='success'&&
+    Number.isInteger(states.at(-1).status.modelMs)&&Number.isInteger(states.at(-1).status.saveMs)&&
+    !Object.hasOwn(states.at(-1).status,'title'));
+  manager.close();
+
+  applied=[];states=[];
+  const parallel=makeManager();
+  await Promise.all([parallel.start({requestId:'a',threadId:id},onState),
+    parallel.start({requestId:'b',threadId:otherId},onState)]);
+  check('parallel-renames-use-their-own-session-id',applied.length===2&&applied.some(item=>item.threadId===id)&&
+    applied.some(item=>item.threadId===otherId));
+  parallel.close();
+
+  applied=[];states=[];
+  const failed=makeManager({callFactory:()=>({run:async()=>{throw new Error('model');},cancel(){}})});
+  await failed.start({requestId:'failed',threadId:id},onState);
+  check('manager-keeps-original-title-on-model-failure',applied.length===0&&states.at(-1).status.reason==='model');
+  failed.close();
+
+  let modelStarted=false;
+  const stale=makeManager({readTranscript:async()=>{throw new Error('transcript-changed');},
+    callFactory:()=>{modelStarted=true;throw new Error('unexpected-model-call');}});
+  await stale.start({requestId:'stale',threadId:id},onState);
+  check('unstable-transcript-never-calls-model-or-applies-title',!modelStarted&&applied.length===0&&
+    states.at(-1).status.reason==='transcript-changed');
+  stale.close();
+
+  let cancelled=0;started=false;
+  const closing=makeManager({callFactory:()=>({
+    run:()=>{started=true;return new Promise(()=>{});},cancel(){cancelled+=1;}
+  })});
+  closing.start({requestId:'closing',threadId:id},onState);
+  await waitFor(()=>started);
+  closing.close();
+  check('manager-close-cancels-active-model-call',cancelled===1);
+
+  const rpcLog=[];
+  function appServer(reply){
+    return (executable,args)=>{
+      assert.deepEqual(args,['app-server','--listen','stdio://']);
+      const child=new EventEmitter();
+      child.stdin=new PassThrough();child.stdout=new PassThrough();child.exitCode=null;child.signalCode=null;
+      child.kill=()=>child.emit('close');
+      child.stdin.on('data',chunk=>{
+        const request=JSON.parse(String(chunk));
+        rpcLog.push(request);
+        if(request.id!==undefined){
+          const answer=reply(request);
+          if(answer)child.stdout.write(JSON.stringify({id:request.id,...answer})+'\n');
+        }
+      });
+      child.stdin.on('end',()=>{child.exitCode=0;child.emit('close');});
+      return child;
+    };
+  }
+  const rpcOptions={threadId:id,title:'feat：AI 重命名',executable:'codex.exe',codexHome:'fixture'};
+  const answer=request=>({result:request.method==='thread/read'?{thread:{id,name:rpcOptions.title}}:{}});
+  await setThreadTitle({...rpcOptions,launch:appServer(answer)});
+  check('direct-rename-rpc-saves-and-verifies-the-same-id',rpcLog.map(e=>e.method).join('|')===
+    'initialize|initialized|thread/name/set|thread/read'&&rpcLog[2].params.threadId===id&&rpcLog[3].params.threadId===id);
+  await assert.rejects(setThreadTitle({...rpcOptions,launch:appServer(request=>
+    request.method==='thread/read'?{result:{thread:{id:otherId,name:rpcOptions.title}}}:answer(request))}),/title-not-confirmed/);
+  check('direct-rename-never-confirms-a-different-thread',true);
+  await assert.rejects(setThreadTitle({...rpcOptions,launch:appServer(request=>
+    request.method==='thread/name/set'?{error:{code:-32602}}:answer(request))}),/title-api-rejected/);
+  check('direct-rename-reports-app-server-rejection',true);
+
+  const desktopCalls=[];
+  let failDesktop=null;
+  const desktop=new EventTarget();
+  desktop.electronBridge={sendMessageFromView:async({type,hostId,request})=>{
+    assert.equal(type,'mcp-request');assert.equal(hostId,'local');
+    desktopCalls.push(request);
+    const event=new Event('message');
+    Object.assign(event,{source:desktop,origin:location.origin,data:{type:'mcp-response',hostId,
+      message:{id:request.id,...(request.method===failDesktop?{error:{code:-32000}}:answer(request))}}});
+    desktop.dispatchEvent(event);
+  }};
+  globalThis.window=desktop;
+  globalThis.location={protocol:'app:',host:'-',pathname:'/index.html',origin:'app://-'};
+  const desktopPage={evaluate:(fn,arg)=>fn(arg)};
   try{
-    const manager=makeManager();
-    manager.start({requestId:'success',threadId:id},{id});
-    await waitFor(()=>notifications.some(value=>value.requestId==='success'));
-    check('manager-applies-generated-title-to-current-chat',applied?.threadId===id&&applied.title==='feat：AI 重命名'&&
-      manager.status().phase==='success'&&notifications.at(-1).title==='feat：AI 重命名');
-    manager.close();
-
-    currentId=id;applied=null;notifications=[];
-    const changed=makeManager({readTranscript:async()=>{
-      currentId=otherId;
-      return {messages:transcriptMessages};
-    }});
-    changed.start({requestId:'changed',threadId:id},{id});
-    await waitFor(()=>notifications.some(value=>value.requestId==='changed'));
-    check('manager-never-applies-after-chat-switch',applied===null&&changed.status().phase==='failed'&&
-      changed.status().reason==='thread-changed');
-    changed.close();
-
-    currentId=id;applied=null;notifications=[];
-    const failed=makeManager({callFactory:()=>({run:async()=>{throw new Error('model');},cancel(){}})});
-    failed.start({requestId:'failed',threadId:id},{id});
-    await waitFor(()=>notifications.some(value=>value.requestId==='failed'));
-    check('manager-keeps-original-title-on-model-failure',applied===null&&failed.status().phase==='failed'&&
-      notifications.at(-1).phase==='failed');
-    failed.close();
-
-    let modelStarted=false;
-    notifications=[];
-    const stale=makeManager({readTranscript:async()=>{throw new Error('transcript-changed');},
-      callFactory:()=>{modelStarted=true;throw new Error('unexpected-model-call');}});
-    stale.start({requestId:'stale',threadId:id},{id});
-    await waitFor(()=>notifications.some(value=>value.requestId==='stale'));
-    check('unstable-transcript-never-calls-model-or-applies-title',!modelStarted&&applied===null&&
-      notifications.at(-1).reason==='transcript-changed');
-    stale.close();
-
-    currentId=id;let cancelled=0,started=false;
-    const closing=makeManager({callFactory:()=>({run:()=>{started=true;return new Promise(()=>{});},cancel(){cancelled+=1;}})});
-    closing.start({requestId:'closing',threadId:id},{id});
-    await waitFor(()=>started);
-    closing.close();
-    check('manager-close-cancels-active-model-call',cancelled===1);
+    check('desktop-rpc-routes-directly-to-the-local-id',await setDesktopThreadTitle(desktopPage,rpcOptions)&&
+      desktopCalls.map(call=>call.method).join('|')==='thread/read|thread/name/set|thread/read'&&
+      desktopCalls.every(call=>call.params.threadId===id));
+    failDesktop='thread/read';desktopCalls.length=0;
+    check('desktop-rpc-is-fallback-safe-only-before-writing',!await setDesktopThreadTitle(desktopPage,rpcOptions)&&
+      desktopCalls.length===1);
+    failDesktop='thread/name/set';desktopCalls.length=0;
+    await assert.rejects(setDesktopThreadTitle(desktopPage,rpcOptions),/title-api-rejected/);
+    check('desktop-rpc-does-not-replay-a-rejected-write',desktopCalls.length===2);
   }finally{
-    delete globalThis.window;
+    delete globalThis.window;delete globalThis.location;
   }
 
   const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'better-codex-ai-rename-page-'));
@@ -224,75 +284,52 @@ async function waitFor(predicate,timeout=3000){
       bridge.state({requestId:bridge.pull().requestId,phase:'failed',reason:'transcript-unavailable'});
       return bridge.snapshot().text==='无法读取聊天记录，已保留原名'&&!bridge.snapshot().busy;
     }));
-    await page.evaluate(()=>window.__codexAiRename.remove());
-    check('page-module-cleans-up',await page.locator('[data-bc-ai-rename-root],[id="better-codex-ai-rename-style"]').count()===0);
-
-    await page.evaluate(value=>{
-      const row=document.createElement('div');
-      row.dataset.appActionSidebarThreadActive='true';
-      row.dataset.appActionSidebarThreadId='local:'+value;
-      row.dataset.appActionSidebarThreadTitle='旧标题';
-      row.innerHTML='<button data-thread-title>旧标题</button>';
-      row.style.cssText='position:fixed;left:20px;top:20px;width:180px;height:32px';
-      const open=()=>{
-        document.querySelector('[role="dialog"]')?.remove();
-        const dialog=document.createElement('div');dialog.setAttribute('role','dialog');
-        dialog.style.cssText='position:fixed;left:220px;top:80px;width:320px;height:90px;background:#222;padding:12px';
-        dialog.innerHTML='<form><input><button type="submit">保存</button></form>';
-        dialog.querySelector('input').value=row.dataset.appActionSidebarThreadTitle||'';
-        dialog.querySelector('form').addEventListener('submit',event=>{
+    await page.evaluate(({id,otherId})=>{
+      window.fastRequests=[];
+      window.__betterCodexRequestAiRename=requestId=>window.fastRequests.push(requestId);
+      const sidebar=document.createElement('aside');
+      sidebar.innerHTML=[id,otherId].map(value=>`<div data-app-action-sidebar-thread-id="local:${value}"
+        data-app-action-sidebar-thread-kind="local" data-app-action-sidebar-thread-host-id="local">
+        <span>聊天</span><button aria-haspopup="menu">…</button></div>`).join('');
+      document.body.append(sidebar);
+      for(const row of sidebar.children){
+        function open(event){
           event.preventDefault();
-          row.querySelector('[data-thread-title]').textContent=dialog.querySelector('input').value;
-          row.dataset.appActionSidebarThreadTitle=dialog.querySelector('input').value;
-          dialog.remove();
-        });
-        document.body.append(dialog);
-        dialog.querySelector('input').focus();
-      };
-      row.querySelector('[data-thread-title]').addEventListener('dblclick',open);
-      document.addEventListener('keydown',event=>{
-        if(event.key==='Escape')document.querySelector('[role="dialog"]')?.remove();
-      });
-      document.body.append(row);
-    },id);
-    await applyThreadTitle(page,id,'feat：AI 重命名',{timeout:2000});
-    check('native-rename-targets-current-chat-and-submits-title',
-      await page.locator(`[data-app-action-sidebar-thread-id="local:${id}"] [data-thread-title]`).textContent()==='feat：AI 重命名');
-
-    await page.evaluate(({id,otherId})=>{
-      const row=document.querySelector('[data-app-action-sidebar-thread-id="local:'+id+'"]');
-      row.dataset.appActionSidebarThreadActive='true';
-      row.dataset.appActionSidebarThreadSelected='true';
-      row.dataset.appActionSidebarThreadId='local:client-new-thread:'+otherId;
-      row.dataset.appActionSidebarThreadTitle='旧标题';
-      row.querySelector('[data-thread-title]').textContent='旧标题';
+          document.querySelector('[role="menu"]')?.remove();
+          const menu=document.createElement('div');
+          menu.setAttribute('role','menu');menu.dataset.state='open';
+          menu.innerHTML='<div tabindex="-1" role="menuitem" aria-keyshortcuts="R">重命名</div><div role="menuitem">置顶</div>';
+          menu.addEventListener('keydown',event=>{if(event.key==='Escape')menu.remove();});
+          document.body.append(menu);
+        }
+        row.addEventListener('contextmenu',open);
+        row.querySelector('button').addEventListener('click',open);
+      }
     },{id,otherId});
-    await assert.rejects(applyThreadTitle(page,id,'bug: 无法确认目标',{expectedName:'其他标题'}),/title-row-missing/);
-    await applyThreadTitle(page,id,'bug: 临时聊天标题',{timeout:2000,expectedName:'旧标题'});
-    check('native-rename-follows-selected-temporary-chat-row',
-      await page.locator(`[data-app-action-sidebar-thread-id="local:client-new-thread:${otherId}"] [data-thread-title]`).textContent()==='bug: 临时聊天标题');
-
-    await page.evaluate(({id,otherId})=>{
-      const editor=document.querySelector('[data-app-action-sidebar-thread-id="local:client-new-thread:'+otherId+'"] [data-thread-title]');
-      editor.textContent='旧标题';
-      editor.closest('[data-app-action-sidebar-thread-id]').dataset.appActionSidebarThreadTitle='旧标题';
-      document.querySelector('[role="dialog"]')?.remove();
-      document.addEventListener('input',event=>{
-        if(event.target.matches('[role="dialog"] input'))window.activeThreadId=otherId;
-      },{once:true});
-    },{id,otherId});
-    await assert.rejects(applyThreadTitle(page,id,'bug: 错误标题',{timeout:1000,expectedName:'旧标题'}),error=>error.message==='thread-changed');
-    check('native-rename-aborts-when-chat-switches-during-edit',
-      await page.locator(`[data-app-action-sidebar-thread-id="local:client-new-thread:${otherId}"] [data-thread-title]`).textContent()==='旧标题');
-
-    await page.evaluate(value=>window.activeThreadId=value,id);
-    await page.evaluate(()=>{
-      const dialog=document.createElement('div');dialog.setAttribute('role','dialog');
-      dialog.style.cssText='position:fixed;left:220px;top:80px;width:320px;height:90px;background:#222;padding:12px';
-      dialog.innerHTML='<form><input></form>';document.body.append(dialog);
+    const otherRow=page.locator(`[data-app-action-sidebar-thread-id="local:${otherId}"]`);
+    await otherRow.locator('span').click({button:'right'});
+    let top=page.locator('[role="menu"] [role="menuitem"]').first();
+    check('sidebar-context-menu-puts-ai-rename-with-icon-first',await top.textContent()==='AI 重命名'&&
+      await top.locator('svg').count()===1);
+    await page.getByRole('menuitem',{name:'重命名',exact:true}).focus();
+    await page.keyboard.press('ArrowUp');
+    check('sidebar-rename-can-be-reached-by-keyboard',await top.evaluate(element=>document.activeElement===element));
+    await page.keyboard.press('Enter');
+    const sidebarRequest=await page.evaluate(()=>{
+      const requestId=window.fastRequests.pop();
+      const request=window.__codexAiRename.pull(requestId);
+      window.__codexAiRename.state({requestId,phase:'success',title:'feat：AI 重命名'});
+      return request;
     });
-    await assert.rejects(applyThreadTitle(page,id,'chore: 忙碌弹窗',{timeout:500}),error=>error.message==='dialog-busy');
-    check('native-rename-refuses-to-replace-another-dialog',true);
+    check('sidebar-context-menu-binds-target-not-active-chat-and-dispatches-immediately',
+      sidebarRequest.threadId===otherId&&await page.locator('[role="menu"]').count()===0);
+    await page.locator(`[data-app-action-sidebar-thread-id="local:${id}"] button`).click();
+    top=page.locator('[role="menu"] [role="menuitem"]').first();
+    check('sidebar-ellipsis-adds-same-top-item',await top.textContent()==='AI 重命名');
+    await top.click();
+    check('sidebar-ellipsis-binds-its-own-row',await page.evaluate(()=>window.__codexAiRename.pull().threadId)===id);
+    await page.evaluate(()=>window.__codexAiRename.remove());
+    check('page-module-cleans-up',await page.locator('[data-bc-ai-rename-root],[id="better-codex-ai-rename-style"],[data-bc-sidebar-ai-rename]').count()===0);
   }finally{
     await context.close();
     fs.rmSync(scratch,{recursive:true,force:true});

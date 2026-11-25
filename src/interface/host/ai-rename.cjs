@@ -1,8 +1,8 @@
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),readline=require('node:readline');
 const {execFile,spawn}=require('node:child_process');
 const {promisify}=require('node:util');
-const {readThreadTranscript,readThreadRow,formatTranscript}=require('./session-transcript.cjs');
-const {applyThreadTitle}=require('./native-rename.cjs');
+const {readThreadTranscript,formatTranscript,validThreadId}=require('./session-transcript.cjs');
+const {setThreadTitle}=require('./thread-title-api.cjs');
 const execute=promisify(execFile);
 
 const MODEL='gpt-6-luna',MAX_TITLE=24;
@@ -131,64 +131,60 @@ async function defaultExecutable(){
   if(!fs.existsSync(executable))throw new Error('codex-missing');
   return resolvedExecutable=executable;
 }
-function createAiRenameManager({settings,page,isActive,readTranscript=readThreadTranscript,resolveExecutable=defaultExecutable,
-  callFactory=createLunaClient,applyTitle=applyThreadTitle}){
-  let running=false,closed=false,client=null,last={phase:'idle',reason:null,updatedAt:0};
-  function status(){return {...last};}
-  async function notify(value){
-    if(!isActive()||closed)return;
-    try{await page.evaluate(state=>window.__codexAiRename?.state?.(state),value);}catch{}
-  }
-  async function sameThread(threadId){
-    if(!isActive()||closed)return false;
-    try{return await page.evaluate(id=>window.__codexComposerHud?.snapshot?.().id===id,threadId);}catch{return false;}
-  }
+function createAiRenameManager({settings,readTranscript=readThreadTranscript,resolveExecutable=defaultExecutable,
+  callFactory=createLunaClient,applyTitle=setThreadTitle}){
+  const jobs=new Map();
+  let closed=false;
   function failureReason(error){
     const value=error?.code||error?.message||'failed';
-    return /^(invalid-thread|empty|transcript-unavailable|transcript-changed|thread-changed|dialog-busy|title-row-missing|title-not-applied|inactive|format|type|description|language|characters|too-long|timeout|model|cancelled|codex-missing|failed)$/.test(value)?value:'failed';
+    return /^(invalid-thread|empty|transcript-unavailable|transcript-changed|title-api-unavailable|title-api-rejected|title-api-timeout|title-not-confirmed|format|type|description|language|characters|too-long|timeout|model|cancelled|codex-missing|failed)$/.test(value)?value:'failed';
   }
-  async function execute(request){
+  function start({requestId,threadId},onState){
+    if(closed||typeof requestId!=='string')return;
+    const report=(phase,reason,metadata={},title)=>{
+      if(closed)return;
+      try{onState({phase,reason,updatedAt:Date.now(),...metadata},
+        {requestId,phase,reason,title,running:phase==='running'});}catch{}
+    };
+    if(!validThreadId(threadId)){report('failed','invalid-thread');return;}
+    threadId=threadId.toLowerCase();
+    if(jobs.has(threadId)){report('failed','busy');return;}
+    const abort=new AbortController(),job={abort,client:null};
+    jobs.set(threadId,job);
     const started=Date.now();
-    last={phase:'running',reason:null,updatedAt:started};
-    if(!await sameThread(request.threadId))throw new Error('thread-changed');
-    const transcript=await readTranscript(settings.codexHome,request.threadId);
-    if(!transcript.messages.some(message=>message.role==='user'))throw new Error('empty');
-    const executable=await resolveExecutable();
-    client=callFactory({executable,codexHome:settings.codexHome});
-    const title=await generateTitle(transcript.messages,{call:prompt=>client.run(prompt)});
-    if(!await sameThread(request.threadId))throw new Error('thread-changed');
-    await applyTitle(page,request.threadId,title,{
-      active:()=>isActive()&&!closed,
-      expectedName:readThreadRow(settings.codexHome,request.threadId)?.name?.trim(),
-      verify:async()=>{
-        const row=readThreadRow(settings.codexHome,request.threadId);
-        return row?.name?.trim()===title;
-      }
-    });
-    last={phase:'success',reason:null,updatedAt:Date.now(),titleLength:Array.from(title).length,durationMs:Date.now()-started};
-    await notify({requestId:request.requestId,phase:'success',title,running:false});
-  }
-  function start(request,observation){
-    if(closed||!request||typeof request.requestId!=='string')return;
-    if(running||request.threadId!==observation?.id||
-      (Number.isInteger(request.generation)&&request.generation!==observation.generation)){
-      notify({requestId:request.requestId,phase:'failed',running:false}).catch(()=>{});
-      return;
-    }
-    running=true;
-    execute(request).catch(error=>{
-      last={phase:'failed',reason:failureReason(error),updatedAt:Date.now()};
-      notify({requestId:request.requestId,phase:'failed',reason:last.reason,running:false}).catch(()=>{});
-    }).finally(()=>{
-      running=false;client=null;
-    });
+    let modelStarted=null,saveStarted=null,modelMs;
+    report('running',null);
+    return (async()=>{
+      // Resolve the CLI and read the bound transcript concurrently; no page is needed here.
+      const [transcript,executable]=await Promise.all([
+        readTranscript(settings.codexHome,threadId),resolveExecutable()
+      ]);
+      if(abort.signal.aborted)throw new Error('cancelled');
+      if(!transcript.messages.some(message=>message.role==='user'))throw new Error('empty');
+      job.client=callFactory({executable,codexHome:settings.codexHome});
+      modelStarted=Date.now();
+      const title=await generateTitle(transcript.messages,{call:prompt=>job.client.run(prompt)});
+      modelMs=Date.now()-modelStarted;
+      if(abort.signal.aborted)throw new Error('cancelled');
+      saveStarted=Date.now();
+      await applyTitle({executable,codexHome:settings.codexHome,threadId,title,signal:abort.signal});
+      report('success',null,{titleLength:Array.from(title).length,modelMs,saveMs:Date.now()-saveStarted,
+        durationMs:Date.now()-started},title);
+    })().catch(error=>{
+      const now=Date.now();
+      report('failed',failureReason(error),{durationMs:now-started,
+        ...(modelStarted===null?{}:{modelMs:modelMs??now-modelStarted}),
+        ...(saveStarted===null?{}:{saveMs:now-saveStarted})});
+    }).finally(()=>jobs.delete(threadId));
   }
   function close(){
     closed=true;
-    try{client?.cancel();}catch{}
-    client=null;
+    for(const {abort,client} of jobs.values()){
+      abort.abort();
+      try{client?.cancel();}catch{}
+    }
   }
-  return {start,close,status};
+  return {start,close};
 }
 module.exports={normalizeTitle,parseTitleResponse,titlePrompt,generateTitle,
   createLunaClient,createAiRenameManager,defaultExecutable,MAX_TITLE,EXAMPLES};
