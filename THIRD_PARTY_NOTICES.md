@@ -4,6 +4,8 @@ Better-Codex is an independent community project and is not affiliated with Open
 
 ## Code reused
 
+The standalone workspace tree bundles the [Pierre Trees](https://trees.software/docs) renderer and its dependencies. The bundle uses a distinct custom-element name so it can coexist with Codex's viewer. Its [versions, copyrights and licenses](src/interface/workspace_tree/TREE-RENDERER-LICENSES.txt) are included in both distributions.
+
 Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hud) and its contributors. `src/interface/statistics/collector/metrics.py` and `history.py` derive from its `v1.3.0-beta.8` sources at commit [`1c51c0a`](https://github.com/drkang7/codex-token-hud/tree/1c51c0aead8814a140b14cd33e7a2fa08453317c). The local adaptation removes the unused dashboard entry point and corrects response timing and restored-usage handling. Its [MIT copyright and license](src/interface/statistics/collector/LICENSE) are preserved, including the original compatibility location under tools/token-hud-local/collector/. This substantial reuse is not presented as original Better-Codex work.
 
 ## Related work

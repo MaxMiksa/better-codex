@@ -50,6 +50,18 @@ Add `-NodeHome <isolated-prefix>` for verification and `-Offline` to rebuild fro
 
 Browser checks use installed Edge and Playwright; no browser download is needed. Optional native preview checks also need Pillow in the development interpreter.
 
+### Rebuild the workspace tree renderer
+
+Source and portable builds already include the pinned [Pierre Trees](https://trees.software/docs) browser bundle and its license notices. Only when updating that dependency, rebuild offline runtime assets from the separate build manifest, not from the installed Codex app:
+
+```powershell
+npm --prefix scripts/workspace-tree ci --ignore-scripts --no-audit --no-fund
+node scripts/workspace-tree/build.mjs
+python -B -X utf8 scripts/check.py workspace-tree --work .validation-runtime/workspace-tree --dependencies .runtime/token-hud/embedded/settings.json
+```
+
+The builder gives the component its own element name so it can coexist with Codex's file viewer. Review the generated bundle and notices together; neither distribution needs npm to use the tree.
+
 ## Run the affected checks
 
 ```powershell

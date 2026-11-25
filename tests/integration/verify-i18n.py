@@ -36,7 +36,7 @@ entrypoints = [ROOT / 'Install.ps1', *(ROOT / 'src').rglob('*.ps1'), ROOT / 'src
                HERE.parent / 'portable_bootstrap.py', HERE.parent / 'install_taskbar_entry.py',
                *(ROOT / 'src/interface').rglob('*.js'), HERE.parent / 'embedded/metrics-view.cjs']
 for entry in entrypoints:
-    if entry.name.startswith('Verify-'):
+    if entry.name.startswith('Verify-') or entry == ROOT / 'src/interface/workspace_tree/tree-renderer.js':
         continue
     content = entry.read_text(encoding='utf-8-sig')
     keys = re.findall(r"(?:Get-BetterCodexText\s+|\b(?:t|text|translate)\(|BetterCodexI18n\.Text\(root,\s*)['\"]([\w.-]+)['\"]", content)

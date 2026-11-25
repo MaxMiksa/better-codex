@@ -25,7 +25,9 @@ async function main(){
     for(const [key,file] of Object.entries({commands:'../appearance/command-menu.js',aiRename:'../appearance/ai-rename.js',fold:'../appearance/composer-fold.js',hud:'../statistics/composer-strip.js',reading:'../reading/reading-width.js',sorting:'../reading/table-sort.js',files:'../file_changes/file-changes.js',accent:'../appearance/custom-accent.js'})){
       sources[key]=fs.readFileSync(path.join(__dirname,file),'utf8');
     }
-    sources.workspaceTree=fs.readFileSync(path.join(__dirname,'../workspace_tree/workspace-tree.js'),'utf8');
+    try{
+      sources.workspaceTree=require('../workspace_tree/page-source.cjs').workspaceTreeSource({codexHome:settings.codexHome});
+    }catch{/* An optional feature must not prevent other window enhancements. */}
     while(browser.isConnected()&&!fs.existsSync(stop)){
       const pages=new Set(browser.contexts().flatMap(context=>context.pages()).filter(page=>!page.isClosed()&&isMainPageUrl(page.url())));
       for(const [page,state] of windows){

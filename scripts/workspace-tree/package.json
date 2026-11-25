@@ -1,0 +1,1 @@
+{"name":"better-codex-workspace-tree-build","private":true,"dependencies":{"@pierre/trees":"1.0.0","esbuild":"0.27.3"}}
