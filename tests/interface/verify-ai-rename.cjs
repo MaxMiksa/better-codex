@@ -315,7 +315,11 @@ async function waitFor(predicate,timeout=3000){
         }else{
           portal.return={memoizedProps:{menuShortcuts:true,getItems:()=>[]},child:{stateNode:row,sibling:portal}};
         }
-        menu.__reactFiber$fixture={stateNode:menu,return:portal};
+        // The real Radix menu reaches its owner through the focus, popper,
+        // and desktop portal wrappers, putting the owner beyond 48 ancestors.
+        let branch=portal;
+        for(let i=0;i<65;i++)branch={return:branch};
+        menu.__reactFiber$fixture={stateNode:menu,return:branch};
       };
     },{id,otherId});
     const otherRow=page.locator(`[data-app-action-sidebar-thread-id="local:${otherId}"]`);
@@ -386,6 +390,23 @@ async function waitFor(predicate,timeout=3000){
       await owned.locator('[role="menuitem"]').first().textContent()==='AI 重命名');
     check('same-shortcut-outside-the-sidebar-is-not-decorated',
       await page.locator('#unrelated-menu [data-bc-sidebar-ai-rename]').count()===0);
+    await page.evaluate(value=>{
+      const trigger=document.querySelector(`[data-app-action-sidebar-thread-id="local:${value}"] button`);
+      trigger.id='native-popover-trigger';
+      trigger.setAttribute('aria-haspopup','menu');
+      trigger.setAttribute('aria-controls','native-popover');
+      const menu=document.createElement('div');menu.id='native-popover';
+      menu.setAttribute('role','menu');menu.dataset.state='open';
+      menu.setAttribute('aria-labelledby',trigger.id);
+      menu.innerHTML='<div role="menuitem" aria-keyshortcuts="R">重命名</div>';
+      document.body.append(menu);
+      const unrelated=menu.cloneNode(true);
+      unrelated.id='another-popover';
+      document.body.append(unrelated);
+    },id);
+    check('native-popover-uses-reciprocal-trigger-relationship-without-react-fiber',
+      await page.locator('#native-popover [role="menuitem"]').first().textContent()==='AI 重命名'&&
+      await page.locator('#another-popover [data-bc-sidebar-ai-rename]').count()===0);
     await owned.evaluate(menu=>{menu.dataset.state='closed';});
     check('closed-menu-drops-its-old-binding',await owned.locator('[data-bc-sidebar-ai-rename]').count()===0);
     await owned.evaluate(menu=>{menu.dataset.state='open';});

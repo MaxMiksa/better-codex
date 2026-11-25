@@ -125,8 +125,16 @@
     return row;
   }
   function menuOwner(menu){
+    if(menu.parentElement?.closest('[role="menu"]'))return null;
+    // Native popover menus and their triggers explicitly reference each other.
+    const labelledBy=menu.getAttribute('aria-labelledby');
+    const triggerElement=labelledBy&&document.getElementById(labelledBy);
+    if(menu.id&&triggerElement?.getAttribute('aria-haspopup')==='menu'&&
+      triggerElement.getAttribute('aria-controls')===menu.id)return triggerElement.closest(rowSelector);
     let clickMenu=false;
-    for(let fiber=fiberOf(menu),depth=0;fiber&&depth<48;fiber=fiber.return,depth+=1){
+    // Radix and desktop overlay adapters can insert dozens of layers between
+    // the menu content and its owner. Follow the ancestry rather than counting them.
+    for(let fiber=fiberOf(menu);fiber;fiber=fiber.return){
       const element=fiber.stateNode,props=fiber.memoizedProps;
       if(element instanceof Element&&element!==menu){
         if(element.matches('[role="menu"]'))return null; // portaled submenu
