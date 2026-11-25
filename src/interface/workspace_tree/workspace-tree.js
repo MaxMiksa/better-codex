@@ -42,32 +42,14 @@
   }
   const same=(a,b)=>a&&b&&a.id===b.id&&a.page===b.page&&a.content===b.content&&a.dock===b.dock;
 
-  function windowsPath(value){
-    if(typeof value!=='string'||!/^[a-z]:[\\/]/i.test(value)||value.length>32767)return null;
-    const path=value.replaceAll('/','\\').replace(/\\+$/,'');
-    const pieces=path.slice(3).split('\\');
-    if(path.length>2&&!pieces.every(bcWorkspaceWindowsName))return null;
-    return path;
-  }
-  function allowedRoot(value){
-    const path=windowsPath(value),home=windowsPath(bcTreeRoots.home),codex=windowsPath(bcTreeRoots.codexHome);
-    if(!path||path.length<4||!home||!codex)return null;
-    const key=path.toLowerCase(),personal=home.toLowerCase(),state=codex.toLowerCase();
-    const within=(p,base)=>p===base||p.startsWith(base+'\\');
-    if(within(personal,key)||within(state,key))return null;
-    if(within(key,state)&&!key.startsWith(state+'\\worktrees\\'))return null;
-    // Protect the normal state directory too when the app uses a custom Codex home.
-    const defaultState=personal+'\\.codex';
-    if(within(key,defaultState)&&!key.startsWith(defaultState+'\\worktrees\\'))return null;
-    return path;
-  }
+  const localRoot=value=>allowedRoot(value,bcTreeRoots);
   function registeredProject(root,projects){
     const path=root.toLowerCase();
     let longest=0,matches=new Map();
     for(const project of projects){
       if(!idPattern.test(project?.id??'')||!Array.isArray(project.roots))continue;
       for(const item of project.roots){
-        const base=allowedRoot(item?.path)?.toLowerCase();
+        const base=localRoot(item?.path)?.toLowerCase();
         if(!base||base.length<longest||(path!==base&&!path.startsWith(base+'\\')))continue;
         if(base.length>longest){longest=base.length;matches.clear();}
         matches.set(project.id.toLowerCase(),project);
@@ -103,10 +85,16 @@
   const strings={
     en:{title:'Workspace files',close:'Close workspace files',filter:'Filter files…',
       resize:'Resize workspace file tree',resizeHint:'Drag to resize; double-click to reset',
-      loading:'Loading files…',readError:'Workspace files unavailable',empty:'No files',noMatches:'No matching files'},
+      loading:'Loading files…',readError:'Workspace files unavailable',empty:'No files',noMatches:'No matching files',
+      openFolder:'Open project folder in File Explorer',locate:'Show in File Explorer',
+      peekUnavailable:'PowerToys Peek was not found.',locateOnly:'Shown in File Explorer instead.',actionFailed:'Could not open this item.',
+      folderBackground:'Folder opened. Switch to File Explorer in the taskbar.'},
     zh:{title:'工作区文件树',close:'关闭工作区文件树',filter:'筛选文件…',
       resize:'调整文件树宽度',resizeHint:'拖动调整宽度，双击恢复默认',
-      loading:'正在加载…',readError:'当前无法读取工作区文件',empty:'工作区为空',noMatches:'没有匹配的文件'}
+      loading:'正在加载…',readError:'当前无法读取工作区文件',empty:'工作区为空',noMatches:'没有匹配的文件',
+      openFolder:'在资源管理器中打开项目目录',locate:'在资源管理器中定位',
+      peekUnavailable:'未找到 PowerToys Peek。',locateOnly:'已改为在资源管理器中定位。',actionFailed:'无法打开此项。',
+      folderBackground:'目录已打开，可从任务栏切换到资源管理器。'}
   };
   const locale=()=>window.__codexHudI18n?.locale?.()??document.documentElement.lang;
   function t(full){
@@ -114,20 +102,69 @@
     // An already-open window can temporarily retain the previous language pack.
     return text&&text!==full?text:strings[/^zh/i.test(locale())?'zh':'en'][full.slice('workspaceTree.'.length)];
   }
+  function treeSort(){
+    const alphabet=new Intl.Collator(/^zh/i.test(locale())?'zh-CN-u-co-pinyin':'en',{sensitivity:'base',numeric:true});
+    const compare=(a,b)=>alphabet.compare(a,b)||(a===b?0:a<b?-1:1);
+    const git=new Set(['.gitattributes','.gitignore','.gitmodules','.gitconfig','.gitkeep']);
+    const type=name=>{
+      name=name.toLowerCase();
+      if(git.has(name))return 'git';
+      const dot=name.lastIndexOf('.');
+      return dot>0?name.slice(dot+1):'';
+    };
+    return (a,b)=>{
+      // Compare each sibling level, so descendants stay with their directory.
+      for(let i=0;i<Math.min(a.segments.length,b.segments.length);i++){
+        const x=a.segments[i],y=b.segments[i];
+        const xDir=a.isDirectory||i<a.segments.length-1,yDir=b.isDirectory||i<b.segments.length-1;
+        if(xDir!==yDir)return xDir?-1:1;
+        if(!xDir){
+          const first=type(x),second=type(y);
+          if(first!==second)return !first?1:!second?-1:compare(first,second);
+        }
+        if(x!==y)return compare(x,y);
+      }
+      return a.segments.length-b.segments.length;
+    };
+  }
 
   const triggerHost=document.createElement('span');
   triggerHost.dataset.bcWorkspaceTreeTrigger='';
-  triggerHost.style.cssText='display:inline-flex;align-items:center;gap:8px;flex:0 1 auto;min-width:28px;max-width:32%;pointer-events:auto;-webkit-app-region:no-drag';
+  triggerHost.style.cssText='position:relative;display:inline-flex;align-items:center;gap:8px;flex:0 1 auto;min-width:28px;max-width:32%;pointer-events:auto;-webkit-app-region:no-drag';
   const triggerShadow=triggerHost.attachShadow({mode:'open'});
-  triggerShadow.innerHTML='<style>button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:7px;background:none;color:inherit;cursor:pointer;padding:0}button:where(:hover,[aria-expanded=true]){background:color-mix(in srgb,currentColor 9%,transparent)}button:focus-visible{outline:1px solid var(--codex-base-accent,currentColor);outline-offset:-2px}</style><button type="button" aria-expanded="false" aria-controls="bc-workspace-files"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h5l2 2h4v5H5a2 2 0 0 1-2-2Zm3 7v7h5m0-2h7l2 2v3h-9z"/></svg></button>';
+  triggerShadow.innerHTML='<style>button{border:0;border-radius:7px;background:none;color:inherit;cursor:pointer;padding:0}button[aria-controls]{display:grid;place-items:center;width:28px;height:28px}button:where(:hover,[aria-expanded=true]){background:color-mix(in srgb,currentColor 9%,transparent)}button:focus-visible{outline:1px solid var(--codex-base-accent,currentColor);outline-offset:-2px}.notice{position:absolute;inset-block-start:100%;inset-inline-start:0;z-index:5;padding:6px 9px;border-radius:7px;background:var(--color-token-bg-primary,light-dark(#fff,#1c1c1c));box-shadow:0 2px 8px #0003;white-space:nowrap;pointer-events:none}</style><button type="button" aria-expanded="false" aria-controls="bc-workspace-files"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h5l2 2h4v5H5a2 2 0 0 1-2-2Zm3 7v7h5m0-2h7l2 2v3h-9z"/></svg></button>';
   const trigger=triggerShadow.querySelector('button');
   trigger.style.flex='none';
-  const projectLabel=document.createElement('span');
+  const projectLabel=document.createElement('button');
+  projectLabel.type='button';
   projectLabel.dataset.bcWorkspaceProjectName='';
   projectLabel.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-inline-size:200px;font-size:var(--text-sm,13px);font-weight:600';
   projectLabel.hidden=true;
-  triggerShadow.append(projectLabel);
-  let enabled=false,disposed=false,frame=0,binding=null,surface=null,current=null;
+  const headerNotice=document.createElement('span');
+  headerNotice.className='notice';headerNotice.setAttribute('role','status');headerNotice.hidden=true;
+  triggerShadow.append(projectLabel,headerNotice);
+  let enabled=false,disposed=false,frame=0,binding=null,surface=null,current=null,noticeTimer=0;
+  const fileItem=(view,path)=>{
+    const item=typeof path==='string'?view?.tree?.getItem(path):null;
+    return item&&!item.isDirectory()?item:null;
+  };
+  function clearNotice(){
+    clearTimeout(noticeTimer);
+    headerNotice.hidden=true;headerNotice.textContent='';
+    if(surface){surface.notice.hidden=true;surface.notice.textContent='';}
+  }
+  const actions=bcWorkspaceActions({
+    contextIsCurrent:context=>enabled&&binding===context&&!context.pending&&same(context.scope,layout()),
+    fileIsCurrent:(view,path)=>current===view&&surface?.pane.isConnected&&Boolean(fileItem(view,path)),
+    notice(status){
+      clearNotice();
+      const node=surface?.notice??headerNotice;
+      const key={peekUnavailable:'workspaceTree.peekUnavailable',locateOnly:'workspaceTree.locateOnly',
+        actionFailed:'workspaceTree.actionFailed',folderBackground:'workspaceTree.folderBackground'}[status];
+      node.hidden=false;node.textContent=t(key);
+      noticeTimer=setTimeout(clearNotice,4000);
+    }
+  });
 
   function label(){
     trigger.title=surface?t('workspaceTree.close'):t('workspaceTree.title');
@@ -135,8 +172,10 @@
     trigger.setAttribute('aria-expanded',String(Boolean(surface)));
     const name=binding?.name??'';
     if(projectLabel.textContent!==name){
-      projectLabel.textContent=name;projectLabel.title=name;projectLabel.hidden=!name;
+      projectLabel.textContent=name;projectLabel.hidden=!name;
     }
+    const folderTitle=name?t('workspaceTree.openFolder')+': '+name:'';
+    if(projectLabel.title!==folderTitle)projectLabel.title=folderTitle;
     if(surface){
       surface.separator.setAttribute('aria-label',t('workspaceTree.resize'));
       surface.separator.title=t('workspaceTree.resizeHint');
@@ -148,7 +187,7 @@
     view.dirs?.close();view.unsubscribe?.();view.tree?.cleanUp();
   }
   function hide(focus=false){
-    disposeView();surface?.sizer.dispose();surface?.pane.remove();surface=null;
+    disposeView();clearNotice();surface?.sizer.dispose();surface?.pane.remove();surface=null;
     label();
     if(focus&&triggerHost.isConnected)trigger.focus({preventScroll:true});
   }
@@ -239,22 +278,37 @@
       'input::placeholder{color:currentColor;opacity:.6}'+
       '.tree{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;overflow:hidden;--trees-theme-sidebar-bg:transparent;--trees-theme-sidebar-fg:var(--color-token-text-primary,currentColor);--trees-theme-list-hover-bg:color-mix(in srgb,currentColor 8%,transparent);--trees-theme-list-active-selection-bg:color-mix(in srgb,currentColor 13%,transparent)}'+
       '.tree>bc-workspace-file-tree{display:block;min-height:0;min-width:0;flex:1;height:100%}'+
-      '.status{margin:8px 9px;font:inherit}'+
+      '.status,.notice{margin:8px 9px;font:inherit}'+
       '.splitter{position:absolute;inset-block:0;inset-inline-end:0;width:8px;z-index:1;cursor:ew-resize;touch-action:none;user-select:none}'+
       '.splitter::after{content:"";position:absolute;inset-block:0;inset-inline-end:0;width:2px;pointer-events:none}'+
       '.splitter:where(:hover,:focus-visible,[data-dragging])::after{background:var(--codex-base-accent,currentColor)}'+
       '.splitter:focus-visible{outline:none}'+
-      '</style><div class="dock"><label><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" autocomplete="off" spellcheck="false" disabled></label><div class="status" role="status"></div><div class="tree"></div></div><div class="splitter" role="separator" aria-orientation="vertical" tabindex="0"></div>';
+      '</style><div class="dock"><label><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" autocomplete="off" spellcheck="false" disabled></label><div class="notice" role="status" hidden></div><div class="status" role="status"></div><div class="tree"></div></div><div class="splitter" role="separator" aria-orientation="vertical" tabindex="0"></div>';
     const input=shadow.querySelector('input'),status=shadow.querySelector('.status'),wrap=shadow.querySelector('.tree'),separator=shadow.querySelector('.splitter');
     pane.addEventListener('keydown',event=>{
       if(event.key==='Escape'&&!event.defaultPrevented){
         event.preventDefault();event.stopPropagation();setOpen(reconcile(),false,true);
       }
     });
-    return {pane,input,status,wrap,separator,sizer:makeSizer(pane,separator)};
+    function filePath(event){
+      const row=event.composedPath().find(node=>node instanceof Element&&node.matches('[role="treeitem"][data-item-path]'));
+      return fileItem(current,row?.dataset.itemPath)?.getPath();
+    }
+    wrap.addEventListener('dblclick',event=>{
+      const path=filePath(event);
+      if(path&&event.button===0)actions.start(event,'open',current.context,current,path);
+    });
+    wrap.addEventListener('keydown',event=>{
+      if(!event.isTrusted||event.key!==' '||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+      const path=filePath(event);
+      if(!path||current.tree.getFocusedItem()?.getPath()!==path)return;
+      event.preventDefault();event.stopPropagation();
+      if(!event.repeat)actions.start(event,'preview',current.context,current,path);
+    },true);
+    return {pane,input,status,wrap,separator,notice:shadow.querySelector('.notice'),sizer:makeSizer(pane,separator)};
   }
   function present(scope,message){
-    disposeView();
+    disposeView();clearNotice();
     const {pane,input,status,wrap,sizer}=surface??=makeSurface();
     sizer.cancel();
     wrap.replaceChildren();input.oninput=null;input.value='';input.disabled=true;
@@ -283,8 +337,19 @@
       if(!isCurrent())return;
       view.pathCount=paths.length;
       if(!view.tree){
-        view.tree=new bcTreeRenderer.FileTree({paths,initialExpansion:'closed',
-          flattenEmptyDirectories:false,icons:{set:'complete',colored:true},itemHeight:26,fileTreeSearchMode:'hide-non-matches'});
+        view.tree=new bcTreeRenderer.FileTree({paths,initialExpansion:'closed',sort:treeSort(),
+          flattenEmptyDirectories:false,icons:{set:'complete',colored:true},itemHeight:26,fileTreeSearchMode:'hide-non-matches',
+          composition:{contextMenu:{render(item,controls){
+            if(!fileItem(view,item.path)||!isCurrent())return null;
+            const button=document.createElement('button');
+            button.type='button';button.setAttribute('role','menuitem');
+            button.style.cssText='border:0;border-radius:5px;padding:5px 8px;background:transparent;color:inherit;font:inherit;cursor:pointer;white-space:nowrap';
+            button.textContent=t('workspaceTree.locate');
+            button.addEventListener('click',event=>{
+              controls.close();actions.start(event,'locate',context,view,item.path);
+            });
+            return button;
+          }}}});
         view.tree.render({containerWrapper:wrap});
         view.unsubscribe=view.tree.subscribe(()=>{
           if(view.updating||input.value.trim()||!isCurrent())return;
@@ -347,7 +412,7 @@
     try{
       const result=await transport.send('thread/read',{threadId:scope.id,includeTurns:false},2400);
       if(!valid())return;
-      const thread=result?.thread,root=thread?.id===scope.id&&allowedRoot(thread.cwd);
+      const thread=result?.thread,root=thread?.id===scope.id&&localRoot(thread.cwd);
       if(root){
         explicitId=idPattern.test(thread.projectId??'')?thread.projectId.toLowerCase():null;
         let registered=null;
@@ -403,6 +468,7 @@
     const context=reconcile();
     setOpen(context,!surface,true);
   });
+  projectLabel.addEventListener('click',event=>actions.start(event,'folder',reconcile()));
   function storageChanged(event){
     if(event.key===null||event.key===widthKey){
       preferredWidth=readPreferredWidth();surface?.sizer.draw();
@@ -427,6 +493,7 @@
   window.addEventListener('resize',schedule);
   window.addEventListener('storage',storageChanged);
   window.__codexWorkspaceTree={
+    pullAction:actions.pull,confirmAction:actions.confirm,actionResult:actions.result,
     setEnabled(value){
       if(enabled===(value===true))return;
       enabled=value===true;reconcile();

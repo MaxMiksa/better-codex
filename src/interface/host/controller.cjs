@@ -17,6 +17,7 @@ async function main(){
   const sources={i18n:require('../../platform/i18n/i18n.js').pageSource()};
   const readThemes=createThemeReader(path.join(settings.codexHome,'config.toml'));
   const readPrompts=createPromptReader(settings.codexHome);
+  let workspaceAction;
   const aiRename=createAiRenameManager({settings,applyTitle:async options=>{
     const page=[...windows.keys()].find(page=>!page.isClosed()&&isMainPageUrl(page.url()));
     if(!page||!await setDesktopThreadTitle(page,options))await setThreadTitle(options);
@@ -26,6 +27,15 @@ async function main(){
       sources[key]=fs.readFileSync(path.join(__dirname,file),'utf8');
     }
     try{
+      workspaceAction=require('../workspace_tree/native-actions.cjs').createWorkspaceActions(settings,{
+        desktopPid:()=>{
+          try{
+            const status=JSON.parse(fs.readFileSync(path.join(runtime,'supervisor.json'),'utf8'));
+            return status.controllerPid===process.pid?status.desktopPid:null;
+          }
+          catch{return null;}
+        }
+      });
       sources.workspaceTree=require('../workspace_tree/page-source.cjs').workspaceTreeSource({codexHome:settings.codexHome});
     }catch{/* An optional feature must not prevent other window enhancements. */}
     while(browser.isConnected()&&!fs.existsSync(stop)){
@@ -38,7 +48,7 @@ async function main(){
         if(windows.has(page))continue;
         const id=randomUUID(),state={id,stopped:false,done:false,retryAt:0,status:{visible:false,rendered:false,reason:'connecting'}};
         windows.set(page,state);
-        state.task=runWindow({page,state,settings,store,sources,readThemes,readPrompts,aiRename,
+        state.task=runWindow({page,state,settings,store,sources,readThemes,readPrompts,aiRename,workspaceAction,
           runtime:path.join(runtime,'windows',id),stopping:()=>!browser.isConnected()||fs.existsSync(stop)})
           .catch(error=>{state.retryAt=Date.now()+3000;state.status={visible:false,rendered:false,reason:'window-unavailable',errorType:error.name,code:error.code||null,checkedAt:Date.now()};})
           .finally(()=>{state.done=true;});

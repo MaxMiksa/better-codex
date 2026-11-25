@@ -1,8 +1,3 @@
-// Windows path components must stay literal when passed to the App Server.
-const bcWorkspaceWindowsName=name=>typeof name==='string'&&name.length>0&&name.length<=255&&
-  !/[\x00-\x1f\\/:<>"|?*]|[. ]$/.test(name)&&
-  !/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name);
-
 const bcWorkspaceTransport = onChanged => {
   const pending=new Map();
   let closed=false;
@@ -114,7 +109,7 @@ const bcCreateWorkspaceDirectories = ({root,isCurrent,onUpdate,onError}) => {
       if(!Array.isArray(result?.entries))throw 'unavailable';
       const entries=new Map();
       for(const row of result.entries.slice(0,maxPerDir)){
-        if(bcWorkspaceWindowsName(row?.fileName))entries.set(row.fileName,{name:row.fileName,folder:row.isDirectory===true});
+        if(windowsName(row?.fileName))entries.set(row.fileName,{name:row.fileName,folder:row.isDirectory===true});
       }
       const next=[...entries.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
       if(!dir.loaded||next.length!==dir.entries.length||next.some((e,i)=>

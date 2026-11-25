@@ -62,6 +62,10 @@ python -B -X utf8 scripts/check.py workspace-tree --work .validation-runtime/wor
 
 The builder gives the component its own element name so it can coexist with Codex's file viewer. Review the generated bundle and notices together; neither distribution needs npm to use the tree.
 
+File grouping uses the pinned renderer's sort option; sorting changes don't require rebuilding the bundle. The workspace check exercises that renderer and the local action bridge with stubbed Peek and Windows shell calls. Preview uses the documented PowerToys command-line entry point; no Codex file-page component is loaded.
+
+Project-name clicks prefer the window's initialized `appServices.openIn.open` with the local `fileManager` target. The adapter checks the loaded entry's module cache by export name, never by asset hash or module ID. This is an internal desktop compatibility point, not a public API. When absent, keep the Windows fallback; do not register another AppHost port for an existing view or retry an already dispatched native action.
+
 ## Run the affected checks
 
 ```powershell

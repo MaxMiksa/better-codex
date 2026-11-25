@@ -8,6 +8,7 @@ const pageModules=['__codexWorkspaceTree','__codexTableSort','__codexCustomAccen
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const promptBinding='__betterCodexRequestPrompts';
 const renameBinding='__betterCodexRequestAiRename';
+const workspaceBinding='__betterCodexWorkspaceAction';
 const read=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return null;}};
 const {normalize:commandVisible,normalizeSkillVisible,normalizeSectionOrder,normalizeGroupOrder,normalizeItemOrder}=require('../appearance/command-menu.js');
 const METRIC_KEYS=['ttft','speed','cache','age'];
@@ -76,7 +77,7 @@ function patch(value={}){
   return result;
 }
 
-async function runWindow({page,state,settings,store,sources,readThemes,readPrompts,aiRename,runtime,stopping}){
+async function runWindow({page,state,settings,store,sources,readThemes,readPrompts,aiRename,workspaceAction,runtime,stopping}){
   const writer=createWriter(),write=writer.write;
   const active=()=>!state.stopped&&!stopping()&&!page.isClosed()&&isMainPageUrl(page.url());
   let session,previous,settingsSaveError=null;
@@ -126,6 +127,20 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
   function onRenameRequest({name,payload}){
     if(name===renameBinding&&typeof payload==='string'&&payload.length<=80)acceptRename(payload).catch(()=>{});
   }
+  async function onWorkspaceRequest({name,payload}){
+    if(name!==workspaceBinding||typeof payload!=='string'||!(/^[a-f0-9-]{36}$/.test(payload))||!active())return;
+    const id={runtime:state.id,request:payload};
+    try{
+      const request=await page.evaluate(({runtime,request})=>
+        window.__betterCodexRuntime===runtime?window.__codexWorkspaceTree?.pullAction?.(request):null,id);
+      if(!request||!active())return;
+      const status=await workspaceAction(request,async()=>active()&&await page.evaluate(({runtime,request})=>
+        window.__betterCodexRuntime===runtime&&window.__codexWorkspaceTree?.confirmAction?.(request),id));
+      if(active())await page.evaluate(({runtime,request,status})=>{
+        if(window.__betterCodexRuntime===runtime)window.__codexWorkspaceTree?.actionResult?.(request,status);
+      },{...id,status});
+    }catch{} // Closed windows and navigation must not block other windows.
+  }
   try{
     fs.mkdirSync(runtime,{recursive:true});
     session=await page.context().newCDPSession(page);
@@ -136,6 +151,10 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
     if(readPrompts){
       session.on('Runtime.bindingCalled',onPromptRequest);
       await session.send('Runtime.addBinding',{name:promptBinding}).catch(()=>{});
+    }
+    if(sources.workspaceTree&&workspaceAction){
+      session.on('Runtime.bindingCalled',onWorkspaceRequest);
+      await session.send('Runtime.addBinding',{name:workspaceBinding}).catch(()=>{});
     }
     while(active()){
       const collectorStatus=collector.tick();
@@ -238,6 +257,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
     if(session){
       if(sources.aiRename){session.off('Runtime.bindingCalled',onRenameRequest);await session.send('Runtime.removeBinding',{name:renameBinding}).catch(()=>{});}
       if(readPrompts){session.off('Runtime.bindingCalled',onPromptRequest);await session.send('Runtime.removeBinding',{name:promptBinding}).catch(()=>{});}
+      if(sources.workspaceTree&&workspaceAction){session.off('Runtime.bindingCalled',onWorkspaceRequest);await session.send('Runtime.removeBinding',{name:workspaceBinding}).catch(()=>{});}
       await session.detach().catch(()=>{});
     }
     // Async removal retries transient Windows locks without blocking other windows.

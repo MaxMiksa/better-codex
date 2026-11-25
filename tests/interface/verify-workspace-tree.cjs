@@ -1,13 +1,61 @@
 const assert=require('node:assert/strict');
+const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
 const {pageSource}=require('../../src/platform/i18n/i18n.js');
 const {workspaceTreeSource}=require('../../src/interface/workspace_tree/page-source.cjs');
+const {createWorkspaceActions}=require('../../src/interface/workspace_tree/native-actions.cjs');
 const {chromium}=require(process.env.HUD_PLAYWRIGHT||'playwright');
 const uuid=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const [a,b,c,d,e,f,p,q]=[1,2,3,4,5,6,100,101].map(uuid);
 let passed=0;
 function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS '+name);}
 
+async function checkNativeActions(){
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'bc-tree-actions-'));
+  try{
+    const root=path.join(dir,'folder, with (punctuation)'),other=path.join(dir,'other');
+    const home=path.join(dir,'home'),codexHome=path.join(home,'.codex');
+    await fs.mkdir(root);await fs.mkdir(other);await fs.mkdir(codexHome,{recursive:true});
+    const preview=path.join(dir,'PowerToys.Peek.UI.exe'),doc=path.join(root,'文件 & notes.md');
+    const script=path.join(root,'script.js'),shortcut=path.join(root,'test.lnk');
+    for(const file of [preview,doc,script,shortcut,path.join(other,'outside.md')])await fs.writeFile(file,'fixture');
+    await fs.symlink(other,path.join(root,'redirect'),'junction');
+    const calls=[];
+    const settings={home,codexHome};
+    const shell=async(...args)=>{calls.push(args);};
+    const perform=createWorkspaceActions(settings,{candidates:[preview],peek:async(...args)=>{calls.push(['peek',...args]);},shell});
+    const yes=()=>true,run=(kind,relative,still=yes)=>perform({kind,root,relative},still);
+    check('Preview passes a single literal path to the known Peek executable',
+      await run('preview',path.basename(doc))===null&&JSON.stringify(calls.pop())===JSON.stringify(['peek',preview,[doc]]));
+    check('Open uses the default app for ordinary documents',await run('open',path.basename(doc))===null&&calls.pop()?.[0]==='open');
+    check('Folder and locate use separate Explorer verbs',await run('folder','')===null&&
+      JSON.stringify(calls.pop())===JSON.stringify(['folder',root])&&await run('locate',path.basename(doc))===null&&calls.pop()?.[0]==='locate');
+    check('Folder launch distinguishes foreground denial from a failed open',await createWorkspaceActions(settings,{
+      candidates:[],shell:async()=>{throw Object.assign(Error(),{code:3});}
+    })({kind:'folder',root,relative:''},yes)==='folderBackground');
+    const nativeFolder={kind:'folder',root,relative:'',nativeFolder:true};
+    check('Host authorizes the native handoff only after path and scope validation without launching Windows',
+      await perform(nativeFolder,yes)==='openNativeFolder'&&await perform(nativeFolder,()=>false)===null&&
+      await perform({...nativeFolder,root:codexHome},yes)==='actionFailed'&&calls.length===0);
+    check('Source previews as text, but scripts and shortcuts do not open through the shell',
+      await run('preview','script.js')===null&&calls.pop()?.[0]==='peek'&&await run('open','script.js')==='locateOnly'&&calls.pop()?.[0]==='locate'&&
+      await run('preview','test.lnk')==='locateOnly'&&calls.pop()?.[0]==='locate');
+    check('Missing Peek does not prevent ordinary opening',await createWorkspaceActions(settings,{candidates:[],shell})(
+      {kind:'preview',root,relative:path.basename(doc)},yes)==='peekUnavailable'&&calls.length===0&&
+      await createWorkspaceActions(settings,{candidates:[],shell})({kind:'open',root,relative:path.basename(doc)},yes)===null&&calls.pop()?.[0]==='open');
+    check('Missing Windows file association falls back to locating',await createWorkspaceActions(settings,{
+      candidates:[],shell:async(verb,file)=>{if(verb==='open')throw Object.assign(Error(),{code:2});await shell(verb,file);}
+    })({kind:'open',root,relative:path.basename(doc)},yes)==='locateOnly'&&calls.pop()?.[0]==='locate');
+    for(const relative of ['../other/outside.md','redirect/outside.md','test.lnk:alt','COM1 .md','no-longer-exists.md']){
+      assert.equal(await run('open',relative),'actionFailed',relative);
+    }
+    check('Host rejects traversal, redirects, devices, ADS, deleted files and private roots without launching',
+      await perform({kind:'folder',root:codexHome,relative:''},yes)==='actionFailed'&&calls.length===0);
+    check('Host rechecks the current chat just before launching',await run('preview',path.basename(doc),()=>false)===null&&calls.length===0);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
+}
+
 (async()=>{
+  await checkNativeActions();
   const browser=await chromium.launch({channel:'msedge',headless:true});
   try{
     const context=await browser.newContext({viewport:{width:1060,height:640}});
@@ -23,7 +71,7 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
       '<div id="thread" data-above-composer-conversation-id="'+a+'">Chat composer</div></div></div></main></section></body></html>'}));
     await page.goto(url);
     await page.evaluate(({a,b,c,d,e,f,p,q})=>{
-      const app=window.fixture={requests:[],nativeCalls:0,delay:0,watches:new Map(),
+      const app=window.fixture={requests:[],nativeCalls:0,nativeOpens:[],actions:[],delay:0,watches:new Map(),
         projectIds:{[c]:p,[b]:q},projects:[
           {id:p,name:'Registered project',roots:[{path:'d:/WORK/app/'}]},
           {id:q,name:'Other project',roots:[{path:'D:\\work\\other'}]}
@@ -32,8 +80,8 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
           [a]:'D:\\work\\app',[b]:'D:\\work\\other',[c]:'C:\\Users\\Max\\.codex\\worktrees\\one\\app',
           [d]:'d:\\WORK\\app\\sub',[e]:'D:/work/unregistered/',[f]:'d:\\WORK\\unregistered'
         },files:{
-          'D:\\work\\app':[['src',true],['empty',true],['.gitignore'],['package.json'],['name..'],['..\\unsafe']],
-          'D:\\work\\app\\src':[['index.ts'],['index.js']],
+          'D:\\work\\app':[['src',true],['empty',true],['.gitignore'],['.gitattributes'],['package.json'],['Zebra.cmd'],['Alpha.md'],['beta.CMD'],['LICENSE'],['name..'],['..\\unsafe']],
+          'D:\\work\\app\\src':[['index.ts'],['index.js'],['Zulu.JS']],
           'D:\\work\\app\\empty':[],
           'D:\\work\\other':[['other.md']],
           'C:\\Users\\Max\\.codex\\worktrees\\one\\app':[['worktree.md']],
@@ -46,6 +94,13 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
         type:'mcp-notification',hostId,method:'fs/changed',params:{watchId,changedPaths:['ignored']}
       },origin);
       app.change=id=>document.querySelector('#thread').setAttribute('data-above-composer-conversation-id',id);
+      window.__betterCodexWorkspaceAction=id=>{
+        const tree=window.__codexWorkspaceTree,request=tree.pullAction(id);
+        if(!request||tree.pullAction(id)!==null)throw Error('Invalid action');
+        app.actions.push({id,...request});
+        if(!app.holdActions)tree.actionResult(id,tree.confirmAction(id)?
+          request.nativeFolder?'openNativeFolder':app.actionResult??null:null);
+      };
       customElements.define('file-tree-container',class extends HTMLElement{});
       app.nativeTag=customElements.get('file-tree-container');
       document.querySelector('#native').addEventListener('click',()=>{
@@ -77,7 +132,7 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     },{a,b,c,d,e,f,p,q});
     await page.addScriptTag({content:pageSource('zh-CN')});
     await page.addScriptTag({content:workspaceTreeSource({home:'C:\\Users\\Max',codexHome:'C:\\Users\\Max\\.codex'})});
-    const pane=page.locator('[data-bc-workspace-files]'),trigger=page.locator('[data-bc-workspace-tree-trigger] button');
+    const pane=page.locator('[data-bc-workspace-files]'),trigger=page.locator('[data-bc-workspace-tree-trigger] button[aria-controls]');
     const projectName=page.locator('[data-bc-workspace-project-name]');
     const splitter=pane.getByRole('separator',{name:'调整文件树宽度'});
     const widthKey='better-codex:workspace-tree-width';
@@ -100,6 +155,13 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     check('the registered project name appears beside the button even when closed',await pane.count()===0&&
       await evalPage(()=>document.querySelector('[data-bc-workspace-tree-trigger]').shadowRoot
         .querySelector('button').nextElementSibling.hasAttribute('data-bc-workspace-project-name')));
+    await evalPage(()=>{fixture.actionResult='folderBackground';});
+    await projectName.click();
+    check('the project name opens the actual folder without opening the dock',await pane.count()===0&&
+      await evalPage(()=>fixture.actions.at(-1)?.kind==='folder'&&fixture.actions.at(-1)?.root==='D:\\work\\app'));
+    check('a background Explorer window is reported even when the tree is closed',await page
+      .locator('[data-bc-workspace-tree-trigger]').getByText('目录已打开，可从任务栏切换到资源管理器。').isVisible());
+    await evalPage(()=>{fixture.actionResult=null;});
     await click();await waitRow('package.json');
     check('button and dock sit to the left without moving native controls',await ready()&&await evalPage(()=>{
       const own=document.querySelector('[data-bc-workspace-files]');
@@ -117,6 +179,10 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     check('workspace folders and files are first-level rows without a synthetic root',
       await row('所有文件').count()===0&&await row('src').getAttribute('aria-level')==='1'&&
       await row('package.json').getAttribute('aria-level')==='1'&&await row('src').getAttribute('aria-expanded')==='false');
+    const order=level=>pane.locator('[role="treeitem"][aria-level="'+level+'"]').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label')));
+    const ordered=(actual,expected)=>expected.every((name,i)=>actual.indexOf(name)>=0&&(i===0||actual.indexOf(name)>actual.indexOf(expected[i-1])));
+    check('folders first, then type groups, then alphabetical without regard to case',ordered(await order(1),
+      ['empty','src','beta.CMD','Zebra.cmd','.gitattributes','.gitignore','package.json','Alpha.md','LICENSE']));
     check('splitter starts at the established default width',await width()===300&&await splitter.getAttribute('aria-valuenow')==='300');
     const edge=await splitter.boundingBox();
     const x=edge.x+edge.width/2,y=edge.y+edge.height/2;
@@ -152,10 +218,25 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     check('expanding reads only the chosen directory and shows its children on level two',
       JSON.stringify(await roots())===JSON.stringify(['D:\\work\\app','D:\\work\\app\\src'])&&
       await row('index.ts').getAttribute('aria-level')==='2');
+    check('type grouping is repeated inside folders',ordered(await order(2),['index.js','Zulu.JS','index.ts']));
     await row('index.ts').click();
     check('selecting a file does not open a page',await page.locator('[role="tabpanel"]').count()===0&&
-      await row('index.ts').getAttribute('aria-selected')==='true');
+      await row('index.ts').getAttribute('aria-selected')==='true'&&await evalPage(()=>fixture.actions.length===1));
+    await evalPage(()=>{fixture.actionResult='peekUnavailable';});
+    await page.keyboard.press('Space');
+    await pane.getByText('未找到 PowerToys Peek。').waitFor();
+    check('Space previews the focused file, not a page',await evalPage(()=>fixture.actions.at(-1)?.kind==='preview'&&
+      fixture.actions.at(-1)?.relative==='src/index.ts'));
+    await evalPage(()=>{fixture.actionResult=null;});
+    await row('index.ts').dblclick();
+    check('double-click opens without also previewing',await evalPage(()=>fixture.actions.length===3&&fixture.actions.at(-1)?.kind==='open'));
+    await row('index.ts').click({button:'right'});
+    await pane.getByRole('menuitem',{name:'在资源管理器中定位'}).click();
+    check('right-click menu locates the selected file',await evalPage(()=>fixture.actions.at(-1)?.kind==='locate'&&
+      fixture.actions.at(-1)?.relative==='src/index.ts'));
     const search=pane.getByRole('searchbox');
+    await search.press('Space');
+    check('Space in the filter is not intercepted',await search.inputValue()===' '&&await evalPage(()=>fixture.actions.length===4));
     await search.fill('index.ts');
     await row('index.js').waitFor({state:'detached'});
     check('filters loaded files without another read',await row('index.ts').count()===1&&(await roots()).length===2);
@@ -180,6 +261,8 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await waitRow('README.md');await waitRow('new.css');
     check('watch updates root and expanded child without collapsing',await row('index.js').count()===0&&
       (await row('src').getAttribute('aria-expanded'))==='true');
+    check('live file additions keep their type group order',ordered(await order(1),['Alpha.md','README.md','LICENSE'])&&
+      ordered(await order(2),['new.css','index.ts']));
     await row('src').locator('[data-item-section="icon"]').click();
     await waits(()=>fixture.watches.size===1);
     check('collapsing releases child watch');
@@ -193,13 +276,45 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     check('late watch acknowledgement is released after close',await evalPage(()=>fixture.watches.size===0));
     await evalPage(()=>{fixture.watchDelay=0;});
     await click();await waitRow('package.json');
+    await evalPage(()=>{fixture.holdActions=true;});
+    await row('package.json').click();
+    await page.keyboard.press('Space');
+    check('current scope can confirm a pending launch',await evalPage(()=>window.__codexWorkspaceTree.confirmAction(fixture.actions.at(-1).id)));
     await evalPage(()=>{fixture.pane=document.querySelector('[data-bc-workspace-files]');fixture.delay=160;});
     await change(c);await pane.getByText('正在加载…').waitFor();await waitRow('worktree.md');
+    check('a previous chat can no longer confirm its pending action',await evalPage(()=>
+      !window.__codexWorkspaceTree.confirmAction(fixture.actions.at(-1).id)));
+    await evalPage(()=>{fixture.holdActions=false;});
     check('same registered project retains the open dock across sessions and switches to the current worktree',await evalPage(()=>
       fixture.pane===document.querySelector('[data-bc-workspace-files]'))&&await row('package.json').count()===0);
     await projectName.getByText('Registered project',{exact:true}).waitFor();
     check('a worktree uses its registered project name rather than its folder name');
+    await page.route('**/assets/fixture-runtime.js',route=>route.fulfill({contentType:'application/javascript',body:`
+      export const __webpack_require__=()=>{throw Error('Never instantiate a module')};
+      __webpack_require__.c={'arbitrary-build-id':{exports:{setAppServices(){},setAppHost(){},appServices:{
+        openIn:{open(input){fixture.nativeOpens.push(input);return Promise.resolve({success:!fixture.failNative});}}
+      }}}};
+    `}));
+    await page.addScriptTag({url:'https://workspace-tree.invalid/assets/fixture-runtime.js',type:'module'});
+    await projectName.click();
+    await waits(()=>fixture.nativeOpens.length===1);
+    check('clicking a worktree title uses its actual root via the initialized Codex File Explorer service',
+      await evalPage(()=>fixture.actions.at(-1).nativeFolder&&
+        JSON.stringify(fixture.nativeOpens[0])===JSON.stringify({cwd:null,hostId:'local',path:'C:\\Users\\Max\\.codex\\worktrees\\one\\app',target:'fileManager'})));
+    await evalPage(()=>{fixture.failNative=true;fixture.actionCount=fixture.actions.length;});
+    await projectName.click();
+    await pane.getByText('无法打开此项。').waitFor();
+    check('a native failure does not launch a second fallback window',
+      await evalPage(()=>fixture.nativeOpens.length===2&&fixture.actions.length===fixture.actionCount+1));
+    await evalPage(()=>{fixture.holdActions=true;});
+    await projectName.click();
+    await waits(()=>fixture.actions.length===fixture.actionCount+2);
     await change(d);await waitRow('child-root.md');
+    await evalPage(()=>{
+      window.__codexWorkspaceTree.actionResult(fixture.actions.at(-1).id,'openNativeFolder');
+      fixture.holdActions=false;
+    });
+    check('a late native handoff cannot open the previous chat folder',await evalPage(()=>fixture.nativeOpens.length===2));
     check('an unassigned session below the registered root shares the same open state',await row('worktree.md').count()===0);
     await change(b);await noPane();
     check('a different project starts closed and releases the old directory watch',await waits(()=>fixture.watches.size===0));
