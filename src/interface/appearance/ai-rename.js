@@ -79,9 +79,13 @@
   const uuid=/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
   const menuSelector='[role="menu"][data-state="open"]';
   const menuEntries='[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]';
-  let opening=null;
+  const menuItems=new WeakMap();
   const menuEntriesFor=menu=>[...menu.querySelectorAll(menuEntries)]
     .filter(item=>item.closest('[role="menu"]')===menu&&!item.hasAttribute('data-bc-sidebar-ai-rename'));
+  function fiberOf(element){
+    const key=Object.getOwnPropertyNames(element).find(key=>key.startsWith('__reactFiber$'));
+    return key?element[key]:null;
+  }
   function sidebarThreadId(row){
     if(row.getAttribute('data-app-action-sidebar-thread-host-id')!=='local'||
       row.getAttribute('data-app-action-sidebar-thread-kind')!=='local')return null;
@@ -94,10 +98,8 @@
     if(!uuid.test(alias))return null;
     // Newly opened rows may retain a UI-only key after Codex has assigned a
     // persisted ID. Accept only a local component that explicitly owns this row.
-    const fiberKey=Object.getOwnPropertyNames(row).find(key=>key.startsWith('__reactFiber$'));
-    if(!fiberKey)return null;
     const ids=new Set();
-    for(let fiber=row[fiberKey],depth=0;fiber&&depth<12;fiber=fiber.return,depth+=1){
+    for(let fiber=fiberOf(row),depth=0;fiber&&depth<12;fiber=fiber.return,depth+=1){
       const props=fiber.memoizedProps;
       if(props?.rowRef?.current!==row||props.hostId!=='local'||props.isCodexCloudTask||
         typeof props.conversationId!=='string'||!uuid.test(props.conversationId))continue;
@@ -106,36 +108,59 @@
     }
     return ids.size===1?ids.values().next().value:null;
   }
-  function arm(event){
-    if(!(event.target instanceof Element))return;
-    if(event.target.closest('[role="menu"]'))return;
-    opening=null;
-    const row=event.target.closest(rowSelector);
-    if(!row)return;
-    const id=sidebarThreadId(row);
-    if(!id)return;
-    // Desktop hover buttons can open the menu without aria-haspopup. The
-    // chat's primary button is not a menu trigger; still verify the opened menu.
-    const trigger=event.target.closest('[aria-haspopup="menu"],button,[role="button"]');
-    if((event.type==='pointerdown'||event.type==='click')&&
-      (!trigger||!row.contains(trigger)||trigger===row||trigger.hasAttribute('data-interactive-row-button')))return;
-    opening={id,until:performance.now()+1800,alreadyOpen:new Set(document.querySelectorAll(menuSelector))};
+  function uniqueTriggerRow(branch){
+    const stack=branch?[branch]:[];
+    let row=null,visited=0;
+    while(stack.length){
+      if(++visited>256)return null;
+      const fiber=stack.pop(),element=fiber.stateNode;
+      if(fiber.sibling)stack.push(fiber.sibling);
+      // The trigger is rendered in the owner's normal tree, not its menu portal.
+      if(fiber.tag===4||element instanceof Element&&element.matches('[role="menu"]'))continue;
+      if(element instanceof Element&&element.isConnected&&element.matches(rowSelector)){
+        if(row&&row!==element)return null;
+        row=element;
+      }else if(fiber.child)stack.push(fiber.child);
+    }
+    return row;
   }
-  function extendMenu(){
-    if(!opening)return;
-    if(performance.now()>opening.until){opening=null;return;}
-    const isRename=item=>item.getAttribute('aria-keyshortcuts')?.toLowerCase()==='r'||
-      /^(?:rename(?: chat)?|重命名(?:聊天)?)(?:\s*r)?$/iu.test(item.textContent.trim());
-    const candidates=[...document.querySelectorAll(menuSelector)].filter(menu=>
-      !opening.alreadyOpen.has(menu)&&!menu.parentElement?.closest('[role="menu"]')).flatMap(menu=>{
-      const items=menuEntriesFor(menu),rename=items.find(isRename);
-      return rename&&rename.getAttribute('aria-disabled')!=='true'&&!rename.hasAttribute('data-disabled')?
-        [{menu,rename,first:items[0]}]:[];
-    });
-    if(candidates.length!==1)return;
-    const {menu,rename,first}=candidates[0],{id}=opening;
-    opening=null;
-    menu.querySelector('[data-bc-sidebar-ai-rename]')?.remove();
+  function menuOwner(menu){
+    let clickMenu=false;
+    for(let fiber=fiberOf(menu),depth=0;fiber&&depth<48;fiber=fiber.return,depth+=1){
+      const element=fiber.stateNode,props=fiber.memoizedProps;
+      if(element instanceof Element&&element!==menu){
+        if(element.matches('[role="menu"]'))return null; // portaled submenu
+        if(clickMenu){
+          const row=element.closest(rowSelector);
+          if(row)return row;
+        }
+      }
+      const trigger=props?.triggerRef?.current;
+      if(trigger instanceof Element&&trigger.isConnected&&
+        (menu.id&&props.contentId===menu.id||trigger.id&&menu.getAttribute('aria-labelledby')===trigger.id))
+        return trigger.closest(rowSelector);
+      if(props?.menuShortcuts===true&&typeof props.getItems==='function'){
+        if(clickMenu)return null; // do not fall through from an unrelated nested click menu
+        if(props.trigger==='click')clickMenu=true;
+        else return uniqueTriggerRow(fiber.child);
+      }
+    }
+    return null;
+  }
+  function extendMenu(menu){
+    const previous=menuItems.get(menu);
+    const items=menu.matches(menuSelector)?menuEntriesFor(menu):[];
+    const rename=items.find(item=>item.getAttribute('aria-keyshortcuts')?.toLowerCase()==='r'||
+      /^(?:rename(?: chat)?|重命名(?:聊天)?)(?:\s*r)?$/iu.test(item.textContent.trim()));
+    const row=rename&&rename.getAttribute('aria-disabled')!=='true'&&!rename.hasAttribute('data-disabled')?
+      menuOwner(menu):null;
+    const id=row&&sidebarThreadId(row),first=items[0];
+    if(previous?.row===row&&previous?.id===id&&menu.contains(previous.item)){
+      if(previous.item.nextElementSibling!==first)first.before(previous.item);
+      return;
+    }
+    if(previous){previous.item.remove();menuItems.delete(menu);}
+    if(!id)return;
     const item=document.createElement('button'),icon=document.createElement('span');
     item.type='button';item.setAttribute('role','menuitem');item.tabIndex=-1;item.dataset.bcSidebarAiRename='';
     item.className=rename.className;
@@ -148,15 +173,15 @@
     item.addEventListener('pointermove',event=>{if(event.pointerType==='mouse')item.focus({preventScroll:true});});
     item.addEventListener('click',event=>{
       event.stopPropagation();
-      if(!menu.matches(menuSelector)||!menu.contains(item))return;
+      if(!menu.matches(menuSelector)||menuOwner(menu)!==row||sidebarThreadId(row)!==id||!menu.contains(item))return;
       requestFor({id});
       // Dismiss only the menu that owns the new item. The title is saved by the host API.
       item.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));
     });
+    menuItems.set(menu,{row,id,item});
     first.before(item);
   }
   function menuKey(event){
-    if(event.key==='ContextMenu'||(event.key==='F10'&&event.shiftKey)){arm(event);return;}
     if(!['ArrowUp','ArrowDown'].includes(event.key)||!(event.target instanceof Element))return;
     const menu=event.target.closest(menuSelector),item=menu?.querySelector('[data-bc-sidebar-ai-rename]');
     if(!item)return;
@@ -165,14 +190,30 @@
       event.key==='ArrowUp'&&event.target===first?item:null;
     if(destination){event.preventDefault();event.stopPropagation();destination.focus({preventScroll:true});}
   }
-  const menuObserver=new MutationObserver(extendMenu);
-  menuObserver.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['data-state']});
-  for(const type of ['contextmenu','pointerdown','click'])window.addEventListener(type,arm,true);
+  const menuObserver=new MutationObserver(changes=>{
+    const menus=new Set();
+    for(const change of changes){
+      const target=change.target instanceof Element?change.target:change.target.parentElement;
+      const menu=target?.closest('[role="menu"]');
+      if(menu)menus.add(menu);
+      if(change.type==='attributes'&&target?.matches(rowSelector)){
+        for(const open of document.querySelectorAll(menuSelector))menus.add(open);
+      }
+      for(const node of change.addedNodes){
+        if(!(node instanceof Element))continue;
+        if(node.matches(menuSelector))menus.add(node);
+        for(const child of node.querySelectorAll(menuSelector))menus.add(child);
+      }
+    }
+    for(const menu of menus)if(menu.isConnected)extendMenu(menu);
+  });
+  menuObserver.observe(document.body,{childList:true,subtree:true,attributes:true,
+    attributeFilter:['data-state','aria-disabled','data-disabled','data-app-action-sidebar-thread-id']});
+  for(const menu of document.querySelectorAll(menuSelector))extendMenu(menu);
   window.addEventListener('keydown',menuKey,true);
   function remove(){
     if(timer)clearTimeout(timer);if(staleTimer)clearTimeout(staleTimer);
     menuObserver.disconnect();
-    for(const type of ['contextmenu','pointerdown','click'])window.removeEventListener(type,arm,true);
     window.removeEventListener('keydown',menuKey,true);
     for(const item of document.querySelectorAll('[data-bc-sidebar-ai-rename]'))item.remove();
     window.removeEventListener('resize',position);style.remove();host.remove();delete window.__codexAiRename;

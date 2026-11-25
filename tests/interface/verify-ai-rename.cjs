@@ -299,12 +299,24 @@ async function waitFor(predicate,timeout=3000){
           const menu=document.createElement('div');
           menu.setAttribute('role','menu');menu.dataset.state='open';
           menu.innerHTML='<div tabindex="-1" role="menuitem" aria-keyshortcuts="R">重命名</div><div role="menuitem">置顶</div>';
+          window.bindNativeMenu(row,menu,event.type==='click');
           menu.addEventListener('keydown',event=>{if(event.key==='Escape')menu.remove();});
           document.body.append(menu);
         }
         row.addEventListener('contextmenu',open);
         row.querySelector('button').addEventListener('click',open);
       }
+      window.bindNativeMenu=(row,menu,click=false)=>{
+        const portal={tag:4};
+        if(click){
+          const trigger=row.querySelector('button');
+          menu.id='fixture-dropdown';
+          portal.return={memoizedProps:{contentId:menu.id,triggerRef:{current:trigger}}};
+        }else{
+          portal.return={memoizedProps:{menuShortcuts:true,getItems:()=>[]},child:{stateNode:row,sibling:portal}};
+        }
+        menu.__reactFiber$fixture={stateNode:menu,return:portal};
+      };
     },{id,otherId});
     const otherRow=page.locator(`[data-app-action-sidebar-thread-id="local:${otherId}"]`);
     await otherRow.locator('span').click({button:'right'});
@@ -354,6 +366,37 @@ async function waitFor(predicate,timeout=3000){
     });
     await aliasedRow.locator('button').click();
     check('ambiguous-sidebar-alias-keeps-the-native-menu-unchanged',await top.textContent()==='重命名');
+
+    // An unrelated menu with the same shortcut cannot consume the sidebar
+    // action, and genuine menus need no fresh DOM event to be decorated.
+    await page.evaluate(value=>{
+      document.querySelector('[role="menu"]')?.remove();
+      const make=()=>{
+        const node=document.createElement('div');node.setAttribute('role','menu');node.dataset.state='open';
+        node.innerHTML='<div role="menuitem" aria-keyshortcuts="R">重命名</div>';
+        return node;
+      };
+      const other=make();other.id='unrelated-menu';document.body.append(other);
+      const sidebar=make();sidebar.id='sidebar-menu';
+      window.bindNativeMenu(document.querySelector('[data-app-action-sidebar-thread-id="local:'+value+'"]'),sidebar);
+      document.body.append(sidebar);
+    },id);
+    const owned=page.locator('#sidebar-menu');
+    check('menu-owned-by-a-sidebar-row-is-decorated-without-an-opening-event',
+      await owned.locator('[role="menuitem"]').first().textContent()==='AI 重命名');
+    check('same-shortcut-outside-the-sidebar-is-not-decorated',
+      await page.locator('#unrelated-menu [data-bc-sidebar-ai-rename]').count()===0);
+    await owned.evaluate(menu=>{menu.dataset.state='closed';});
+    check('closed-menu-drops-its-old-binding',await owned.locator('[data-bc-sidebar-ai-rename]').count()===0);
+    await owned.evaluate(menu=>{menu.dataset.state='open';});
+    check('reused-menu-node-gets-its-binding-on-reopen',await owned.locator('[data-bc-sidebar-ai-rename]').count()===1);
+    await owned.evaluate(menu=>{
+      const native=menu.querySelector('[aria-keyshortcuts="R"]').cloneNode(true);
+      menu.replaceChildren(native);
+    });
+    check('native-menu-rerender-restores-the-action-once-at-the-top',
+      await owned.locator('[role="menuitem"]').first().textContent()==='AI 重命名'&&
+      await owned.locator('[data-bc-sidebar-ai-rename]').count()===1);
     await page.evaluate(()=>window.__codexAiRename.remove());
     check('page-module-cleans-up',await page.locator('[data-bc-ai-rename-root],[id="better-codex-ai-rename-style"],[data-bc-sidebar-ai-rename]').count()===0);
   }finally{
