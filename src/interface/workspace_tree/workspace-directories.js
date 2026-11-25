@@ -3,14 +3,9 @@ const bcWorkspaceWindowsName=name=>typeof name==='string'&&name.length>0&&name.l
   !/[\x00-\x1f\\/:<>"|?*]|[. ]$/.test(name)&&
   !/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name);
 
-// Read-only, per-panel App Server session. This is not a filesystem scan:
-// the root and expanded directories are requested through the desktop transport.
-const bcCreateWorkspaceDirectories = ({threadId,allowedRoot,isCurrent,onUpdate,onError}) => {
-  const pending=new Map(),dirs=new Map(),watches=new Map();
-  const maxDirs=160,maxPerDir=10000,maxPaths=50000;
-  let closed=false,root=null;
-  const active=()=>!closed&&isCurrent();
-  const child=(parent,name)=>parent?parent+'/'+name:name;
+const bcWorkspaceTransport = onChanged => {
+  const pending=new Map();
+  let closed=false;
   function send(method,params,timeout=3500){
     return new Promise((resolve,reject)=>{
       const id='better-codex-tree:'+crypto.randomUUID();
@@ -36,11 +31,29 @@ const bcCreateWorkspaceDirectories = ({threadId,allowedRoot,isCurrent,onUpdate,o
     if(d.type==='mcp-response'){
       const result=d.message;
       pending.get(result?.id)?.(result?.error?'rejected':null,result?.result);
-    }else if(d.type==='mcp-notification'&&d.method==='fs/changed'&&active()){
-      const dir=watches.get(d.params?.watchId);
-      if(dir&&stillOpen(dir)){dir.dirty=true;queueRead(dir);}
+    }else if(!closed&&d.type==='mcp-notification'&&d.method==='fs/changed'){
+      onChanged?.(d.params?.watchId);
     }
   }
+  return {send,close(){
+    closed=true;
+    if(!pending.size)window.removeEventListener('message',receive);
+  }};
+};
+
+// Read-only, per-panel App Server session. Request just the root and expanded
+// directories. Project identity never changes which filesystem root is read.
+const bcCreateWorkspaceDirectories = ({root,isCurrent,onUpdate,onError}) => {
+  const dirs=new Map(),watches=new Map();
+  const maxDirs=160,maxPerDir=10000,maxPaths=50000;
+  let closed=false;
+  const active=()=>!closed&&isCurrent();
+  const child=(parent,name)=>parent?parent+'/'+name:name;
+  const transport=bcWorkspaceTransport(watchId=>{
+    const dir=watches.get(watchId);
+    if(dir&&stillOpen(dir)){dir.dirty=true;queueRead(dir);}
+  });
+  const {send}=transport;
   const stillOpen=dir=>active()&&dir.open&&dirs.get(dir.key)===dir;
   const absolute=key=>key?root+'\\'+key.replaceAll('/','\\'):root;
   function disposeWatch(dir){
@@ -128,17 +141,9 @@ const bcCreateWorkspaceDirectories = ({threadId,allowedRoot,isCurrent,onUpdate,o
     if(!dir.open){dir.open=true;dir.dirty=true;if(!dir.busy)void read(dir);}
     return dir;
   }
-  async function start(){
-    try{
-      const result=await send('thread/read',{threadId,includeTurns:false},2400);
-      if(!active())return;
-      const native=result?.thread;
-      if(native?.id!==threadId||!(root=allowedRoot(native.cwd)))throw 'no-workspace';
-      openDir('');
-    }catch{if(active())onError();}
-  }
+  function start(){if(active())openDir('');}
   function expand(keys){
-    if(!active()||!root)return;
+    if(!active())return;
     const wanted=new Set(['']);
     for(const key of keys){
       if(!key||wanted.size>=maxDirs)continue;
@@ -153,7 +158,7 @@ const bcCreateWorkspaceDirectories = ({threadId,allowedRoot,isCurrent,onUpdate,o
     closed=true;
     for(const dir of dirs.values())closeDir(dir);
     dirs.clear();
-    if(!pending.size)window.removeEventListener('message',receive);
+    transport.close();
   }
   return {start,expand,close};
 };

@@ -2,14 +2,16 @@ const assert=require('node:assert/strict');
 const {pageSource}=require('../../src/platform/i18n/i18n.js');
 const {workspaceTreeSource}=require('../../src/interface/workspace_tree/page-source.cjs');
 const {chromium}=require(process.env.HUD_PLAYWRIGHT||'playwright');
-const a='00000000-0000-4000-8000-000000000001',b='00000000-0000-4000-8000-000000000002';
+const uuid=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
+const [a,b,c,d,e,f,p,q]=[1,2,3,4,5,6,100,101].map(uuid);
 let passed=0;
 function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS '+name);}
 
 (async()=>{
   const browser=await chromium.launch({channel:'msedge',headless:true});
   try{
-    const page=await browser.newPage({viewport:{width:1060,height:640}});
+    const context=await browser.newContext({viewport:{width:1060,height:640}});
+    const page=await context.newPage();
     const exceptions=[];page.on('pageerror',error=>exceptions.push(error.message));
     const url='https://workspace-tree.invalid/index.html';
     await page.route(url,route=>route.fulfill({contentType:'text/html',body:
@@ -20,13 +22,21 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
       '<div data-app-shell-main-content-layout style="flex:1;min-width:0">'+
       '<div id="thread" data-above-composer-conversation-id="'+a+'">Chat composer</div></div></div></main></section></body></html>'}));
     await page.goto(url);
-    await page.evaluate(({a,b})=>{
-      const app=window.fixture={requests:[],nativeCalls:0,delay:0,watches:new Map(),remote:false,
-        roots:{[a]:'D:\\work\\app',[b]:'D:\\work\\other'},files:{
+    await page.evaluate(({a,b,c,d,e,f,p,q})=>{
+      const app=window.fixture={requests:[],nativeCalls:0,delay:0,watches:new Map(),
+        projectIds:{[c]:p,[b]:q},projects:[{id:p,roots:[{path:'d:/WORK/app/'}]},{id:q,roots:[{path:'D:\\work\\other'}]}],
+        roots:{
+          [a]:'D:\\work\\app',[b]:'D:\\work\\other',[c]:'C:\\Users\\Max\\.codex\\worktrees\\one\\app',
+          [d]:'d:\\WORK\\app\\sub',[e]:'D:/work/unregistered/',[f]:'d:\\WORK\\unregistered'
+        },files:{
           'D:\\work\\app':[['src',true],['empty',true],['.gitignore'],['package.json'],['name..'],['..\\unsafe']],
           'D:\\work\\app\\src':[['index.ts'],['index.js']],
           'D:\\work\\app\\empty':[],
-          'D:\\work\\other':[['other.md']]
+          'D:\\work\\other':[['other.md']],
+          'C:\\Users\\Max\\.codex\\worktrees\\one\\app':[['worktree.md']],
+          'd:\\WORK\\app\\sub':[['child-root.md']],
+          'D:\\work\\unregistered':[['fallback.md']],
+          'd:\\WORK\\unregistered':[['fallback.md']]
         }};
       const emit=(data,origin=location.origin)=>window.dispatchEvent(new MessageEvent('message',{source:window,origin,data}));
       app.notify=(watchId,hostId='local',origin=location.origin)=>emit({
@@ -48,7 +58,8 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
         setTimeout(()=>{
           const path=params.path;
           let result,error;
-          if(method==='thread/read')result={thread:{id:params.threadId,cwd:app.roots[params.threadId]}};
+          if(method==='thread/read')result={thread:{id:params.threadId,cwd:app.roots[params.threadId],projectId:app.projectIds[params.threadId]}};
+          else if(method==='project/list')result={data:app.projects,nextCursor:null};
           else if(method==='fs/getMetadata')result={isDirectory:!!app.files[path],isFile:false,isSymlink:path===app.link};
           else if(method==='fs/watch'){app.watches.set(params.watchId,path);result={};}
           else if(method==='fs/unwatch'){app.watches.delete(params.watchId);result={};}
@@ -59,7 +70,7 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
           emit({type:'mcp-response',hostId:'local',message:{id,result,error}});
         },wait);
       }};
-    },{a,b});
+    },{a,b,c,d,e,f,p,q});
     await page.addScriptTag({content:pageSource('zh-CN')});
     await page.addScriptTag({content:workspaceTreeSource({home:'C:\\Users\\Max',codexHome:'C:\\Users\\Max\\.codex'})});
     const pane=page.locator('[data-bc-workspace-files]'),trigger=page.locator('[data-bc-workspace-tree-trigger] button');
@@ -71,16 +82,21 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     const setEnabled=value=>page.evaluate(value=>window.__codexWorkspaceTree.setEnabled(value),value);
     const click=()=>trigger.click();
     const noPane=()=>pane.waitFor({state:'detached'});
+    const change=id=>page.evaluate(id=>fixture.change(id),id);
     const roots=()=>evalPage(()=>window.fixture.requests.filter(r=>r.method==='fs/readDirectory').map(r=>r.params.path));
     await setEnabled(true);
     await trigger.waitFor();
-    check('enable is idle: no tree or app-server request',await pane.count()===0&&await evalPage(()=>fixture.requests.length===0));
+    check('a closed tree resolves identity without any filesystem access',await pane.count()===0&&
+      await evalPage(()=>fixture.requests.every(r=>!r.method.startsWith('fs/'))));
     await click();await waitRow('package.json');
-    check('opens independent dock alongside chat',await ready()&&await evalPage(()=>{
+    check('button and dock sit to the left without moving native controls',await ready()&&await evalPage(()=>{
       const own=document.querySelector('[data-bc-workspace-files]');
-      const content=own.previousElementSibling;
+      const content=own.nextElementSibling;
+      const toolbar=document.querySelector('[data-app-shell-header-toolbar]');
       return own.parentElement.id==='dock'&&content.hasAttribute('data-app-shell-main-content-layout')&&
-        own.clientHeight>400&&content.clientWidth>500&&own.clientWidth>=260;
+        own.clientHeight>400&&content.clientWidth>500&&own.clientWidth>=260&&
+        own.getBoundingClientRect().right<=content.getBoundingClientRect().left&&
+        toolbar.firstElementChild.hasAttribute('data-bc-workspace-tree-trigger')&&toolbar.lastElementChild.id==='actions';
     }));
     check('keeps official file page and tag untouched',await evalPage(()=>fixture.nativeCalls===0&&
       !document.querySelector('[data-tab-id],file-tree-container')&&customElements.get('file-tree-container')===fixture.nativeTag));
@@ -136,18 +152,50 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await click();await noPane();
     await page.waitForTimeout(375);
     check('late watch acknowledgement is released after close',await evalPage(()=>fixture.watches.size===0));
+    await evalPage(()=>{fixture.watchDelay=0;});
+    await click();await waitRow('package.json');
+    await evalPage(()=>{fixture.pane=document.querySelector('[data-bc-workspace-files]');fixture.delay=160;});
+    await change(c);await pane.getByText('正在加载…').waitFor();await waitRow('worktree.md');
+    check('same registered project retains the open dock across sessions and switches to the current worktree',await evalPage(()=>
+      fixture.pane===document.querySelector('[data-bc-workspace-files]'))&&await row('package.json').count()===0);
+    await change(d);await waitRow('child-root.md');
+    check('an unassigned session below the registered root shares the same open state',await row('worktree.md').count()===0);
+    await change(b);await noPane();
+    check('a different project starts closed and releases the old directory watch',await waits(()=>fixture.watches.size===0));
+    await click();await waitRow('other.md');
+    await change(a);await waitRow('package.json');
+    await click();await noPane();
+    await change(c);await page.waitForTimeout(240);
+    check('closing in one project session closes other sessions of that project',await pane.count()===0);
+    await change(b);await waitRow('other.md');
+    check('the other project keeps its own remembered open state');
+    await setEnabled(false);await noPane();await waits(()=>fixture.watches.size===0);
+    check('settings off removes only our button/dock',await trigger.count()===0&&await page.locator('#native').isVisible());
+    await evalPage(()=>{window.__codexWorkspaceTree.remove();});
+    await page.addScriptTag({content:workspaceTreeSource({home:'C:\\Users\\Max',codexHome:'C:\\Users\\Max\\.codex'})});
+    await setEnabled(true);await waitRow('other.md');
+    check('a new tree module restores the local project state');
+    const peer=await context.newPage();
+    await peer.route(url,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Peer</title>'}));
+    await peer.goto(url);
+    await peer.evaluate(id=>localStorage.removeItem('better-codex:workspace-tree-open:project:'+id),q);
+    await noPane();
+    await peer.evaluate(id=>localStorage.setItem('better-codex:workspace-tree-open:project:'+id,'1'),q);
+    await waitRow('other.md');
+    await peer.close();
+    check('project open and close synchronize between windows');
+    await click();await noPane();
     await evalPage(()=>{fixture.watchDelay=0;fixture.delay=175;});
+    await change(a);
     await click();
-    await page.evaluate(b=>fixture.change(b),b);
+    await change(b);
     await noPane();
     const reads=await roots();
     await page.waitForTimeout(225);
     check('a late chat lookup cannot read old scope',(await roots()).length===reads.length);
     await click();await waitRow('other.md');
     check('new chat opens its own workspace',await row('package.json').count()===0);
-    await setEnabled(false);await noPane();await waits(()=>fixture.watches.size===0);
-    check('settings off removes only our button/dock',await trigger.count()===0&&await page.locator('#native').isVisible());
-    await setEnabled(true);
+    await click();await noPane();
     await evalPage(()=>fixture.link='D:\\work\\other');
     await click();await pane.getByText('当前无法读取工作区文件').waitFor();
     check('directory symlink is not listed or watched',(await roots()).at(-1)==='D:\\work\\other'&&
@@ -155,10 +203,19 @@ function check(name,value=true){assert.ok(value,name);passed++;console.log('PASS
     await click();await noPane();
     const metadata=await evalPage(()=>fixture.requests.filter(r=>r.method==='fs/getMetadata').length);
     for(const blocked of ['C:\\','C:\\Users\\Max','C:\\Users\\Max\\.codex\\sessions','D:\\work\\..\\private','\\\\remote\\share']){
+      await setEnabled(false);
       await page.evaluate(({b,blocked})=>fixture.roots[b]=blocked,{b,blocked});
+      await setEnabled(true);
       await click();await pane.getByText('当前无法读取工作区文件').waitFor();await click();
     }
     check('unsafe roots are rejected before filesystem RPC',await evalPage(()=>fixture.requests.filter(r=>r.method==='fs/getMetadata').length)===metadata);
+    await change(e);await click();await waitRow('fallback.md');
+    await change(f);
+    await page.waitForFunction(()=>[...fixture.watches.values()].includes('d:\\WORK\\unregistered'));
+    await waitRow('fallback.md');
+    check('unregistered sessions at the same normalized workspace share the open state');
+    await click();await noPane();
+    await change(b);
     await page.evaluate(b=>{
       const remote=document.createElement('div');
       remote.dataset.appActionSidebarThreadId=b;

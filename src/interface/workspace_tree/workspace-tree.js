@@ -16,10 +16,11 @@
   function layout(){
     const page=single(document,activeSelector,n=>!n.closest(excluded));
     if(!page)return null;
-    const slot=single(page,toolbarSelector,visible)?.lastElementChild;
+    const slot=single(page,toolbarSelector,visible);
     const main=single(page,mainSelector,visible);
-    if(!main||!visible(slot)||!slot.querySelector('button,[role="button"]')||
-      !['flex','inline-flex'].includes(getComputedStyle(slot).display))return null;
+    if(!main||!slot?.lastElementChild?.querySelector('button,[role="button"]'))return null;
+    const slotStyle=getComputedStyle(slot);
+    if(!['flex','inline-flex'].includes(slotStyle.display)||slotStyle.flexDirection!=='row')return null;
     const content=single(main,contentSelector,n=>visible(n)&&!n.closest('[data-app-shell-focus-area="right-panel"]'));
     const dock=content?.parentElement;
     if(!dock)return null;
@@ -60,6 +61,34 @@
     if(within(key,defaultState)&&!key.startsWith(defaultState+'\\worktrees\\'))return null;
     return path;
   }
+  function registeredProject(root,projects){
+    const path=root.toLowerCase();
+    let longest=0,ids=new Set();
+    for(const project of projects){
+      if(!idPattern.test(project?.id??'')||!Array.isArray(project.roots))continue;
+      for(const item of project.roots){
+        const base=allowedRoot(item?.path)?.toLowerCase();
+        if(!base||base.length<longest||(path!==base&&!path.startsWith(base+'\\')))continue;
+        if(base.length>longest){longest=base.length;ids=new Set();}
+        ids.add(project.id.toLowerCase());
+      }
+    }
+    return ids.size===1?[...ids][0]:null;
+  }
+  const storagePrefix='better-codex:workspace-tree-open:';
+  const transient=new Map();
+  function remembered(key){
+    if(transient.has(key))return transient.get(key);
+    try{return window.localStorage.getItem(storagePrefix+key)==='1';}
+    catch{return false;}
+  }
+  function remember(key,open){
+    try{
+      if(open)window.localStorage.setItem(storagePrefix+key,'1');
+      else window.localStorage.removeItem(storagePrefix+key);
+      transient.delete(key);
+    }catch{transient.set(key,open);}
+  }
   const strings={
     en:{title:'Workspace files',close:'Close workspace files',all:'All files',filter:'Filter files…',
       loading:'Loading files…',readError:'Workspace files unavailable',empty:'No files',noMatches:'No matching files'},
@@ -79,27 +108,30 @@
   const triggerShadow=triggerHost.attachShadow({mode:'open'});
   triggerShadow.innerHTML='<style>button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:7px;background:none;color:inherit;cursor:pointer;padding:0}button:where(:hover,[aria-expanded=true]){background:color-mix(in srgb,currentColor 9%,transparent)}button:focus-visible{outline:1px solid var(--codex-base-accent,currentColor);outline-offset:-2px}</style><button type="button" aria-expanded="false" aria-controls="bc-workspace-files"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h5l2 2h4v5H5a2 2 0 0 1-2-2Zm3 7v7h5m0-2h7l2 2v3h-9z"/></svg></button>';
   const trigger=triggerShadow.querySelector('button');
-  let enabled=false,disposed=false,frame=0,current=null;
+  let enabled=false,disposed=false,frame=0,binding=null,surface=null,current=null;
 
   function label(){
-    trigger.title=current?t('workspaceTree.close'):t('workspaceTree.title');
+    trigger.title=surface?t('workspaceTree.close'):t('workspaceTree.title');
     trigger.setAttribute('aria-label',trigger.title);
-    trigger.setAttribute('aria-expanded',String(Boolean(current)));
+    trigger.setAttribute('aria-expanded',String(Boolean(surface)));
   }
-  function close(focus=false){
+  function disposeView(){
     if(!current)return;
     const view=current;current=null;
-    view.dirs?.close();view.unsubscribe?.();view.tree?.cleanUp();view.pane.remove();
+    view.dirs?.close();view.unsubscribe?.();view.tree?.cleanUp();
+  }
+  function hide(focus=false){
+    disposeView();surface?.pane.remove();surface=null;
     label();
     if(focus&&triggerHost.isConnected)trigger.focus({preventScroll:true});
   }
-  function open(scope){
+  function makeSurface(){
     const pane=document.createElement('aside');
     pane.id='bc-workspace-files';pane.dataset.bcWorkspaceFiles='';
     pane.style.cssText='display:flex;flex:0 0 min(300px,45%);width:min(300px,45%);min-width:0;min-height:0;align-self:stretch';
     const shadow=pane.attachShadow({mode:'open'});
     shadow.innerHTML='<style>'+
-      ':host{box-sizing:border-box;border-inline-start:1px solid var(--color-token-border, color-mix(in srgb,currentColor 13%,transparent));background:var(--color-token-bg-primary,light-dark(#fff,#1c1c1c));color:var(--color-token-text-primary,inherit)}'+
+      ':host{box-sizing:border-box;border-inline-end:1px solid var(--color-token-border, color-mix(in srgb,currentColor 13%,transparent));background:var(--color-token-bg-primary,light-dark(#fff,#1c1c1c));color:var(--color-token-text-primary,inherit)}'+
       '.dock{display:flex;flex-direction:column;min-height:0;min-width:0;width:100%;padding:8px 6px 0;box-sizing:border-box}'+
       'label{display:flex;gap:7px;align-items:center;margin:0 3px 7px;padding:0 9px;height:29px;flex:none;border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:7px}'+
       'label:focus-within{border-color:var(--codex-base-accent,currentColor)}label svg{flex:none;opacity:.65}'+
@@ -110,13 +142,32 @@
       '.status{margin:8px 9px;font:inherit}'+
       '</style><div class="dock"><label><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" autocomplete="off" spellcheck="false" disabled></label><div class="status" role="status"></div><div class="tree"></div></div>';
     const input=shadow.querySelector('input'),status=shadow.querySelector('.status'),wrap=shadow.querySelector('.tree');
-    const all=t('workspaceTree.all');
+    pane.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&!event.defaultPrevented){
+        event.preventDefault();event.stopPropagation();setOpen(reconcile(),false,true);
+      }
+    });
+    return {pane,input,status,wrap};
+  }
+  function present(scope,message){
+    disposeView();
+    const {pane,input,status,wrap}=surface??=makeSurface();
+    wrap.replaceChildren();input.oninput=null;input.value='';input.disabled=true;
     pane.setAttribute('aria-label',t('workspaceTree.title'));
     input.placeholder=t('workspaceTree.filter');input.setAttribute('aria-label',input.placeholder);
-    status.textContent=t('workspaceTree.loading');
-    const view={scope,pane,tree:null,dirs:null,unsubscribe:null,expanded:[all],pathCount:0,updating:false};
-    current=view;scope.content.after(pane);label();
-    const isCurrent=()=>current===view&&pane.isConnected&&same(scope,layout());
+    status.textContent=t(message);status.hidden=false;
+    if(scope.content.previousElementSibling!==pane)scope.content.before(pane);
+    label();return surface;
+  }
+  function open(context){
+    if(current?.context===context)return;
+    const {scope,root}=context;
+    const {pane,input,status,wrap}=present(scope,root?'workspaceTree.loading':'workspaceTree.readError');
+    if(!root)return;
+    const all=t('workspaceTree.all');
+    const view={context,tree:null,dirs:null,unsubscribe:null,expanded:[all],pathCount:0,updating:false};
+    current=view;
+    const isCurrent=()=>current===view&&binding===context&&pane.isConnected&&same(scope,layout());
     const displayStatus=()=>{
       const filter=input.value.trim();
       const noMatches=filter&&view.tree.getSearchMatchingPaths().length===0;
@@ -153,35 +204,93 @@
       view.unsubscribe?.();view.unsubscribe=null;view.tree?.cleanUp();view.tree=null;wrap.replaceChildren();
       input.value='';input.disabled=true;status.textContent=t('workspaceTree.readError');status.hidden=false;
     }
-    input.addEventListener('input',()=>{
+    input.oninput=()=>{
       if(!view.tree||!isCurrent())return;
       view.updating=true;
       try{view.tree.setSearch(input.value.trim()||null);}
       finally{view.updating=false;}
       displayStatus();
-    });
-    pane.addEventListener('keydown',e=>{
-      if(e.key==='Escape'&&!e.defaultPrevented){e.preventDefault();e.stopPropagation();close(true);}
-    });
-    view.dirs=bcCreateWorkspaceDirectories({threadId:scope.id,allowedRoot,isCurrent,onUpdate,onError});
-    void view.dirs.start();
+    };
+    view.dirs=bcCreateWorkspaceDirectories({root,isCurrent,onUpdate,onError});
+    view.dirs.start();
+  }
+  function setOpen(context,openIt,focus=false){
+    if(!context||context!==binding)return;
+    if(context.pending)context.intent=openIt;
+    else if(context.key)remember(context.key,openIt);
+    if(!openIt)hide(focus);
+    else if(context.pending)present(context.scope,'workspaceTree.loading');
+    else open(context);
+  }
+  function applyRemembered(context){
+    if(context.key&&remembered(context.key))open(context);
+    else hide();
+  }
+  async function resolve(context){
+    const {scope}=context,transport=bcWorkspaceTransport();
+    const valid=()=>binding===context&&same(scope,layout());
+    try{
+      const result=await transport.send('thread/read',{threadId:scope.id,includeTurns:false},2400);
+      if(!valid())return;
+      const thread=result?.thread,root=thread?.id===scope.id&&allowedRoot(thread.cwd);
+      if(root){
+        let projectId=idPattern.test(thread.projectId??'')?thread.projectId.toLowerCase():null;
+        if(!projectId){
+          // Chats without an explicit project ID still belong to a registered root.
+          const projects=[];
+          try{
+            let cursor=null;
+            for(let page=0;page<3;page++){
+              const result=await transport.send('project/list',{cursor,limit:100},1400);
+              if(!valid())return;
+              if(!Array.isArray(result?.data))break;
+              projects.push(...result.data);
+              cursor=result.nextCursor;
+              if(typeof cursor!=='string'||!cursor)break;
+            }
+          }catch{/* Older App Servers can still use the workspace path. */}
+          projectId=registeredProject(root,projects);
+        }
+        context.root=root;
+        context.key=projectId?'project:'+projectId:'root:'+root.toLowerCase();
+      }
+    }catch{/* A failed lookup never reuses another chat's files or project. */}
+    finally{transport.close();}
+    if(!valid())return;
+    context.pending=false;
+    if(context.intent!==null)setOpen(context,context.intent);
+    else applyRemembered(context);
   }
   function reconcile(){
     if(disposed)return null;
     const scope=enabled?layout():null;
-    if(current&&(!same(current.scope,scope)||current.pane.parentElement!==scope?.dock))close();
-    if(!scope){triggerHost.remove();return null;}
-    if(triggerHost.parentElement!==scope.slot)scope.slot.append(triggerHost);
-    label();return scope;
+    if(!scope){binding=null;hide();triggerHost.remove();return null;}
+    if(scope.slot.firstElementChild!==triggerHost)scope.slot.prepend(triggerHost);
+    if(!same(binding?.scope,scope)){
+      binding={scope,pending:true,intent:null,root:null,key:null};
+      // Keep the left rail in place while changing chats, but do not show old files.
+      if(surface)present(scope,'workspaceTree.loading');
+      void resolve(binding);
+    }else if(surface&&scope.content.previousElementSibling!==surface.pane){
+      scope.content.before(surface.pane);
+    }
+    label();return binding;
   }
   function schedule(){
     if(enabled&&!disposed&&!frame)frame=requestAnimationFrame(()=>{frame=0;reconcile();});
   }
   trigger.addEventListener('click',()=>{
-    const scope=reconcile();
-    if(current)close(true);
-    else if(scope)open(scope);
+    const context=reconcile();
+    setOpen(context,!surface,true);
   });
+  function storageChanged(event){
+    if(!binding?.pending&&binding?.key&&(event.key===null||event.key===storagePrefix+binding.key)){
+      const context=reconcile();
+      if(context&&!context.pending&&context.key&&(event.key===null||event.key===storagePrefix+context.key)){
+        transient.delete(context.key);applyRemembered(context);
+      }
+    }
+  }
   const observed=[activeSelector,toolbarSelector,threadMarker,mainSelector,contentSelector,sidebarRow,'[data-bc-workspace-files]'].join(',');
   const observer=new MutationObserver(records=>{
     if(records.some(record=>record.type==='attributes'||[...record.addedNodes,...record.removedNodes].some(node=>
@@ -193,14 +302,16 @@
   ]});
   observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   window.addEventListener('resize',schedule);
+  window.addEventListener('storage',storageChanged);
   window.__codexWorkspaceTree={
     setEnabled(value){
       if(enabled===(value===true))return;
       enabled=value===true;reconcile();
     },
     remove(){
-      close();disposed=true;observer.disconnect();cancelAnimationFrame(frame);
-      window.removeEventListener('resize',schedule);triggerHost.remove();delete window.__codexWorkspaceTree;
+      binding=null;hide();disposed=true;observer.disconnect();cancelAnimationFrame(frame);
+      window.removeEventListener('resize',schedule);window.removeEventListener('storage',storageChanged);
+      triggerHost.remove();delete window.__codexWorkspaceTree;
     }
   };
 })();
