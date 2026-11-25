@@ -137,6 +137,26 @@ async function finish(child){
     check('all-enhancements-coexist-in-both-pages',(await snapshot(p1)).modules&&(await snapshot(p2)).modules&&(await snapshot(p1)).accentStyle&&(await snapshot(p2)).accentStyle&&(await snapshot(p1)).width===1232&&(await snapshot(p2)).width===1232);
     const replySize=page=>page.locator('#fixture-reply p').evaluate(e=>getComputedStyle(e).fontSize);
     await p1.locator('#metrics').click();
+    await Promise.all([p1,p2].map(page=>page.evaluate(()=>{
+      const pane=document.createElement('div');
+      pane.id='fixture-title-pane';pane.dataset.appShellActivePage='true';
+      pane.style.cssText='position:absolute;left:200px;top:0;width:700px;pointer-events:none';
+      pane.innerHTML='<header data-app-shell-main-titlebar><div data-app-shell-header-toolbar style="display:flex"><div style="flex:1"><div class="w-fit" style="width:fit-content"><span class="text-conversation-title">Fixture chat</span></div></div><div style="width:100px">Tools</div></div></header><div data-app-shell-main-surface><div class="thread-scroll-container" style="height:20px"></div></div>';
+      document.body.append(pane);
+    })));
+    const titleSwitch=p1.getByRole('switch',{name:'聊天标题居中',exact:true});
+    const bothTitles=async centered=>(await Promise.all([p1,p2].map(page=>page.evaluate(centered=>{
+      const group=document.querySelector('#fixture-title-pane .w-fit'),pane=document.querySelector('#fixture-title-pane .thread-scroll-container');
+      const a=group.getBoundingClientRect(),b=pane.getBoundingClientRect();
+      return centered?Math.abs((a.left+a.right-b.left-b.right)/2)<1:Math.abs(a.left-b.left)<1;
+    },centered)))).every(Boolean);
+    await until(()=>bothTitles(true),'both titles default to centered');
+    await titleSwitch.click();
+    await until(async()=>read(settingsPath).chatTitleCentered===false&&await bothTitles(false),'titles save and resync as native left alignment');
+    await p1.locator('#undo').click();
+    await until(async()=>read(settingsPath).chatTitleCentered===true&&await bothTitles(true),'undo re-centers both titles');
+    check('chat-title-default-toggle-persistence-undo-and-multi-window-layout',await titleSwitch.isChecked());
+    await Promise.all([p1,p2].map(page=>page.locator('#fixture-title-pane').evaluate(node=>node.remove())));
     const fontInput=p1.locator('#assistant-font-size');
     await fontInput.fill('23');await fontInput.press('Enter');
     await until(async()=>read(settingsPath).assistantFontSize===23&&await replySize(p1)==='23px'&&await replySize(p2)==='23px','font saved and synchronized');

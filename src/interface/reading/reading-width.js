@@ -8,7 +8,7 @@
   const titleBar = '[data-app-shell-main-titlebar] [data-app-shell-header-toolbar]';
   const titleStyle = document.createElement('style');
   titleStyle.id = 'codex-hud-centered-title';
-  let titleGroup, titleObservers = [];
+  let titleGroup, titleObservers = [], chatTitleCentered = true;
   function clearTitle() {
     titleGroup?.removeAttribute(titleMarker);
     titleGroup = undefined;
@@ -17,6 +17,7 @@
     titleObservers = [];
   }
   function alignTitle() {
+    if(!chatTitleCentered) return;
     const active = document.querySelector('[data-app-shell-active-page="true"]');
     const visible = e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0 && getComputedStyle(e).visibility === 'visible';
     const groups = [...(active?.querySelectorAll(`${titleBar} > div > .w-fit:has(> .text-conversation-title)`) ?? [])].filter(visible);
@@ -255,6 +256,12 @@
   window.__codexReadingWidth = {
     update(value) { preference=value;return apply(); },
     setAssistantFontSize,
+    setChatTitleCentered(value) {
+      const next = value !== false;
+      if(next === chatTitleCentered) return;
+      chatTitleCentered = next;
+      if(next) alignTitle(); else clearTitle();
+    },
     setTablesEnabled(value) { const next=value!==false;if(next===tableEnabled)return {tableEnabled,tables:tables.size};tableEnabled=next;return apply(); },
     setTableCentered(value) { const next=value!==false;if(next===tableCentered)return {tableCentered};tableCentered=next;return apply(); },
     preview(value) { if(Number.isInteger(value) && value>=768 && value<=1600)pending=value;return this.update(value); },

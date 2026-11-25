@@ -34,6 +34,7 @@ function preferences(value={}){
     composerAutoHide:COMPOSER_FOLD_MODES.includes(value.composerAutoHide)?value.composerAutoHide:'off',
     composerHideAfterSend:value.composerHideAfterSend===true,
     assistantFontSize:isAssistantFontSize(value.assistantFontSize)?value.assistantFontSize:null,
+    chatTitleCentered:value.chatTitleCentered!==false,
     fileChangesDefaultCollapsed:typeof value.fileChangesDefaultCollapsed==='boolean'?value.fileChangesDefaultCollapsed:DEFAULT_PREFERENCES.fileChangesDefaultCollapsed,
     customAccent:typeof value.customAccent==='boolean'?value.customAccent:DEFAULT_PREFERENCES.customAccent,
     tableEnabled:typeof value.tableEnabled==='boolean'?value.tableEnabled:typeof value.tableOptimization==='boolean'?value.tableOptimization:DEFAULT_PREFERENCES.tableEnabled,
@@ -55,6 +56,7 @@ function patch(value={}){
   if(COMPOSER_FOLD_MODES.includes(value.composerAutoHide))result.composerAutoHide=value.composerAutoHide;
   if(typeof value.composerHideAfterSend==='boolean')result.composerHideAfterSend=value.composerHideAfterSend;
   if(isAssistantFontSize(value.assistantFontSize))result.assistantFontSize=value.assistantFontSize;
+  if(typeof value.chatTitleCentered==='boolean')result.chatTitleCentered=value.chatTitleCentered;
   if(typeof value.fileChangesDefaultCollapsed==='boolean')result.fileChangesDefaultCollapsed=value.fileChangesDefaultCollapsed;
   if(typeof value.customAccent==='boolean')result.customAccent=value.customAccent;
   if(typeof value.tableEnabled==='boolean')result.tableEnabled=value.tableEnabled;
@@ -155,7 +157,12 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
         let readingWidth;
         try{
           await install('__codexReadingWidth',sources.reading);
-          readingWidth=await page.evaluate(value=>{window.__codexReadingWidth.setTablesEnabled?.(value.tableEnabled);window.__codexReadingWidth.setTableCentered?.(value.tableCentered);return window.__codexReadingWidth.update(value.readingWidth);},{readingWidth:store.read().readingWidth,tableEnabled:currentPreferences.tableEnabled,tableCentered:currentPreferences.tableCentered});
+          readingWidth=await page.evaluate(value=>{
+            const reading=window.__codexReadingWidth;
+            reading.setChatTitleCentered?.(window.__codexComposerHud.settingsRequest()?.value.chatTitleCentered??value.chatTitleCentered);
+            reading.setTablesEnabled?.(value.tableEnabled);reading.setTableCentered?.(value.tableCentered);
+            return reading.update(value.readingWidth);
+          },{readingWidth:store.read().readingWidth,tableEnabled:currentPreferences.tableEnabled,tableCentered:currentPreferences.tableCentered,chatTitleCentered:currentPreferences.chatTitleCentered});
         }catch{readingWidth={applied:false,reason:'layout-or-settings-unavailable'};}
         let tableSort;
         try{

@@ -518,7 +518,7 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   check('legacy-command-orders-migrate-without-enabling-extra-features',await page.evaluate(()=>{const c=window.__codexCommandMenu.catalog,order=c.normalizeItemOrder({other:['pet','reasoning','model','pin','unknown-new-command']});return order.model.join('|')==='reasoning|model|service-tier:priority'&&order.creative.join('|')==='pet|sketch'&&order.other.join('|')==='unknown-new-command'&&Object.values(c.normalize()).filter(Boolean).length===9;}));
   check('commands-default-collapsed-and-native-switch-style',await commandToggle.getAttribute('aria-expanded')==='false'&&await page.locator('#command-options').evaluate(e=>e.inert));
   check('collapsed-accordions-are-adjacent-without-blank-child-gap',await page.evaluate(()=>{
-    const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('.table-group'),slash=root.querySelector('#slash-group'),files=root.querySelector('#files-default-label').closest('.setting-row');
+    const root=document.querySelector('#codex-composer-hud').shadowRoot,table=root.querySelector('#table-options').parentElement,slash=root.querySelector('#slash-group'),files=root.querySelector('#files-default-label').closest('.setting-row');
     const bounds=[table,slash,files].map(node=>node.getBoundingClientRect());
     return table.nextElementSibling===slash&&bounds.slice(1).every((rect,index)=>Math.abs(rect.top-bounds[index].bottom-12)<.1)&&slash.offsetHeight===slash.firstElementChild.offsetHeight&&root.querySelector('#slash-options').inert;
   }));
