@@ -251,6 +251,48 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('keyboard-activation-keeps-native-sidebar-focus-and-enter',await focus()==='chat-a'&&await state()==='minimize'&&await activationCount()===3);
     await page.locator('#menu-a').click();await twice();
     check('sidebar-menu-button-does-not-arm-focus-handoff',await focus()==='menu-a'&&await state()==='minimize');
+    await page.locator('#chat-b').evaluate(button=>{
+      const timeline=document.querySelector('#timeline');
+      button.addEventListener('contextmenu',event=>{
+        event.preventDefault();
+        timeline.setAttribute('aria-hidden','true');
+        timeline.setAttribute('data-aria-hidden','true');
+        const menu=document.createElement('div');
+        menu.id='sidebar-context';menu.setAttribute('role','menu');menu.dataset.state='open';
+        menu.innerHTML='<button id="context-item" role="menuitem">Rename</button>';
+        document.body.append(menu);
+        menu.firstElementChild.focus();
+        menu.addEventListener('keydown',event=>{
+          if(event.key!=='Escape')return;
+          menu.remove();button.focus();
+          requestAnimationFrame(()=>requestAnimationFrame(()=>{
+            timeline.removeAttribute('aria-hidden');timeline.removeAttribute('data-aria-hidden');
+          }));
+        });
+      });
+    });
+    await page.locator('#chat-b').click({button:'right'});await page.waitForTimeout(60);
+    check('sidebar-context-menu-keeps-minimized-input-and-native-focus',await state()==='minimize'&&await focus()==='context-item'&&!(await editor.isVisible()));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>!document.querySelector('#timeline').hasAttribute('aria-hidden'));
+    check('dismissing-sidebar-menu-does-not-expand-or-move-focus',await state()==='minimize'&&await focus()==='chat-b');
+    await mode('hide');await settled('hide');
+    await page.locator('#chat-b').click({button:'right'});await page.waitForTimeout(60);
+    check('sidebar-context-menu-keeps-fully-hidden-input',await state()==='hide'&&!(await pill.isVisible())&&!(await editor.isVisible()));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>!document.querySelector('#timeline').hasAttribute('aria-hidden'));
+    await mode('minimize');await settled('minimize');
+    await pill.click();await settled(null);
+    await page.locator('#chat-b').evaluate(button=>{
+      const editor=document.querySelector('#editor');
+      editor.blur();
+      requestAnimationFrame(()=>button.dispatchEvent(new MouseEvent('contextmenu',{button:2,bubbles:true,cancelable:true})));
+    });
+    await page.locator('#sidebar-context').waitFor({state:'visible'});
+    await settled('minimize');
+    check('sidebar-menu-does-not-reverse-an-in-progress-collapse',await focus()==='context-item'&&!(await editor.isVisible()));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>!document.querySelector('#timeline').hasAttribute('aria-hidden'));
     await page.locator('#chat-b').click();await page.locator('#message-action').click();
     await selected('b',nextId);await loaded(nextId);await settled('minimize');
     check('new-user-interaction-cancels-delayed-sidebar-focus-handoff',await focus()==='message-action');

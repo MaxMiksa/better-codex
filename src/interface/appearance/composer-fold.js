@@ -2,7 +2,10 @@
 (() => {
   if (window.__codexComposerFold) return;
   const rootSelector='[data-codex-composer-root][data-composer-placement="thread"]';
-  const inactive='[inert],[aria-hidden="true"],[data-app-shell-active-page="false"],[data-right-panel-composer-overlay-content="true"]';
+  const inactivePage='[data-app-shell-active-page="false"],[data-right-panel-composer-overlay-content="true"]';
+  const interactionBlocked='[inert],[aria-hidden="true"]';
+  const persistentBlock='[inert]:not([data-inert-ed]),[aria-hidden="true"]:not([data-aria-hidden])';
+  const inactive=interactionBlocked+','+inactivePage;
   const popups='[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[role="combobox"][aria-expanded="true"],[data-state="open"][data-side],[popover]:popover-open';
   const interactive='button,a[href],input,textarea,select,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="option"],[role="tab"],[role="treeitem"],[role="checkbox"],[role="switch"],[role="radio"],[role="combobox"],[role="textbox"],[tabindex]';
   const sidebarRow='[data-app-action-sidebar-thread-row][data-app-action-sidebar-thread-host-id="local"][data-app-action-sidebar-thread-kind="local"]';
@@ -40,6 +43,7 @@
   let foldAfterSend=false,sendAttempt=null,sidebarClick=null;
   let enterAt=-Infinity,pressed=false,swallow=false,composing=false,escapeHeld=false;
   const visible=e=>Boolean(e?.getClientRects().length&&e.getBoundingClientRect().height>0&&getComputedStyle(e).visibility==='visible'&&!e.closest(inactive));
+  const foldedOrClosing=()=>['minimize','hide','closing'].includes(folded);
   const resetKeys=()=>{enterAt=-Infinity;pressed=false;swallow=false;};
   function stopAnimation(){const previous=animation;animation=[];for(const motion of previous)motion.cancel();}
   function commit(next){
@@ -56,9 +60,12 @@
     resetKeys();
     if(binding){commit('open');setStatus(binding.status, false);pill.remove();binding=null;}
   }
-  function main(root){
+  function main(root,keepFolded=false){
     const area=root.closest('[data-app-shell-focus-area]');
-    return (!area||area.getAttribute('data-app-shell-focus-area')==='main')&&!root.closest(inactive);
+    // Radix temporarily hides the menu background from the accessibility tree.
+    // This does not deactivate the chat or justify revealing a folded composer.
+    return (!area||area.getAttribute('data-app-shell-focus-area')==='main')
+      &&!root.closest(inactivePage)&&!root.closest(keepFolded?persistentBlock:interactionBlocked);
   }
   function composerFields(root){
     const bodies=root.querySelectorAll('[data-composer-body]'),editors=root.querySelectorAll('[data-codex-composer="true"]');
@@ -95,8 +102,8 @@
     binding=next;
     if(changed&&animation.length)commit(folded==='opening'?'open':mode);
   }
-  function find(){
-    const roots=[...document.querySelectorAll(rootSelector)].filter(root=>main(root)&&(root===binding?.root||visible(root)));
+  function find(keepFolded=false){
+    const roots=[...document.querySelectorAll(rootSelector)].filter(root=>main(root,keepFolded&&root===binding?.root)&&(root===binding?.root||visible(root)));
     if(roots.length!==1)return null;
     const root=roots[0],scroll=root.closest('.thread-scroll-container');
     const shell=root.closest('[data-thread-find-composer]'),backdrop=shell?.parentElement;
@@ -107,6 +114,7 @@
     if(!scroll||!backdrop?.matches('[data-thread-composer-backdrop]')||!backdrop.getBoundingClientRect().width||getComputedStyle(backdrop).visibility!=='visible'
       ||tracks.length!==1||!tracks[0].contains(root)
       ||ids.size!==1||!uuid.test(id))return null;
+    if(keepFolded&&id!==binding?.id&&!main(root))return null;
     const fields=composerFields(root);
     return fields?{root,scroll,shell,track:tracks[0],id,...fields,status:fixedStatus(root,tracks[0],id)}:null;
   }
@@ -123,10 +131,11 @@
   const actionLabel=node=>node.getAttribute('aria-label')||node.getAttribute('title')||'';
   const sendAction=node=>/^(?:send(?:\s+(?:message|prompt|now))?|发送(?:消息|提示词|提示)?)(?:\s*[(（].*)?$/i.test(actionLabel(node));
   const stopAction=node=>/^(stop|interrupt|停止|中断)/i.test(actionLabel(node));
-  function safe(fields){
+  function safe(fields,keepFolded=false){
     const {root,body}=fields;
     if(!emptyDraft(fields)||root.querySelector('[data-codex-composer-request-navigation],[data-composer-expanded],[data-codex-composer-queue],button[data-dictation-button][data-state="on"]'))return false;
-    const controls=[...body.querySelectorAll('button')].filter(node=>!node.closest('[hidden],[aria-hidden="true"],[inert]'));
+    const unavailable='[hidden],'+(keepFolded?persistentBlock:interactionBlocked);
+    const controls=[...body.querySelectorAll('button')].filter(node=>!node.closest(unavailable));
     // Stop is a normal composer action during a run, not a pending decision.
     return !controls.some(node=>/^(cancel|取消)/i.test(actionLabel(node)))
       &&controls.some(node=>node.matches('[data-dictation-button]')||sendAction(node)||stopAction(node));
@@ -162,7 +171,15 @@
     sendAttempt=null;
     return attempt;
   }
-  function overlayOpen(){return window.__codexComposerHud?.settingsOpen?.()||[...document.querySelectorAll(popups)].some(visible);}
+  function menuOutside(popup,root){
+    if(!popup.matches('[role="menu"]')||root.contains(popup))return false;
+    const owner=document.getElementById(popup.getAttribute('aria-labelledby')||'');
+    return !root.contains(owner)&&(!popup.id||!root.querySelector(`[aria-controls="${CSS.escape(popup.id)}"]`));
+  }
+  function overlayOpen(ignoreMenusOutside=null){
+    return window.__codexComposerHud?.settingsOpen?.()||[...document.querySelectorAll(popups)].some(popup=>
+      visible(popup)&&(!ignoreMenusOutside||!menuOutside(popup,ignoreMenusOutside)));
+  }
   function armSidebarFocus(event){
     if(!event.isTrusted||event.defaultPrevented||event.detail===0||event.button!==0||event.pointerType&&event.pointerType!=='mouse'
       ||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||composing)return;
@@ -203,10 +220,10 @@
     sidebarClick=null;
     binding.scroll.focus({preventScroll:true});
   }
-  function canFold(allowedFocus){
+  function canFold(allowedFocus,keepClosing=false){
     const active=document.activeElement;
     return !composing&&(!binding.root.contains(active)||active===allowedFocus)&&!active?.closest('#codex-composer-hud')
-      &&!binding.root.querySelector('[aria-expanded="true"]')&&!overlayOpen();
+      &&!binding.root.querySelector('[aria-expanded="true"]')&&!overlayOpen(keepClosing?binding.root:null);
   }
   function updatePillSurface(){
     const background=getComputedStyle(binding.body.parentElement).backgroundColor;
@@ -261,7 +278,7 @@
   }
   function check(){
     frame=0;if(mode==='off')return;
-    const next=find();
+    const next=find(foldedOrClosing());
     if(!next||!ready(next)){
       if(next?.id!==threadId)threadId=null;
       detach();return;
@@ -283,7 +300,7 @@
       if(active===binding.editor||active===sent.button)active.blur();
       transition(mode);return;
     }
-    if(!safe(binding)){commit('open');resetKeys();return;}
+    if(!safe(binding,foldedOrClosing())){commit('open');resetKeys();return;}
     // Native navigation may preserve or restore the caret before the destination is ready.
     // Only override that focus for a matching mouse switch, never after user input.
     const click=active===next.editor?matchingSidebarClick():null;
@@ -297,7 +314,7 @@
       if(mode==='minimize')updatePillSurface();
       commit(mode);handoffSidebarFocus();return;
     }
-    if(folded==='closing'){if(!canFold())transition('open');else handoffSidebarFocus();return;}
+    if(folded==='closing'){if(!canFold(undefined,true))transition('open');else handoffSidebarFocus();return;}
     if(folded==='minimize'||folded==='hide'){if(folded!==mode)transition(mode);handoffSidebarFocus();return;}
     if(canFold()){transition(mode);handoffSidebarFocus();}
   }
@@ -330,7 +347,7 @@
     const target=event.composedPath()[0],inside=target===document.body||target===document.documentElement
       ||(target instanceof Element&&binding?.scroll.contains(target)&&(!target.closest(interactive)||target===binding.scroll));
     if(event.key!=='Enter'||!plainKey(event)
-      ||!inside||!binding||!['minimize','hide','closing'].includes(folded)||overlayOpen()){
+      ||!inside||!binding||!foldedOrClosing()||overlayOpen()){
       enterAt=-Infinity;return;
     }
     if(event.repeat||pressed){enterAt=-Infinity;return;}
@@ -383,7 +400,7 @@
     on(reduced,'change',()=>{if(binding&&animation.length)commit(folded==='opening'?'open':mode);});
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:[
       ...entryAttributes,rowActive,rowId,'data-response-update-thread',
-      'data-empty-paragraph','data-composer-expanded','data-state','aria-label','aria-expanded','aria-hidden','inert','hidden'
+      'data-empty-paragraph','data-composer-expanded','data-state','aria-label','aria-expanded','aria-hidden','inert','hidden','data-aria-hidden','data-inert-ed'
     ]});
     observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
     schedule();
