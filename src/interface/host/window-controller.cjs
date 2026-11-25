@@ -4,7 +4,6 @@ const {formatMetrics}=require('../statistics/metrics-view.cjs');
 const {createWriter}=require('./runtime-writer.cjs');
 const {readBinding}=require('../statistics/chat-binding.cjs');
 const {isMainPageUrl,pageGuard}=require('./page-contract.cjs');
-const {createWorkspaceTree}=require('../workspace_tree/workspace-tree.cjs');
 const pageModules=['__codexWorkspaceTree','__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexComposerFold','__codexAiRename','__codexCommandMenu'];
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const promptBinding='__betterCodexRequestPrompts';
@@ -82,8 +81,6 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
   const active=()=>!state.stopped&&!stopping()&&!page.isClosed()&&isMainPageUrl(page.url());
   let session,previous,settingsSaveError=null;
   const collector=createCollector({settings,runtime});
-  const workspaceTree=createWorkspaceTree({codexHome:settings.codexHome,readWorkspace:request=>page.evaluate(
-    request=>window.__codexWorkspaceTree?.workspace(request),request)});
   let renameStatus={phase:'idle',reason:null,updatedAt:0};
   async function install(name,source){
     if(!await page.evaluate(name=>Boolean(window[name]),name)){
@@ -92,7 +89,6 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
   }
   async function ensureRuntime(){
     if(await page.evaluate(()=>window.__betterCodexRuntime)===state.id)return;
-    workspaceTree.close();
     await page.evaluate(modules=>{
       for(const name of modules){
         try{window[name]?.remove();}catch{}
@@ -203,13 +199,6 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
           ...currentPreferences,
           readingWidth:Number.isInteger(readingWidth?.maxWidth)?readingWidth.maxWidth:currentPreferences.readingWidth
         });
-        if(sources.workspaceTree){
-          try{
-            const intent=await page.evaluate(()=>window.__codexWorkspaceTree?.intent());
-            const treeState=workspaceTree.tick(intent);
-            if(treeState)await page.evaluate(value=>window.__codexWorkspaceTree?.state(value),treeState);
-          }catch{workspaceTree.close();}
-        }
         const request=await page.evaluate(()=>window.__codexComposerHud.bindingRequest());
         if(request)await page.evaluate(value=>window.__codexComposerHud.bind(value),{...request,id:readBinding(request,path.join(settings.codexHome,'session_index.jsonl'))});
         const observation=await page.evaluate(()=>window.__codexComposerHud.snapshot());
@@ -238,7 +227,6 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
     }
   }finally{
     // Each worker owns only its page, CDP session, collector and runtime directory.
-    workspaceTree.close();
     await collector.stop();
     if(!page.isClosed())await page.evaluate(modules=>{
       for(const name of modules){

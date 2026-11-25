@@ -39,7 +39,6 @@
     "src/interface/appearance/command-menu.js",
     "src/interface/appearance/composer-fold.js",
     "src/interface/file_changes/file-changes.js",
-    "src/interface/workspace_tree/workspace-tree.cjs",
     "src/interface/workspace_tree/workspace-tree.js",
     "src/interface/host/collector-session.cjs",
     "src/interface/host/ai-rename.cjs",
