@@ -70,6 +70,8 @@ Project-name clicks prefer the window's initialized `appServices.openIn.open` wi
 
 An open native sidebar menu must not unmount the current workspace dock or reset its filter, expanded folders or directory watches. Menu-managed accessibility markers may preserve an already matched visual scope, but must not enable file actions or attach a tree to a different chat.
 
+When the workspace tree occupies the left rail, keep the native main transcript frame within the remaining main column. The native right panel can set a pixel width on that frame based on the shell width before subtracting the tree. Apply the cap only to the main transcript next to a mounted tree, without changing the native right panel's geometry or width preference.
+
 ## Run the affected checks
 
 ```powershell

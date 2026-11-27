@@ -122,8 +122,11 @@ async function checkNativeActions(){
       '<div data-app-shell-main-titlebar><div data-app-shell-header-toolbar style="display:flex">'+
       '<div>Chat</div><div id="actions" style="display:flex"><button id="native">Native files</button></div></div></div>'+
       '<main data-app-shell-main-surface><div id="dock" style="display:flex;height:520px">'+
-      '<div data-app-shell-main-content-layout style="flex:1;min-width:0">'+
-      '<div id="thread" data-above-composer-conversation-id="'+a+'">Chat composer</div></div></div></main></section></body></html>'}));
+      '<div data-app-shell-main-content-layout="thread-edge-scroll" style="display:flex;flex:1;flex-direction:column;min-width:0;overflow:hidden">'+
+      '<div id="native-frame" style="align-self:flex-end;min-width:100%;width:var(--native-frame-width,100%)">'+
+      '<div data-app-shell-focus-area="main"><div class="thread-scroll-container">'+
+      '<div id="thread" data-above-composer-conversation-id="'+a+'">Chat composer</div>'+
+      '</div></div></div></div></div></main></section></body></html>'}));
     await page.goto(url);
     await page.evaluate(({a,b,c,d,e,f,p,q})=>{
       const app=window.fixture={requests:[],nativeCalls:0,nativeOpens:[],actions:[],delay:0,watches:new Map(),
@@ -276,6 +279,42 @@ async function checkNativeActions(){
     await page.setViewportSize({width:1060,height:640});
     await waits(()=>document.querySelector('[data-bc-workspace-files]').getBoundingClientRect().width===400);
     check('enlarging the window restores the preferred width',await width()===400);
+    const sideGeometry=()=>evalPage(()=>{
+      const content=document.querySelector('[data-app-shell-main-content-layout]');
+      const tree=content.previousElementSibling;
+      const right=document.querySelector('[data-app-shell-focus-area="right-panel"]');
+      const rect=node=>node?.getBoundingClientRect();
+      return {left:rect(content).left,right:rect(content).right,treeRight:rect(tree)?.right,
+        frameLeft:rect(content.firstElementChild).left,frameRight:rect(content.firstElementChild).right,
+        panelLeft:rect(right)?.left,panelWidth:rect(right)?.width};
+    });
+    await evalPage(()=>{
+      const dock=document.querySelector('#dock');
+      dock.style.position='relative';
+      fixture.splitTree=document.querySelector('[data-bc-workspace-files]');
+      fixture.splitRequests=fixture.requests.length;
+      const width=dock.clientWidth;
+      // The side panel owns its width; the native end-aligned frame uses the
+      // same calculation as without a tree, so its width is too large.
+      const rail=document.createElement('div');rail.id='right-spacer';rail.style.flex='0 0 440px';
+      const right=document.createElement('aside');
+      right.dataset.appShellFocusArea='right-panel';right.style.cssText='position:absolute;right:0;width:440px;height:100%';
+      dock.append(rail,right);dock.style.setProperty('--native-frame-width',(width-440)+'px');
+    });
+    const side=await sideGeometry();
+    check('three columns keep the left edge of the main transcript clear of the tree',
+      side.treeRight===side.left&&side.frameLeft===side.left&&side.frameRight===side.right&&side.panelLeft===side.right&&side.panelWidth===440);
+    await evalPage(()=>{
+      const dock=document.querySelector('#dock');
+      dock.querySelector('#right-spacer').remove();
+      dock.querySelector('[data-app-shell-focus-area="right-panel"]').remove();
+      dock.style.removeProperty('--native-frame-width');
+    });
+    const normal=await sideGeometry();
+    check('closing the native panel restores available chat space without rebuilding the tree',
+      normal.frameLeft===normal.left&&normal.frameRight===normal.right&&normal.right>side.right&&await width()===400&&
+      await evalPage(()=>fixture.splitTree===document.querySelector('[data-bc-workspace-files]')&&
+        fixture.requests.length===fixture.splitRequests));
     check('does not turn malformed path components into rows',await row('name..').count()===0&&await row('..\\unsafe').count()===0);
     check('uses Pierre colored file type icons',await evalPage(()=>{
       const shadow=document.querySelector('[data-bc-workspace-files]').shadowRoot.querySelector('bc-workspace-file-tree').shadowRoot;

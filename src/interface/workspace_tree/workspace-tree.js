@@ -5,6 +5,13 @@
   const threadMarker='[data-above-composer-conversation-id]';
   const mainSelector='[data-app-shell-main-surface]';
   const contentSelector='[data-app-shell-main-content-layout]';
+  const frameStyleId='bc-workspace-main-frame';
+  const frameStyle=document.getElementById(frameStyleId)??document.createElement('style');
+  frameStyle.id=frameStyleId;
+  // A native split can size and end-align the transcript as if the tree were absent.
+  // Cap that child to the actual main column, not the shell or the right panel.
+  frameStyle.textContent='[data-bc-workspace-files] + [data-app-shell-main-content-layout="thread-edge-scroll"] > :has([data-app-shell-focus-area="main"] .thread-scroll-container){max-inline-size:100%}';
+  if(!frameStyle.isConnected)document.head.append(frameStyle);
   const sidebarRow='[data-app-action-sidebar-thread-id]';
   const idPattern=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
   const excluded='[inert],[aria-hidden="true"]';
@@ -511,7 +518,7 @@
     remove(){
       binding=null;hide();disposed=true;observer.disconnect();cancelAnimationFrame(frame);
       window.removeEventListener('resize',schedule);window.removeEventListener('storage',storageChanged);
-      triggerHost.remove();delete window.__codexWorkspaceTree;
+      triggerHost.remove();frameStyle.remove();delete window.__codexWorkspaceTree;
     }
   };
 })();
