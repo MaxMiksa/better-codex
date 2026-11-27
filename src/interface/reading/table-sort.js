@@ -94,7 +94,7 @@
     if(!container?.closest('.thread-scroll-container') || container.closest('[data-conversation-print]'))return null;
     if(container.closest('[data-markdown-text-style]')?.getAttribute('data-markdown-text-style')!=='assistant-message')return null;
     if(container.querySelector(':scope > [class*="TableScroller"] > [class*="TableWrapper"] > table')!==table)return null;
-    if(table.tHead?.rows.length!==1 || table.tBodies.length!==1 || table.getBoundingClientRect().width<=0)return null;
+    if(table.tHead?.rows.length!==1 || table.tBodies.length!==1)return null;
     const headers=[...table.tHead.rows[0].cells], rows=[...table.tBodies[0].rows], state=states.get(table);
     if(!headers.length || headers.some(cell=>cell.tagName!=='TH') || rows.length<2)return null;
     if([...headers,...rows.flatMap(row=>[...row.cells])].some(cell=>cell.colSpan!==1 || cell.rowSpan!==1))return null;
@@ -155,8 +155,9 @@
     let top=first.top;
     for(const index of state.order){const row=rows[index],box=boxes.get(row);moveRow(state,row,top-box.top);top+=box.height+gap;}
   }
-  function register(table,headers) {
-    const state={table,keys:[],directions:new Map(),multi:false,session:-1,controls:[],rows:new Set(),moves:new Map(),profiles:null,order:null};
+  function register(table,headers,headings,previous) {
+    const state={table,headings,keys:previous?.keys??[],directions:previous?.directions??new Map(),
+      multi:previous?.multi??false,session:previous?.session??-1,controls:[],rows:new Set(),moves:new Map(),profiles:null,order:null};
     if(!style.isConnected)document.head.append(style);
     for(const [index,header] of headers.entries()){
       const host=document.createElement('span');host.setAttribute(control,'');
@@ -171,7 +172,7 @@
         if(!buttonClick&&selection&&!selection.isCollapsed&&header.contains(selection.anchorNode))return;
         if(!buttonClick&&event.target.closest?.('a,button,input,select,textarea,[contenteditable="true"]'))return;
         event.preventDefault();event.stopPropagation();
-        const current=structure(table);if(!current)return;
+        const current=structure(table);if(!current||table.getBoundingClientRect().width<=0)return;
         const data=profiles(state,current.rows),preferred=direction(state,index,data),selected=state.keys.find(key=>key.column===index);
         if(event.altKey){
           const next=-(selected?.direction??preferred);state.directions.set(index,next);if(selected)selected.direction=next;
@@ -209,8 +210,22 @@
     for(const table of document.querySelectorAll('.thread-scroll-container [data-markdown-table] table')){
       const current=structure(table);if(!current)continue;
       let state=states.get(table);
-      if(state&&(state.controls.length!==current.headers.length||current.headers.some((header,index)=>state.controls[index]?.header!==header||state.controls[index].host.parentNode!==header))){unregister(state);state=null;}
-      state ||= register(table,current.headers);
+      if(table.getBoundingClientRect().width<=0){
+        if(state){next.add(table);state.layout=null;for(const row of state.moves.keys())restoreRow(state,row);}
+        continue;
+      }
+      const headings=current.headers.map(header=>normalize(header.textContent));
+      if(state){
+        const unique=new Set(headings).size===headings.length;
+        const sameColumns=headings.length===state.headings.length&&headings.every((name,index)=>
+          name===state.headings[index]&&(unique&&name||state.controls[index].header===current.headers[index]));
+        const sameControls=current.headers.every((header,index)=>state.controls[index]?.header===header&&state.controls[index].host.parentNode===header);
+        if(!sameColumns||!sameControls){
+          unregister(state);
+          state=register(table,current.headers,headings,sameColumns?state:null);
+        }
+      }
+      state ||= register(table,current.headers,headings);
       next.add(table);render(state,current.rows);
     }
     for(const [table,state] of states)if(!next.has(table))unregister(state);

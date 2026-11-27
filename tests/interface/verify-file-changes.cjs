@@ -49,6 +49,13 @@ const fixture=()=>{
     await toggle('two').press('Enter');check('two-keyboard-expand',await visibleRows('two')===2);
     await toggle('two').press('Space');check('two-keyboard-collapse',await visibleRows('two')===0);
     await toggle('three').click();check('three-expand-all',await visibleRows('three')===3);
+    await page.evaluate(()=>{
+      const body=document.querySelector('#three .border-t');
+      window.partialFileRows=[...body.children];body.replaceChildren(partialFileRows[0]);
+    });
+    check('temporary-single-file-card-is-native',await toggle('three').count()===0&&await visibleRows('three')===1);
+    await page.evaluate(()=>document.querySelector('#three .border-t').replaceChildren(...partialFileRows));
+    check('same-card-recovers-manual-expansion-after-partial-list',await toggle('three').getAttribute('aria-expanded')==='true'&&await visibleRows('three')===3);
     await toggle('three').click();check('three-collapse-zero',await visibleRows('three')===0);
     await toggle('many').click();check('many-native-reveal-all',await visibleRows('many')===7);
     await page.evaluate(()=>document.documentElement.lang='en-US');

@@ -6,6 +6,7 @@
   const marker = 'data-codex-hud-file-list';
   const toggleMarker = 'data-codex-hud-file-toggle';
   const records = new Map();
+  const suspended = new Map();
   let defaultCollapsed = true;
   const style = document.createElement('style');
   style.id = 'codex-hud-file-changes';
@@ -92,8 +93,14 @@
   }
 
   function scan() {
+    const mounted = header => header.isConnected && header.matches(headerSelector);
+    for (const header of suspended.keys()) if (!mounted(header)) suspended.delete(header);
     for (const [header,record] of records) {
-      if (!header.isConnected || !header.matches(headerSelector) || !inspect(header)) { release(record);records.delete(header); }
+      const stillMounted=mounted(header);
+      if (!stillMounted || !inspect(header)) {
+        if (stillMounted && record.manual) suspended.set(header,record.expanded);
+        release(record);records.delete(header);
+      }
     }
     for (const header of document.querySelectorAll(headerSelector)) {
       const info=inspect(header);
@@ -104,7 +111,11 @@
         release(record);record=create(header,info,expanded,manual);records.set(header,record);
         record.openedNative=openedNative;
       }
-      if (!record) { record=create(header,info);records.set(header,record); }
+      // A temporarily single-file card is native, but its mounted header still owns the user's choice.
+      if (!record) {
+        record=create(header,info,suspended.get(header),suspended.has(header));
+        suspended.delete(header);records.set(header,record);
+      }
       sync(record,info);
     }
     return {cards:records.size,expanded:[...records.values()].filter(r=>r.expanded).length,defaultCollapsed};
@@ -137,7 +148,7 @@
     remove() {
       observer.disconnect();
       window.removeEventListener('languagechange',scan);
-      records.forEach(release);records.clear();style.remove();
+      records.forEach(release);records.clear();suspended.clear();style.remove();
       delete window.__codexFileChanges;
     }
   };

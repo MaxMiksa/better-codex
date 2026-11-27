@@ -100,12 +100,41 @@
   function rows(root){return [...views.get(root)?.buttons||[]].filter(([row,button])=>!button.disabled&&(typeof row==='string'||nativeAvailable(row))).map(([row])=>row);}
   function visual(root,row){return views.get(root)?.buttons.get(row)||row;}
   function select(root,row){selections.set(root,row);for(const node of root.querySelectorAll('[data-bc-command]'))attribute(node,'data-bc-active',node===row?'':null);for(const [source,button] of views.get(root)?.buttons||[]){button.toggleAttribute('data-bc-active',source===row);button.setAttribute('aria-selected',String(source===row));}}
+  const editorSelector='[contenteditable="true"],[contenteditable="plaintext-only"],textarea';
+  const composerSelector='[data-codex-composer-root]';
+  const pageSelector='[data-app-shell-active-page]';
+  const areaSelector='[data-app-shell-focus-area]';
+  const nativeSelector='[data-mention-list-scroll-area]';
+  const interactive=node=>node?.isConnected&&!node.closest('[hidden],[inert],[aria-hidden="true"],[data-app-shell-active-page="false"]')
+    &&node.getBoundingClientRect().width>0&&getComputedStyle(node).visibility==='visible';
   function focusedEditor(editor=document.activeElement){
-    if(!editor?.matches?.('[contenteditable="true"],[contenteditable="plaintext-only"],textarea'))return null;
-    const composer=editor.closest('[data-codex-composer-root]');
-    return composer?{editor,composer}:null;
+    if(!editor?.matches?.(editorSelector)||!interactive(editor))return null;
+    const composer=editor.closest(composerSelector);
+    if(!composer||editor.closest('dialog,[role="dialog"],[role="alertdialog"],[role="menu"]')!==composer.closest('dialog,[role="dialog"],[role="alertdialog"],[role="menu"]'))return null;
+    const primary=composer.querySelector('[data-codex-composer="true"]');
+    return !primary||primary.contains(editor)?{editor,composer}:null;
   }
-  function nativeMenuOpen(){return [...document.querySelectorAll('[data-mention-list-scroll-area]')].some(root=>root.isConnected&&eligible(root)&&root.getBoundingClientRect().width>0);}
+  function ownsMenu(root,focused){
+    if(!focused||!interactive(root))return false;
+    const {editor,composer}=focused,owner=root.closest(composerSelector);
+    if(owner)return owner===composer;
+    // React portals can be outside the composer in the DOM but still have it as a logical ancestor.
+    for(let node=fiber(root),depth=0;node&&depth<120;node=node.return,depth++){
+      if(node.stateNode?.matches?.(composerSelector))return node.stateNode===composer;
+    }
+    const page=root.closest(pageSelector),area=root.closest(areaSelector);
+    if(page&&page!==composer.closest(pageSelector)||area&&area!==composer.closest(areaSelector))return false;
+    const ids=[editor.getAttribute('aria-controls'),editor.getAttribute('aria-owns')].filter(Boolean).join(' ').split(/\s+/);
+    if(ids.some(id=>{const target=id&&document.getElementById(id);return target&&(target===root||root.contains(target));}))return true;
+    const opening=openings.get(root);
+    if(opening?.composer)return opening.composer===composer;
+    // Legacy portals without an explicit owner are safe only with one eligible composer in their scope.
+    return [...(area||page||document).querySelectorAll(composerSelector)]
+      .every(candidate=>candidate===composer||![...candidate.querySelectorAll(editorSelector)].some(interactive));
+  }
+  function nativeMenuOpen(focused=focusedEditor()){
+    return Boolean(focused&&[...document.querySelectorAll(nativeSelector)].some(root=>eligible(root)&&ownsMenu(root,focused)));
+  }
   function nativeSkillContext(focused){
     if(!focused)return null;
     const {editor,composer}=focused;
@@ -276,7 +305,7 @@
   }
   function run(root,row){
     const standaloneRun=root===standalone.element;
-    if(!standaloneRun&&!eligible(root))return;
+    if(!interactive(root)||!standaloneRun&&!eligible(root))return;
     if(typeof row!=='string'){if(nativeAvailable(row))row.click();return;}
     if(isSkill(row)){
       if(insertSkill(root,row,standaloneRun?standalone.query:autocomplete(root)?.ui?.query)&&standaloneRun)closeStandalone();
@@ -399,7 +428,8 @@
   function refresh(){
     queued=false;if(disposed)return;
     if(!enabled){closeStandalone();for(const root of [...openings.keys()])restore(root);for(const node of managed)clear(node);managed.clear();return;}
-    if(nativeMenuOpen())closeStandalone();else if(standalone.open)renderStandalone();
+    const focused=focusedEditor();
+    if(nativeMenuOpen(focused))closeStandalone();else if(standalone.open)renderStandalone();
     for(const root of openings.keys())if(!root.isConnected)restore(root);
     for(const node of [...managed])if(!node.isConnected){clear(node);managed.delete(node);}
     let changed=false;
@@ -415,14 +445,14 @@
         const id=skillKey(item.title,item.id.slice(6));
         if(knownNativeSkills.get(id)!==item.title){knownNativeSkills.set(id,item.title);changed=true;}
       }
-      const focused=focusedEditor(),owner=root.closest('[data-codex-composer-root]');
-      const scoped=focused&&(!owner||owner===focused.composer)?focused:null;
+      const scoped=ownsMenu(root,focused)?focused:null;
       if(!hasNativeRows&&(!scoped||typeof value.ui.query!=='string')){restore(root);continue;}
       if(!openings.has(root)){
         const opening={request:instance+':'+(++nextOpening),loaded:false,promptTimer:0,prompts:new Map(),promptGroups:[]};
         openings.set(root,opening);requestPrompts(opening);
       }
       const opening=openings.get(root);
+      if(scoped)opening.composer=scoped.composer;
       const skillGroups=nameLayout('skills',nativeSkills.length?nativeSkills.filter(({item})=>showSkill(skillKey(item.title,item.id.slice(6)))):cachedSkills(scoped,value.ui.query,opening));
       const needle=String(value.ui.query??'').toLocaleLowerCase();
       const promptGroups=hasNativeRows||!needle?opening.promptGroups:nameLayout('prompts',opening.promptGroups.flatMap(group=>group.entries).filter(({item})=>item.title.toLocaleLowerCase().includes(needle)));
@@ -460,13 +490,17 @@
   const observer=new MutationObserver(schedule);observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-current','aria-disabled','disabled']});
   function keydown(event){
     const groupJump=event.ctrlKey&&['ArrowUp','ArrowDown'].includes(event.key);
-    const focused=focusedEditor(),standaloneFocused=standalone.open&&focused?.editor===standalone.editor;
-    const standaloneRoot=standaloneFocused&&standalone.element&&!standalone.element.hidden?standalone.element:null;
+    const origin=event.composedPath()[0],focused=focusedEditor(origin===document.activeElement?origin:null);
+    const standaloneFocused=standalone.open&&focused?.editor===standalone.editor;
+    const standaloneRoot=standaloneFocused&&interactive(standalone.element)?standalone.element:null;
     const standaloneWaiting=standaloneFocused&&standalone.promptTimer;
     if(event.key==='Escape'&&(standaloneRoot||standaloneWaiting)&&!event.defaultPrevented&&!event.isComposing){event.preventDefault();event.stopImmediatePropagation();closeStandalone();return;}
     if(event.defaultPrevented||event.isComposing||event.keyCode===229||event.altKey||event.ctrlKey&&!groupJump||event.metaKey||event.shiftKey||!['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End','Enter','Tab'].includes(event.key))return;
-    const roots=[...document.querySelectorAll('[data-mention-list-scroll-area]')].filter(root=>eligible(root)&&root.getBoundingClientRect().width>0&&(views.has(root)||root.hasAttribute('data-bc-prompt-pending')));
-    if(roots.length>1||!roots.length&&!standaloneRoot&&!standaloneWaiting||event.composedPath().some(node=>node?.id==='codex-composer-hud'))return;
+    const menu=origin?.closest?.(nativeSelector);
+    const roots=(menu?[menu]:[...document.querySelectorAll(nativeSelector)]).filter(root=>
+      eligible(root)&&(menu?interactive(root)&&views.get(root)?.surface.contains(origin):ownsMenu(root,focused))
+      &&(views.has(root)||root.hasAttribute('data-bc-prompt-pending')));
+    if(roots.length>1||!roots.length&&!standaloneRoot&&!standaloneWaiting)return;
     const root=roots[0]||standaloneRoot;
     event.preventDefault();event.stopImmediatePropagation();
     if(!root||root.hasAttribute('data-bc-prompt-pending'))return;
@@ -518,10 +552,10 @@
     refresh();
   }
   window.addEventListener('keydown',keydown,true);window.addEventListener('mousemove',pointermove,true);
-  document.addEventListener('input',input,true);document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',positionStandalone);
+  document.addEventListener('input',input,true);document.addEventListener('focusin',schedule,true);document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',positionStandalone);
   window.__codexCommandMenu={catalog,skillEntries,update(value,order){if(typeof order?.enabled==='boolean')enabled=order.enabled;preferences=normalize(value);skillVisible=normalizeSkillVisible(order?.skillVisible??skillVisible);groupOrder=normalizeGroupOrder(order?.groupOrder??groupOrder);itemOrder=normalizeItemOrder(order?.itemOrder??itemOrder);refresh();},entries(){return [...discovered].filter(([id])=>!commands.some(item=>item.id===id)).map(([id,title])=>({id,title,group:'other'}));},
     promptRequests(){const requests=[...openings].filter(([root,opening])=>root.isConnected&&eligible(root)&&!opening.loaded).map(([,opening])=>opening.request);if(standalone.open&&!standalone.loaded)requests.push(standalone.request);return requests;},
     promptState({requests,entries}){applyPrompts(requests,entries,true);},
-    remove(){disposed=true;closeStandalone();observer.disconnect();window.removeEventListener('keydown',keydown,true);window.removeEventListener('mousemove',pointermove,true);document.removeEventListener('input',input,true);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',positionStandalone);for(const view of views.values())view.surface.remove();views.clear();for(const root of openings.keys())restore(root);for(const node of managed)clear(node);managed.clear();standalone.element?.remove();style.remove();delete window.__codexCommandMenu;}};
+    remove(){disposed=true;closeStandalone();observer.disconnect();window.removeEventListener('keydown',keydown,true);window.removeEventListener('mousemove',pointermove,true);document.removeEventListener('input',input,true);document.removeEventListener('focusin',schedule,true);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',positionStandalone);for(const view of views.values())view.surface.remove();views.clear();for(const root of openings.keys())restore(root);for(const node of managed)clear(node);managed.clear();standalone.element?.remove();style.remove();delete window.__codexCommandMenu;}};
   refresh();
 })();

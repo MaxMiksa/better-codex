@@ -300,6 +300,25 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.evaluate(()=>document.querySelector('aside').remove());
   check('unmounted-sidebar-keeps-binding',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).id===id);
   check('direct-composer-id-needs-no-title-resolution',await page.evaluate(()=>window.__codexComposerHud.bindingRequest())===null);
+  const transition=await page.evaluate(({id,other})=>{
+    const hud=window.__codexComposerHud,root=document.querySelector('#composer');
+    const makePage=active=>{const page=document.createElement('section');page.dataset.appShellActivePage=String(active);page.dataset.appShellFocusArea='main';document.body.append(page);return page;};
+    const old=makePage(false),active=makePage(true),stale=root.cloneNode(true);
+    stale.id='stale-composer';stale.style.cssText='position:absolute;width:800px;height:130px';
+    stale.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',other);
+    old.append(stale);active.append(root);
+    const both=hud.snapshot();hud.render({...both,ttft:'1.23s'});
+    root.hidden=true;const hidden=hud.snapshot();
+    root.hidden=false;const resumed=hud.snapshot(),ttft=document.querySelector('#codex-composer-hud').shadowRoot.querySelector('#metrics span').textContent;
+    active.dataset.appShellActivePage='false';makePage(true).id='fixture-blank-route';
+    const blank=hud.snapshot(),late=hud.render({...both,ttft:'old'});
+    active.before(root);old.remove();active.remove();document.querySelector('#fixture-blank-route').remove();
+    return {both,hidden,resumed,ttft,blank,late};
+  },{id,other});
+  check('painted-inactive-composer-does-not-compete-with-active-page',transition.both.id===id&&transition.both.visible);
+  check('active-chat-keeps-metrics-when-composer-temporarily-unpainted',transition.hidden.id===id&&!transition.hidden.visible&&transition.hidden.generation===transition.both.generation&&transition.resumed.visible&&transition.ttft==='1.23s');
+  check('blank-active-page-cannot-bind-painted-old-chat',transition.blank.id===null&&!transition.blank.visible&&transition.blank.generation!==transition.both.generation&&!transition.late);
+  snapshot=await page.evaluate(()=>window.__codexComposerHud.snapshot());
   await page.evaluate(value=>{const old=document.querySelector('#composer').cloneNode(true);old.style.display='none';old.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',value);document.body.append(old);},other);
   check('hidden-chat-composer-ignored',(await page.evaluate(()=>window.__codexComposerHud.snapshot())).id===id);
   await page.evaluate(value=>document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',value),other);
@@ -663,6 +682,31 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await page.locator('[contenteditable="true"]').fill('/');
   await page.keyboard.press('ArrowRight');await page.keyboard.press('Enter');
   check('native-keyboard-selects-visible-order-and-stops-hidden-handlers',await page.evaluate(()=>window.menuSelections.join('|')==='rename'&&!window.nativeKeys.includes('Enter')&&!window.nativeKeys.includes('ArrowRight')));
+  for(const kind of ['menu','dialog','other-composer']){
+    await page.evaluate(kind=>{
+      const panel=document.createElement(kind==='dialog'?'dialog':'div');panel.id='foreground-fixture';
+      panel.innerHTML='<button>Front</button><textarea></textarea>';
+      if(kind==='menu')panel.setAttribute('role','menu');
+      if(kind==='other-composer')panel.dataset.codexComposerRoot='';
+      document.body.append(panel);
+      if(kind==='dialog')panel.showModal();
+      if(kind==='other-composer'){
+        document.querySelector('#composer').setAttribute('data-app-shell-active-page','false');
+        panel.querySelector('textarea').focus();
+      }else panel.querySelector('button').focus();
+      window.frontKeys=[];panel.addEventListener('keydown',event=>window.frontKeys.push(event.key));
+    },kind);
+    await page.keyboard.press('Enter');await page.keyboard.press('Tab');
+    check('mounted-slash-menu-yields-keyboard-to-'+kind,await page.evaluate(()=>
+      window.frontKeys.join('|')==='Enter|Tab'&&window.menuSelections.join('|')==='rename'&&!!document.querySelector('#native-menu [data-bc-menu-button]')));
+    await page.evaluate(()=>{
+      document.querySelector('#foreground-fixture').remove();
+      document.querySelector('#composer').removeAttribute('data-app-shell-active-page');
+      const editor=document.querySelector('#composer [contenteditable]');
+      editor.focus();getSelection().collapse(editor.firstChild,1);
+      window.nativeKeys=[];
+    });
+  }
   await page.keyboard.press('ArrowLeft');await page.keyboard.press('ArrowRight');
   check('native-left-right-does-not-move-editor-caret',await page.evaluate(()=>window.getSelection().anchorOffset===1&&document.querySelector('[contenteditable="true"]').textContent==='/'));
   await page.keyboard.press('ArrowDown');

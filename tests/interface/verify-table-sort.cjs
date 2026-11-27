@@ -186,8 +186,14 @@ async function extended(page,sort,visual,dom,frame) {
   await page.locator('#numbers').screenshot({path:path.join(evidence,'table-sorted.png')});
   await page.locator('#units').evaluate(e=>e.remove());await frame();
   check('unmount-cleans-only-removed-table',await page.evaluate(()=>window.__codexTableSort.snapshot().tables===4)&&await page.locator('#numbers th').nth(1).getAttribute('aria-sort')==='descending');
+  const beforeRedraw=await visual('numbers');
+  await page.locator('#numbers thead').evaluate(head=>{head.innerHTML='<tr><th>项目</th><th>数值</th><th>说明</th></tr>';});await frame();
+  check('matching-rebuilt-header-retains-selection-and-row-order',await page.locator('#numbers th').nth(1).getAttribute('aria-sort')==='descending'&&JSON.stringify(await visual('numbers'))===JSON.stringify(beforeRedraw));
+  await page.locator('#numbers').evaluate(element=>{element.hidden=true;});await frame();
+  await page.locator('#numbers').evaluate(element=>{element.hidden=false;});await frame();
+  check('same-table-restores-sort-after-hidden-ancestor',await page.locator('#numbers th').nth(1).getAttribute('aria-sort')==='descending'&&JSON.stringify(await visual('numbers'))===JSON.stringify(beforeRedraw));
   await page.locator('#numbers th').nth(1).evaluate(cell=>cell.textContent='更新后的数值');await frame();
-  check('native-header-rerender-rebuilds-controls-without-changing-text',await page.locator('#numbers [data-codex-table-sort-control]').count()===3&&await page.locator('#numbers th').nth(1).textContent()==='更新后的数值');
+  check('mismatched-header-rebuilds-controls-without-inheriting-sort',await page.locator('#numbers [data-codex-table-sort-control]').count()===3&&await page.locator('#numbers th').nth(1).textContent()==='更新后的数值'&&await page.locator('#numbers th').nth(1).getAttribute('aria-sort')==='none'&&JSON.stringify(await visual('numbers'))===JSON.stringify(await dom('numbers')));
   await sort('numbers',1);await frame();
   check('rebuilt-header-control-still-sorts',await page.locator('#numbers th').nth(1).getAttribute('aria-sort')==='descending');
   await page.evaluate(()=>window.__codexTableSort.remove());await frame();
