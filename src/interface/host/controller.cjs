@@ -60,9 +60,9 @@ async function main(){
       await sleep(350);
     }
   }finally{
-    aiRename.close();
+    const renameCleanup=aiRename.close();
     for(const state of windows.values())state.stopped=true;
-    await Promise.allSettled([...windows.values()].map(state=>state.task));
+    await Promise.allSettled([renameCleanup,...Array.from(windows.values(),state=>state.task)]);
     write(path.join(runtime,'view-status.json'),{schemaVersion:2,controllerPid:process.pid,windows:[],reason:'disconnected',writes:writer.diagnostics(),checkedAt:Date.now()});
     browser.close(); // Closes only our WebSocket.
   }

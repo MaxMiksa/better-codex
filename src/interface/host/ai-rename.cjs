@@ -3,6 +3,7 @@ const {execFile,spawn}=require('node:child_process');
 const {promisify}=require('node:util');
 const {readThreadTranscript,formatTranscript,validThreadId}=require('./session-transcript.cjs');
 const {setThreadTitle}=require('./thread-title-api.cjs');
+const {trackRenameChild}=require('./rename-child.cjs');
 const execute=promisify(execFile);
 
 const MODEL='gpt-6-luna',MAX_TITLE=24;
@@ -70,44 +71,47 @@ ${details}
 function childEnvironment(codexHome){
   return {...process.env,...(codexHome?{CODEX_HOME:codexHome}:{})};
 }
-function createLunaClient({executable,codexHome,model=MODEL,timeoutMs=120000}){
+function createLunaClient({executable,codexHome,model=MODEL,timeoutMs=120000,launch=spawn}){
   const active=new Set();
   let cancelled=false;
-  function run(prompt){
-    if(cancelled)return Promise.reject(new Error('cancelled'));
-    return new Promise((resolve,reject)=>{
-      const child=spawn(executable,['exec','--ephemeral','-m',model,'-s','read-only',
-        '-c','model_reasoning_effort="low"','-c','approval_policy="never"','--skip-git-repo-check','--json','-'],{
-        cwd:os.tmpdir(),env:childEnvironment(codexHome),windowsHide:true,stdio:['pipe','pipe','ignore']
-      });
-      active.add(child);
-      let settled=false,lastMessage='';
-      const finish=(error,value)=>{
-        if(settled)return;
-        settled=true;
-        clearTimeout(timer);
-        active.delete(child);
-        if(error)reject(error);
-        else resolve(value);
-      };
-      const timer=setTimeout(()=>{child.kill();finish(new Error('timeout'));},timeoutMs);
-      readline.createInterface({input:child.stdout,crlfDelay:Infinity}).on('line',line=>{
-        if(line.length>8*1024*1024)return;
-        try{
-          const event=JSON.parse(line);
-          if(event?.type==='item.completed'&&event.item?.type==='agent_message'&&typeof event.item.text==='string')lastMessage=event.item.text;
-        }catch{}
-      });
-      child.on('error',error=>finish(error));
-      child.on('close',code=>finish(code===0&&lastMessage?null:new Error('model'),lastMessage));
-      child.stdin.on('error',()=>finish(new Error('model')));
-      child.stdin.end(prompt);
+  async function run(prompt){
+    if(cancelled)throw new Error('cancelled');
+    const child=launch(executable,['exec','--ephemeral','-m',model,'-s','read-only',
+      '-c','model_reasoning_effort="low"','-c','approval_policy="never"','--skip-git-repo-check','--json','-'],{
+      cwd:os.tmpdir(),env:childEnvironment(codexHome),windowsHide:true,stdio:['pipe','pipe','ignore']
     });
+    const owned=trackRenameChild(child);
+    let failure,lastMessage='';
+    const stop=reason=>{failure??=reason;return owned.kill();};
+    const modelError=()=>stop('model');
+    active.add(stop);
+    child.on('error',modelError);
+    child.stdin.on('error',modelError);
+    child.stdout.on('error',modelError);
+    const timer=setTimeout(()=>stop('timeout'),timeoutMs);
+    const lines=readline.createInterface({input:child.stdout,crlfDelay:Infinity});
+    lines.on('line',line=>{
+      if(line.length>8*1024*1024)return;
+      try{
+        const event=JSON.parse(line);
+        if(event?.type==='item.completed'&&event.item?.type==='agent_message'&&typeof event.item.text==='string')lastMessage=event.item.text;
+      }catch{}
+    });
+    try{
+      child.stdin.end(prompt);
+      const code=await owned.done;
+      if(failure||code!==0||!lastMessage)throw new Error(failure||'model');
+      return lastMessage;
+    }finally{
+      clearTimeout(timer);
+      lines.close();
+      await owned.kill();
+      active.delete(stop);
+    }
   }
   function cancel(){
     cancelled=true;
-    for(const child of active){try{child.kill();}catch{}}
-    active.clear();
+    for(const stop of active)stop('cancelled');
   }
   return {run,cancel};
 }
@@ -153,8 +157,7 @@ function createAiRenameManager({settings,readTranscript=readThreadTranscript,res
     jobs.set(threadId,job);
     const started=Date.now();
     let modelStarted=null,saveStarted=null,modelMs;
-    report('running',null);
-    return (async()=>{
+    job.done=(async()=>{
       // Resolve the CLI and read the bound transcript concurrently; no page is needed here.
       const [transcript,executable]=await Promise.all([
         readTranscript(settings.codexHome,threadId),resolveExecutable()
@@ -176,13 +179,17 @@ function createAiRenameManager({settings,readTranscript=readThreadTranscript,res
         ...(modelStarted===null?{}:{modelMs:modelMs??now-modelStarted}),
         ...(saveStarted===null?{}:{saveMs:now-saveStarted})});
     }).finally(()=>jobs.delete(threadId));
+    report('running',null);
+    return job.done;
   }
   function close(){
     closed=true;
-    for(const {abort,client} of jobs.values()){
+    const running=[...jobs.values()];
+    for(const {abort,client} of running){
       abort.abort();
       try{client?.cancel();}catch{}
     }
+    return Promise.allSettled(running.map(job=>job.done));
   }
   return {start,close};
 }

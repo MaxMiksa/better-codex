@@ -13,6 +13,7 @@ const aiRenameSource=fs.readFileSync(path.join(__dirname,'../../src/interface/ap
 const {setDesktopThreadTitle,setThreadTitle}=require('../../src/interface/host/thread-title-api.cjs');
 const {PassThrough}=require('node:stream');
 const {EventEmitter}=require('node:events');
+const {spawn}=require('node:child_process');
 const id='00000000-0000-4000-8000-000000000001',otherId='00000000-0000-4000-8000-000000000002';
 const results=[];
 function check(name,condition){assert.ok(condition,name);results.push(name);}
@@ -193,14 +194,41 @@ async function waitFor(predicate,timeout=3000){
     states.at(-1).status.reason==='transcript-changed');
   stale.close();
 
-  let cancelled=0;started=false;
+  let cancelled=0,finishClosing;started=false;
   const closing=makeManager({callFactory:()=>({
-    run:()=>{started=true;return new Promise(()=>{});},cancel(){cancelled+=1;}
+    run:()=>{started=true;return new Promise((resolve,reject)=>{finishClosing=reject;});},
+    cancel(){cancelled+=1;finishClosing(new Error('cancelled'));}
   })});
   closing.start({requestId:'closing',threadId:id},onState);
   await waitFor(()=>started);
-  closing.close();
+  await closing.close();
   check('manager-close-cancels-active-model-call',cancelled===1);
+
+  function childFixture(code){
+    const fixture={closed:false};
+    fixture.launch=(_executable,_args,options)=>{
+      fixture.child=spawn(process.execPath,['-e',code],options);
+      fixture.child.once('close',()=>{fixture.closed=true;});
+      return fixture.child;
+    };
+    return fixture;
+  }
+  const keepAlive='setInterval(()=>{},60000)';
+  const modelReply=childFixture(`console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'fixture title'}}))`);
+  const luna=options=>rename.createLunaClient({executable:'codex.exe',codexHome:'fixture',...options});
+  check('model-child-exits-before-returning-the-title',await luna(modelReply).run('fixture')==='fixture title'&&modelReply.closed);
+  for(const [reason,signalChild] of [
+    ['timeout',()=>{}],
+    ['cancelled',client=>client.cancel()],
+    ['model',(_client,fixture)=>fixture.child.stdin.emit('error',new Error('fixture pipe failure'))]
+  ]){
+    const fixture=childFixture(keepAlive);
+    const client=luna({...fixture,timeoutMs:reason==='timeout'?40:3000});
+    const run=client.run('fixture');
+    signalChild(client,fixture);
+    await assert.rejects(run,{message:reason});
+    check('model-child-is-reaped-after-'+reason,fixture.closed);
+  }
 
   const rpcLog=[];
   function appServer(reply){
@@ -232,6 +260,17 @@ async function waitFor(predicate,timeout=3000){
   await assert.rejects(setThreadTitle({...rpcOptions,launch:appServer(request=>
     request.method==='thread/name/set'?{error:{code:-32602}}:answer(request))}),/title-api-rejected/);
   check('direct-rename-reports-app-server-rejection',true);
+  const stubbornServer=childFixture(`
+    ${keepAlive};
+    require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+      const request=JSON.parse(line);
+      if(request.id===undefined)return;
+      const result=request.method==='thread/read'?{thread:${JSON.stringify({id,name:rpcOptions.title})}}:{};
+      console.log(JSON.stringify({id:request.id,result}));
+    });
+  `);
+  await setThreadTitle({...rpcOptions,launch:stubbornServer.launch});
+  check('direct-rename-reaps-its-own-server-even-if-it-ignores-eof',stubbornServer.closed);
 
   const desktopCalls=[];
   let failDesktop=null;
@@ -333,9 +372,7 @@ async function waitFor(predicate,timeout=3000){
     await page.keyboard.press('Enter');
     const sidebarRequest=await page.evaluate(()=>{
       const requestId=window.fastRequests.pop();
-      const request=window.__codexAiRename.pull(requestId);
-      window.__codexAiRename.state({requestId,phase:'success',title:'feat：AI 重命名'});
-      return request;
+      return window.__codexAiRename.pull(requestId);
     });
     check('sidebar-context-menu-binds-target-not-active-chat-and-dispatches-immediately',
       sidebarRequest.threadId===otherId&&await page.locator('[role="menu"]').count()===0);
@@ -343,10 +380,33 @@ async function waitFor(predicate,timeout=3000){
     top=page.locator('[role="menu"] [role="menuitem"]').first();
     check('sidebar-ellipsis-adds-same-top-item',await top.textContent()==='AI 重命名');
     await top.click();
-    check('sidebar-ellipsis-binds-its-own-row',await page.evaluate(()=>window.__codexAiRename.pull().threadId)===id);
+    const secondRequest=await page.evaluate(()=>window.__codexAiRename.pull(window.fastRequests.pop()));
+    check('sidebar-ellipsis-accepts-a-second-chat-before-the-first-finishes',secondRequest?.threadId===id&&
+      secondRequest.requestId!==sidebarRequest.requestId);
+    check('out-of-order-failure-does-not-end-the-other-rename',await page.evaluate(({first,second,otherId,id})=>{
+      const bridge=window.__codexAiRename;
+      bridge.state({requestId:second,phase:'failed',reason:'transcript-unavailable'});
+      const afterFailure=bridge.snapshot();
+      // The composer now points at the first sidebar job; only that duplicate is blocked.
+      window.activeThreadId=otherId;
+      const duplicate=bridge.request();
+      window.activeThreadId=id;
+      bridge.state({requestId:first,phase:'success',title:'feat：另一条聊天'});
+      return afterFailure.busy&&afterFailure.text.includes('无法读取')&&!duplicate&&window.fastRequests.length===0&&
+        !bridge.snapshot().busy&&bridge.snapshot().text==='已重命名为 feat：另一条聊天';
+    },{first:sidebarRequest.requestId,second:secondRequest.requestId,otherId,id}));
+    check('fallback-polls-unclaimed-requests-in-order-without-replaying-the-fast-path',await page.evaluate(({id,otherId})=>{
+      const bridge=window.__codexAiRename,thirdId='00000000-0000-4000-8000-000000000003';
+      const accepted=[id,otherId,thirdId].every(threadId=>{window.activeThreadId=threadId;return bridge.request();});
+      window.activeThreadId=id;
+      const [first,second,third]=window.fastRequests.splice(0);
+      const fast=bridge.pull(second);
+      const polled=[bridge.pull()?.threadId,bridge.pull()?.threadId];
+      const noMore=!bridge.pull(first)&&!bridge.pull(second)&&!bridge.pull();
+      for(const requestId of [first,second,third])bridge.state({requestId,phase:'success',title:'feat：并发测试'});
+      return accepted&&fast?.threadId===otherId&&polled.join('|')===[id,thirdId].join('|')&&noMore&&!bridge.snapshot().busy;
+    },{id,otherId}));
     await page.evaluate(({id,otherId})=>{
-      const bridge=window.__codexAiRename,requestId=window.fastRequests.pop();
-      bridge.state({requestId,phase:'success',title:'feat：AI 重命名'});
       const row=document.querySelector('[data-app-action-sidebar-thread-id="local:'+otherId+'"]');
       const wrongRow=document.querySelector('[data-app-action-sidebar-thread-id="local:'+id+'"]');
       row.dataset.appActionSidebarThreadId='local:client-new-thread:'+id;

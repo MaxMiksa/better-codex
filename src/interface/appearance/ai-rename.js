@@ -20,7 +20,8 @@
   host.append(mark,text);document.body.append(host);
   const sparkle='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.9 5.1L5 10l5.1 1.9L12 17l1.9-5.1L19 10l-5.1-1.9Z"/><path d="M5 3v4M3 5h4M19 17v4M17 19h4"/></svg>';
   const spinner='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>';
-  let pending=null,busy=false,timer=0,staleTimer=0,activeId=null;
+  const jobs=new Map();
+  let timer=0;
   function position(){
     const composers=[...document.querySelectorAll('[data-codex-composer-root]')].filter(element=>element.checkVisibility()&&element.getBoundingClientRect().width>0)
       .sort((a,b)=>b.getBoundingClientRect().top-a.getBoundingClientRect().top);
@@ -32,41 +33,45 @@
       host.style.left='50%';host.style.top='calc(100vh - 112px)';
     }
   }
-  function hide(){if(timer)clearTimeout(timer);timer=0;host.hidden=true;}
   function show(kind,message){
     if(timer)clearTimeout(timer);
+    timer=0;
     host.hidden=false;host.dataset.state=kind;mark.innerHTML=kind==='running'?spinner:sparkle;
     mark.toggleAttribute('data-spin',kind==='running');text.textContent=message;position();
-    if(kind!=='running')timer=setTimeout(hide,kind==='success'?4200:5200);
+    if(kind!=='running')timer=setTimeout(()=>{
+      timer=0;
+      if(jobs.size)show('running',t('aiRename.running'));
+      else host.hidden=true;
+    },kind==='success'?4200:5200);
   }
   function available(){return Boolean(window.__codexComposerHud?.snapshot?.().id);}
   function requestFor(snapshot){
-    if(!snapshot?.id){show('failed',t('aiRename.noChat'));return false;}
-    if(busy){show('failed',t('aiRename.busy'));return false;}
-    busy=true;
+    if(typeof snapshot?.id!=='string'||!snapshot.id){show('failed',t('aiRename.noChat'));return false;}
+    const threadKey=snapshot.id.toLowerCase();
+    if([...jobs.values()].some(job=>job.threadKey===threadKey)){show('failed',t('aiRename.busy'));return false;}
     const id='ai-rename:'+Date.now()+':'+Math.random().toString(36).slice(2);
-    activeId=id;
-    pending={requestId:id,threadId:snapshot.id,generation:snapshot.generation,createdAt:Date.now()};
-    try{window.__betterCodexRequestAiRename?.(id);}catch{} // the worker also polls as a fallback
+    const job={threadKey,sent:false,request:{requestId:id,threadId:snapshot.id,generation:snapshot.generation,createdAt:Date.now()}};
+    jobs.set(id,job);
+    job.timeout=setTimeout(()=>state({requestId:id,phase:'failed',reason:job.sent?'title-not-confirmed':'failed'}),180000);
     show('running',t('aiRename.running'));
-    if(staleTimer)clearTimeout(staleTimer);
-    staleTimer=setTimeout(()=>{
-      if(busy&&pending){busy=false;pending=null;activeId=null;show('failed',t('aiRename.failed'));}
-    },180000);
+    try{window.__betterCodexRequestAiRename?.(id);}catch{} // the worker also polls as a fallback
     return true;
   }
   function request(){return requestFor(window.__codexComposerHud?.snapshot?.());}
   function pull(id){
-    if(id!==undefined&&pending?.requestId!==id)return null;
-    const value=pending;pending=null;return value;
+    // The binding claims one exact request; each fallback poll claims the oldest unsent one.
+    const job=id===undefined?[...jobs.values()].find(job=>!job.sent):jobs.get(id);
+    if(!job||job.sent)return null;
+    job.sent=true;
+    return job.request;
   }
   function state(value){
-    if(!value?.requestId||value.requestId!==activeId)return;
-    busy=Boolean(value.running);
-    if(staleTimer){clearTimeout(staleTimer);staleTimer=0;}
-    if(value.phase==='success'){activeId=null;show('success',t('aiRename.success',{title:value.title||''}));}
-    else if(value.phase==='failed'){
-      activeId=null;
+    const job=jobs.get(value?.requestId);
+    if(!job||!['success','failed'].includes(value.phase))return;
+    clearTimeout(job.timeout);
+    jobs.delete(value.requestId);
+    if(value.phase==='success')show('success',t('aiRename.success',{title:value.title||''}));
+    else{
       const message=value.reason==='transcript-unavailable'?t('aiRename.unavailable'):
         value.reason==='transcript-changed'?t('aiRename.changing'):
         value.reason==='empty'?t('aiRename.noMessages'):
@@ -220,12 +225,14 @@
   for(const menu of document.querySelectorAll(menuSelector))extendMenu(menu);
   window.addEventListener('keydown',menuKey,true);
   function remove(){
-    if(timer)clearTimeout(timer);if(staleTimer)clearTimeout(staleTimer);
+    if(timer)clearTimeout(timer);
+    for(const job of jobs.values())clearTimeout(job.timeout);
+    jobs.clear();
     menuObserver.disconnect();
     window.removeEventListener('keydown',menuKey,true);
     for(const item of document.querySelectorAll('[data-bc-sidebar-ai-rename]'))item.remove();
     window.removeEventListener('resize',position);style.remove();host.remove();delete window.__codexAiRename;
   }
   window.addEventListener('resize',position);
-  window.__codexAiRename={request,pull,state,available,remove,snapshot:()=>({pending,busy,visible:!host.hidden,text:text.textContent})};
+  window.__codexAiRename={request,pull,state,available,remove,snapshot:()=>({busy:jobs.size>0,visible:!host.hidden,text:text.textContent})};
 })();

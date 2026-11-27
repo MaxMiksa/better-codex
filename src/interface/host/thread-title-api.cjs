@@ -1,6 +1,7 @@
 const {spawn}=require('node:child_process');
 const os=require('node:os'),readline=require('node:readline');
 const {validThreadId}=require('./session-transcript.cjs');
+const {trackRenameChild}=require('./rename-child.cjs');
 
 // The desktop transport speaks the same App Server protocol and delivers native
 // thread/name/updated notifications. It never dispatches a UI action.
@@ -60,6 +61,7 @@ async function setThreadTitle({executable,codexHome,threadId,title,signal,timeou
   const child=launch(executable,['app-server','--listen','stdio://'],{
     cwd:os.tmpdir(),env:{...process.env,CODEX_HOME:codexHome},windowsHide:true,stdio:['pipe','pipe','ignore']
   });
+  const owned=trackRenameChild(child);
   let failure,pending,sequence=0;
   const stop=reason=>{
     failure??=reason;
@@ -108,13 +110,7 @@ async function setThreadTitle({executable,codexHome,threadId,title,signal,timeou
     clearTimeout(timer);
     signal?.removeEventListener('abort',cancel);
     lines.close();
-    child.stdin.end();
-    // EOF lets our short-lived app-server exit normally; only its own PID is ever killed.
-    if(child.exitCode===null&&child.signalCode===null){
-      const reap=setTimeout(()=>child.kill(),1000);
-      reap.unref();
-      child.once('close',()=>clearTimeout(reap));
-    }
+    await owned.end();
   }
 }
 

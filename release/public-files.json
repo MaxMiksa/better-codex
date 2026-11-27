@@ -50,6 +50,7 @@
     "src/interface/host/local-cdp.cjs",
     "src/interface/host/page-contract.cjs",
     "src/interface/host/prompt-directory.cjs",
+    "src/interface/host/rename-child.cjs",
     "src/interface/host/thread-title-api.cjs",
     "src/interface/host/runtime-writer.cjs",
     "src/interface/host/session-transcript.cjs",
