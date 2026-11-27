@@ -171,9 +171,6 @@
     ".runtime/"
   ],
   "sourceExtras": [
-    "scripts/Build-WorkspacePreview.ps1",
-    "src/interface/workspace_tree/preview/App.tsx",
-    "src/interface/workspace_tree/preview/nsh.json",
     "release/README.md",
     "scripts/Install-NodeDependencies.ps1",
     "scripts/node/README.md",

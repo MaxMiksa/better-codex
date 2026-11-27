@@ -12,6 +12,8 @@
 
 scripts/package.py 导出 runtime + sourceExtras；scripts/build-portable.py 只导出 runtime，再加入 scripts/portable-lock.json 锁定的运行环境和许可。src/prompts/、根 prompts/、内部状态和私人研究材料不公开；成品图逐文件列出，不导出整个素材目录。
 
+可选预览器由 [Preview](https://github.com/MaxMiksa/preview) 单独发行。Better-Codex 只发布文件树适配器和[接入说明](../src/interface/workspace_tree/preview/README.md)，不再构建预览器或为后续发行附加它的 ZIP；历史附件保留。
+
 产品内运行历史的 Python/PowerShell 实现、稳定查询入口和必要契约进入 runtime，隔离测试进入 sourceExtras。`.runtime/` 中的 SQLite、WAL、SHM、记录器健康状态及查询导出均不打包；源码实现完成不代表已经随版本发行。
 
 ## 文件变更与候选验证
