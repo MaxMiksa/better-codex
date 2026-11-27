@@ -503,7 +503,7 @@
   window.addEventListener('resize',schedule);
   window.addEventListener('storage',storageChanged);
   window.__codexWorkspaceTree={
-    pullAction:actions.pull,confirmAction:actions.confirm,actionResult:actions.result,
+    pullAction:actions.pull,confirmAction:actions.confirm,confirmPreview:actions.confirmPreview,actionResult:actions.result,
     setEnabled(value){
       if(enabled===(value===true))return;
       enabled=value===true;reconcile();

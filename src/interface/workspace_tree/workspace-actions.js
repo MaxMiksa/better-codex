@@ -24,7 +24,7 @@ async function bcFindNativeFolderOpen(){
 
 // Only real gestures on the current local tree can enqueue a native action.
 const bcWorkspaceActions=({contextIsCurrent,fileIsCurrent,notice})=>{
-  let request=null,latest=null,nativeFolderOpen=null;
+  let request=null,latest=null,preview=null,nativeFolderOpen=null;
   const belongs=action=>contextIsCurrent(action.context)&&
     (!action.view||fileIsCurrent(action.view,action.relative));
   const canStart=action=>action&&Date.now()<action.expires&&document.hasFocus()&&belongs(action);
@@ -32,7 +32,7 @@ const bcWorkspaceActions=({contextIsCurrent,fileIsCurrent,notice})=>{
     if(!event.isTrusted||!context?.root)return;
     const action={id:crypto.randomUUID(),kind,context,view,relative,expires:Date.now()+3000,pulled:false};
     if(!canStart(action))return;
-    request=action;latest=action.id;
+    request=action;latest=action.id;preview=null;
     if(kind==='folder'){
       action.nativeOpen=nativeFolderOpen??=await bcFindNativeFolderOpen();
       if(request!==action||!canStart(action))return;
@@ -49,6 +49,7 @@ const bcWorkspaceActions=({contextIsCurrent,fileIsCurrent,notice})=>{
   function result(id,status){
     if(request?.id!==id)return;
     const last=request;request=null;
+    if(status==='nativePreviewReady'&&last.kind==='preview'&&last.pulled)preview=last;
     if(status==='openNativeFolder'&&last.kind==='folder'&&last.pulled&&last.nativeOpen&&canStart(last)){
       void (async()=>{
         try{if((await last.nativeOpen(last.context.root))?.success===true)return;}catch{}
@@ -59,5 +60,11 @@ const bcWorkspaceActions=({contextIsCurrent,fileIsCurrent,notice})=>{
     }
     if(['peekUnavailable','locateOnly','actionFailed','folderBackground'].includes(status)&&belongs(last))notice(status);
   }
-  return {start,pull,result,confirm:id=>request?.id===id&&request.pulled&&canStart(request)};
+  function confirmPreview(id){
+    const action=preview??request;
+    // The independent preview owns keyboard focus by now; the original tree must
+    // still own the authorized selection, regardless of which app is frontmost.
+    return Boolean(latest===id&&action?.id===id&&action.kind==='preview'&&action.pulled&&belongs(action));
+  }
+  return {start,pull,result,confirm:id=>request?.id===id&&request.pulled&&canStart(request),confirmPreview};
 };

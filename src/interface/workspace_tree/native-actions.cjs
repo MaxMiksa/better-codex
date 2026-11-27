@@ -1,6 +1,7 @@
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const {execFile,spawn}=require('node:child_process'),{promisify}=require('node:util');
 const {allowedRoot,windowsName,windowsPath}=require('./windows-paths.cjs');
+const {createNativePreview}=require('./preview-bridge.cjs');
 const execute=promisify(execFile);
 const shellHelper=path.join(__dirname,'windows-shell.py');
 const actions=new Set(['preview','open','locate','folder']);
@@ -30,10 +31,15 @@ function startPreview(file,args){
     child.once('spawn',()=>{child.unref();resolve();});
   });
 }
-function createWorkspaceActions({codexHome,python,home=os.homedir(),workspaceTreeQuickLookPath},
-  {candidates=peekCandidates(),peek=startPreview,quickLook=startPreview,sendQuickLook,shell,desktopPid=()=>null}={}){
+function createWorkspaceActions({codexHome,python,home=os.homedir(),language,workspaceTreeQuickLookPath,workspaceTreePreviewPath},
+  {candidates=peekCandidates(),peek=startPreview,quickLook=startPreview,sendQuickLook,nativePreview,shell,desktopPid=()=>null}={}){
   const configured=windowsPath(workspaceTreeQuickLookPath);
   const quickLookPath=path.win32.basename(configured??'').toLowerCase()==='quicklook.exe'?configured:null;
+  const native=windowsPath(workspaceTreePreviewPath);
+  const previewPath=path.win32.basename(native??'').toLowerCase()==='bettercodexpreview.exe'?native:null;
+  const dispatchPreview=previewPath&&(nativePreview??createNativePreview({
+    language:language??process.env.BETTER_CODEX_LANGUAGE??Intl.DateTimeFormat().resolvedOptions().locale,start:startPreview
+  }));
   const dispatchQuickLook=sendQuickLook??(async(file,executable)=>{
     try{
       await execute(python,['-I','-B',shellHelper,'quicklook',file,executable],
@@ -50,7 +56,7 @@ function createWorkspaceActions({codexHome,python,home=os.homedir(),workspaceTre
     if(Number.isInteger(pid)&&pid>0&&pid<=0xffffffff)args.push(String(pid));
     return execute(python,args,{cwd:os.tmpdir(),windowsHide:true,timeout:6000});
   });
-  return async function perform(request,stillCurrent){
+  return async function perform(request,stillCurrent,stillPreview=stillCurrent){
     const {kind,root,relative}=request??{};
     const base=allowedRoot(root,{home,codexHome}),folder=kind==='folder';
     if(!actions.has(kind)||!base||typeof relative!=='string'||relative.length>32767||
@@ -71,6 +77,13 @@ function createWorkspaceActions({codexHome,python,home=os.homedir(),workspaceTre
       const previewable=document||peekSource.has(extension)||peekNames.has(path.win32.basename(realFile).toLowerCase());
       const preview=kind==='preview'&&previewable;
       const locateOnly=(kind==='open'&&!document)||(kind==='preview'&&!previewable);
+      if(preview&&previewPath&&await findExecutable([previewPath])){
+        if(!await stillCurrent())return null;
+        if(await dispatchPreview(previewPath,realFile,{
+          openable:document,stillCurrent,
+          open:()=>perform({...request,kind:document?'open':'locate'},stillPreview)
+        }))return 'nativePreviewReady';
+      }
       const quick=preview&&quickLookPath?await findExecutable([quickLookPath]):null;
       const executable=preview&&!quick?await findExecutable(candidates):null;
       if(!await stillCurrent())return null;

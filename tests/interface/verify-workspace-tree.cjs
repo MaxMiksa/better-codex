@@ -3,6 +3,7 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
 const {pageSource}=require('../../src/platform/i18n/i18n.js');
 const {workspaceTreeSource}=require('../../src/interface/workspace_tree/page-source.cjs');
 const {createWorkspaceActions}=require('../../src/interface/workspace_tree/native-actions.cjs');
+const {createNativePreview}=require('../../src/interface/workspace_tree/preview-bridge.cjs');
 const {chromium}=require(process.env.HUD_PLAYWRIGHT||'playwright');
 const uuid=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const [a,b,c,d,e,f,p,q]=[1,2,3,4,5,6,100,101].map(uuid);
@@ -46,6 +47,39 @@ async function checkNativeActions(){
     check('A missing preferred executable leaves installed Peek available',
       await createWorkspaceActions({...views,workspaceTreeQuickLookPath:path.join(other,'QuickLook.exe')},
         quickOptions)(previewRequest,yes)===null&&calls.pop()?.[0]==='peek');
+    const native=path.join(dir,'BetterCodexPreview.exe');
+    await fs.writeFile(native,'fixture');
+    const nativeSettings={...views,workspaceTreePreviewPath:native};
+    const runNative=nativePreview=>createWorkspaceActions(nativeSettings,{...quickOptions,nativePreview,
+      sendQuickLook:async(file,exe)=>{calls.push(['send',file,exe]);return true;}});
+    let authorizeOpen;
+    check('Native preview takes precedence and cannot execute scripts',
+      await runNative(async(exe,file,options)=>{
+        assert.deepEqual([exe,file,options.openable],[native,script,false]);
+        authorizeOpen=options.open;
+        return true;
+      })({...previewRequest,relative:'script.js'},yes,yes)==='nativePreviewReady'&&calls.length===0&&
+      await authorizeOpen()===null&&calls.pop()?.[0]==='locate');
+    check('Native preview opening rechecks the existing selection authorization',
+      await runNative(async(exe,file,options)=>{authorizeOpen=options.open;return true;})(
+        previewRequest,yes,()=>false)==='nativePreviewReady'&&await authorizeOpen()===null&&calls.length===0);
+    check('Unsupported or failed native preview leaves QuickLook available',
+      await runNative(async()=>false)(previewRequest,yes)===null&&
+      JSON.stringify(calls.pop())===JSON.stringify(['send',doc,quick]));
+    const fixtureData=path.join(dir,'preview-data');
+    let requestDir,staged;
+    const dispatch=createNativePreview({appData:fixtureData,language:'zh-CN',start:async(exe,[file])=>{
+      requestDir=path.dirname(file);
+      staged=JSON.parse(await fs.readFile(file,'utf8'));
+      await fs.writeFile(path.join(requestDir,'ready'),'');
+    }});
+    check('Preview passes only bounded document data to the app and no original path',
+      await dispatch(native,doc,{openable:true,open:async()=>{},stillCurrent:yes})&&
+      staged.name===path.basename(doc)&&staged.body==='fixture'&&staged.zh===true&&
+      !JSON.stringify(staged).includes(root));
+    await fs.writeFile(path.join(requestDir,'closed'),'');
+    for(let i=0;i<30&&await fs.stat(requestDir).catch(()=>null);i++)await new Promise(resolve=>setTimeout(resolve,10));
+    check('Native preview removes its staging folder on close',!await fs.stat(requestDir).catch(()=>null));
     check('Open uses the default app for ordinary documents',await run('open',path.basename(doc))===null&&calls.pop()?.[0]==='open');
     check('Folder and locate use separate Explorer verbs',await run('folder','')===null&&
       JSON.stringify(calls.pop())===JSON.stringify(['folder',root])&&await run('locate',path.basename(doc))===null&&calls.pop()?.[0]==='locate');
@@ -334,6 +368,12 @@ async function checkNativeActions(){
     await row('package.json').click();
     await page.keyboard.press('Space');
     check('current scope can confirm a pending launch',await evalPage(()=>window.__codexWorkspaceTree.confirmAction(fixture.actions.at(-1).id)));
+    await evalPage(()=>window.__codexWorkspaceTree.actionResult(fixture.actions.at(-1).id,'nativePreviewReady'));
+    check('A rendered preview can reopen the original after ordinary gesture authorization ends',await evalPage(()=>{
+      const tree=window.__codexWorkspaceTree,id=fixture.actions.at(-1).id;
+      return !tree.confirmAction(id)&&tree.confirmPreview(id);
+    }));
+    await page.keyboard.press('Space');
     await page.locator('#sidebar').click({button:'right'});
     await afterReconcile();
     check('preserving the dock during a sidebar menu does not authorize pending shell actions',await evalPage(()=>
@@ -342,7 +382,8 @@ async function checkNativeActions(){
     await evalPage(()=>{fixture.pane=document.querySelector('[data-bc-workspace-files]');fixture.delay=160;});
     await change(c);await pane.getByText('正在加载…').waitFor();await waitRow('worktree.md');
     check('a previous chat can no longer confirm its pending action',await evalPage(()=>
-      !window.__codexWorkspaceTree.confirmAction(fixture.actions.at(-1).id)));
+      !window.__codexWorkspaceTree.confirmAction(fixture.actions.at(-1).id)&&
+      !window.__codexWorkspaceTree.confirmPreview(fixture.actions.at(-1).id)));
     await evalPage(()=>{fixture.holdActions=false;});
     check('same registered project retains the open dock across sessions and switches to the current worktree',await evalPage(()=>
       fixture.pane===document.querySelector('[data-bc-workspace-files]'))&&await row('package.json').count()===0);

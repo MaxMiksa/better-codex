@@ -64,6 +64,8 @@ The builder gives the component its own element name so it can coexist with Code
 
 File grouping uses the pinned renderer's sort option; sorting changes don't require rebuilding the bundle. The workspace check exercises that renderer and the local action bridge with stubbed preview and Windows shell calls. An opted-in QuickLook installation receives the validated path through its file-manager pipe, with the pipe server's executable checked before writing. When the pipe is absent, the configured executable starts on demand. Without a valid QuickLook executable, preview uses the documented PowerToys command line as before. No new resident helper or Codex file-page component is loaded.
 
+The optional [native preview companion](../src/interface/workspace_tree/preview/README.md) handles bounded image and text content before those fallbacks. Build it with the pinned precompiled NSH CLI; neither standard package requires NSH. Treat the separate preview ZIP as a companion asset, not a replacement for either standard archive.
+
 Project-name clicks prefer the window's initialized `appServices.openIn.open` with the local `fileManager` target. The adapter checks the loaded entry's module cache by export name, never by asset hash or module ID. This is an internal desktop compatibility point, not a public API. When absent, keep the Windows fallback; do not register another AppHost port for an existing view or retry an already dispatched native action.
 
 An open native sidebar menu must not unmount the current workspace dock or reset its filter, expanded folders or directory watches. Menu-managed accessibility markers may preserve an already matched visual scope, but must not enable file actions or attach a tree to a different chat.

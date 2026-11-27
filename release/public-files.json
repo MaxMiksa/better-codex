@@ -38,6 +38,8 @@
     "src/interface/workspace_tree/workspace-directories.js",
     "src/interface/workspace_tree/workspace-actions.js",
     "src/interface/workspace_tree/native-actions.cjs",
+    "src/interface/workspace_tree/preview-bridge.cjs",
+    "src/interface/workspace_tree/preview/README.md",
     "src/interface/workspace_tree/windows-paths.cjs",
     "src/interface/workspace_tree/windows-shell.py",
     "src/interface/workspace_tree/page-source.cjs",
@@ -169,6 +171,9 @@
     ".runtime/"
   ],
   "sourceExtras": [
+    "scripts/Build-WorkspacePreview.ps1",
+    "src/interface/workspace_tree/preview/App.tsx",
+    "src/interface/workspace_tree/preview/nsh.json",
     "release/README.md",
     "scripts/Install-NodeDependencies.ps1",
     "scripts/node/README.md",

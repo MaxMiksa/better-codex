@@ -14,7 +14,8 @@ const {normalize:commandVisible,normalizeSkillVisible,normalizeSectionOrder,norm
 const METRIC_KEYS=['ttft','speed','cache','age'];
 const DEFAULT_PREFERENCES={readingWidth:1152,fileChangesDefaultCollapsed:true,customAccent:true,tableEnabled:true,tableCentered:true,tableSortMode:'smart',
   metricOrder:[...METRIC_KEYS],metricVisible:Object.fromEntries(METRIC_KEYS.map(key=>[key,true]))};
-const COMPOSER_FOLD_MODES=['off','minimize','hide'];
+const COMPOSER_FOLD_STYLES=['minimize','hide'];
+const COMPOSER_FOLD_MODES=['off',...COMPOSER_FOLD_STYLES];
 const isAssistantFontSize=value=>value===null||(Number.isInteger(value)&&value>=10&&value<=40);
 const clampWidth=value=>Math.max(768,Math.min(1600,Math.round(Number(value))));
 function metricOrder(value){
@@ -31,9 +32,11 @@ function metricVisible(value){
   return visible;
 }
 function preferences(value={}){
+  const composerAutoHide=COMPOSER_FOLD_MODES.includes(value.composerAutoHide)?value.composerAutoHide:'off';
   return {
     readingWidth:Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600?clampWidth(value.readingWidth):DEFAULT_PREFERENCES.readingWidth,
-    composerAutoHide:COMPOSER_FOLD_MODES.includes(value.composerAutoHide)?value.composerAutoHide:'off',
+    composerAutoHide,
+    composerHideStyle:composerAutoHide!=='off'?composerAutoHide:COMPOSER_FOLD_STYLES.includes(value.composerHideStyle)?value.composerHideStyle:'minimize',
     composerHideAfterSend:value.composerHideAfterSend===true,
     assistantFontSize:isAssistantFontSize(value.assistantFontSize)?value.assistantFontSize:null,
     chatTitleCentered:value.chatTitleCentered!==false,
@@ -57,6 +60,7 @@ function patch(value={}){
   const result={};
   if(Number.isInteger(value.readingWidth)&&value.readingWidth>=768&&value.readingWidth<=1600)result.readingWidth=clampWidth(value.readingWidth);
   if(COMPOSER_FOLD_MODES.includes(value.composerAutoHide))result.composerAutoHide=value.composerAutoHide;
+  if(COMPOSER_FOLD_STYLES.includes(value.composerHideStyle))result.composerHideStyle=value.composerHideStyle;
   if(typeof value.composerHideAfterSend==='boolean')result.composerHideAfterSend=value.composerHideAfterSend;
   if(isAssistantFontSize(value.assistantFontSize))result.assistantFontSize=value.assistantFontSize;
   if(typeof value.chatTitleCentered==='boolean')result.chatTitleCentered=value.chatTitleCentered;
@@ -134,8 +138,9 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
       const request=await page.evaluate(({runtime,request})=>
         window.__betterCodexRuntime===runtime?window.__codexWorkspaceTree?.pullAction?.(request):null,id);
       if(!request||!active())return;
-      const status=await workspaceAction(request,async()=>active()&&await page.evaluate(({runtime,request})=>
-        window.__betterCodexRuntime===runtime&&window.__codexWorkspaceTree?.confirmAction?.(request),id));
+      const confirm=method=>async()=>active()&&await page.evaluate(({runtime,request,method})=>
+        window.__betterCodexRuntime===runtime&&window.__codexWorkspaceTree?.[method]?.(request),{...id,method});
+      const status=await workspaceAction(request,confirm('confirmAction'),confirm('confirmPreview'));
       if(active())await page.evaluate(({runtime,request,status})=>{
         if(window.__betterCodexRuntime===runtime)window.__codexWorkspaceTree?.actionResult?.(request,status);
       },{...id,status});
