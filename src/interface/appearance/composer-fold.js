@@ -15,9 +15,11 @@
   const stateAttr='data-bc-composer-fold',trackAttr='data-bc-composer-fold-track';
   const pathAttr='data-bc-fold-status-path',statusAttr='data-bc-fold-status-row';
   const inputPath='data-bc-fold-input-path',inputAttr='data-bc-fold-input';
+  const measureAttr='data-bc-fold-measure-input';
+  const inputBox=['left','bottom','width','height'].map(key=>'--bc-fold-input-'+key);
   const keptPath=`:is([${pathAttr}],[${inputPath}])`;
   const keptChild=`:is(${keptPath},[${statusAttr}],[${inputAttr}])`;
-  const collapsed=`:is([${stateAttr}="minimize"],[${stateAttr}="hide"])`;
+  const collapsed=`:is([${stateAttr}="minimize"],[${stateAttr}="hide"]):not([${measureAttr}])`;
   const doubleEnter=350,sendTimeout=3500,sidebarTimeout=3000;
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
   const style=document.createElement('style');
@@ -27,16 +29,19 @@
     #codex-hud-expand-composer svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     #codex-hud-expand-composer:hover{background:color-mix(in srgb,var(--bc-composer-surface,var(--color-background-secondary,#323237)) 88%,currentColor)}
     #codex-hud-expand-composer:focus-visible{outline:2px solid var(--codex-base-accent,currentColor);outline-offset:-3px}
-    #codex-hud-expand-composer[hidden]{display:none}
+    #codex-hud-expand-composer[hidden],[${measureAttr}]>#codex-hud-expand-composer{display:none!important}
     ${collapsed}>[${trackAttr}]:not(${keptPath}),${collapsed} ${keptPath} > :not(${keptChild}){display:none!important}
     ${collapsed} ${keptPath}{display:contents!important}
-    ${collapsed} [${inputAttr}]{position:fixed!important;inset:auto 0 0 auto!important;width:0!important;height:0!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}
+    ${collapsed}:has([${inputAttr}]){position:relative}
+    ${collapsed} [${inputAttr}]{position:absolute!important;inset:auto auto var(${inputBox[1]},0px) var(${inputBox[0]},0px)!important;width:var(${inputBox[2]},0px)!important;height:var(${inputBox[3]},0px)!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;margin:0!important;box-sizing:border-box!important;opacity:0!important;pointer-events:none!important}
     ${collapsed}:has(>[${trackAttr}][${pathAttr}]){display:flex;flex-flow:row wrap;justify-content:center;align-items:center;gap:8px}
     ${collapsed} [${statusAttr}]{width:max-content;max-width:100%;min-width:0;height:auto!important;align-self:center}
     ${collapsed} [${statusAttr}]>div{position:relative!important;inset:auto!important;padding-bottom:0!important}
     [${stateAttr}="moving"]{position:relative;min-height:0!important;overflow:clip}
     [${stateAttr}="moving"]>[${trackAttr}]{position:absolute;inset:auto 0 0;transform-origin:center bottom}
     [${stateAttr}="moving"]>#codex-hud-expand-composer{position:absolute;inset:auto auto 0 50%;translate:-50% 0}
+    [${stateAttr}="moving"]:has([data-codex-composer="true"]:focus)>[${trackAttr}],
+    [${stateAttr}="moving"] [data-composer-body]:has([data-codex-composer="true"]:focus){scale:none!important}
     [data-bc-fold-closing]>[${trackAttr}]{pointer-events:none}
     [data-bc-fold-closing]>[${trackAttr}]:not([${inputPath}]),[data-bc-fold-closing] [${inputPath}] > :not([${inputPath}],[${inputAttr}]){interactivity:inert}
   `;
@@ -50,6 +55,7 @@
   const visible=e=>Boolean(e?.getClientRects().length&&e.getBoundingClientRect().height>0&&getComputedStyle(e).visibility==='visible'&&!e.closest(inactive));
   const foldedOrClosing=()=>['minimize','hide','closing'].includes(folded);
   const resetKeys=()=>{enterAt=-Infinity;pressed=false;swallow=false;};
+  const inputResize=new ResizeObserver(()=>schedule());
   function stopAnimation(){const previous=animation;animation=[];for(const motion of previous)motion.cancel();}
   function commit(next){
     if(!binding)return;
@@ -190,12 +196,34 @@
     if(!standby)return;
     const {editor,path,origin}=standby;
     standby=null;
+    inputResize.disconnect();
     if(returnFocus&&document.activeElement===editor){
       if(returnFocus==='origin'&&origin===binding?.scroll&&visible(origin))origin.focus({preventScroll:true});
       if(document.activeElement===editor)editor.blur();
     }
     editor.removeAttribute(inputAttr);
+    for(const property of inputBox)editor.style.removeProperty(property);
     for(const node of path)node.removeAttribute(inputPath);
+  }
+  function positionStandby(){
+    if(!standby||!['minimize','hide'].includes(folded))return;
+    const {shell,editor}=binding,base=shell.getBoundingClientRect();
+    const layout=[base.width,base.height,innerWidth,innerHeight,devicePixelRatio,binding.status?.row];
+    if(layout.every((value,index)=>value===standby.layout?.[index]))return;
+    standby.layout=layout;
+    // Read the native expanded geometry without painting or replacing the editor.
+    // An IME can ask for the old caret bounds before the renderer sees its first key.
+    shell.setAttribute(measureAttr,'');
+    const bounds=editor.getBoundingClientRect();
+    shell.removeAttribute(measureAttr);
+    if(!bounds.width||!bounds.height)return;
+    const css=getComputedStyle(shell);
+    const values=[
+      bounds.left-base.left-parseFloat(css.borderLeftWidth),
+      base.bottom-bounds.bottom-parseFloat(css.borderBottomWidth),
+      bounds.width,bounds.height
+    ];
+    for(const [index,property] of inputBox.entries())editor.style.setProperty(property,values[index]+'px');
   }
   function prepareInput(){
     if(!binding||!foldedOrClosing())return;
@@ -206,7 +234,9 @@
       &&!editor.closest('[hidden],'+inactive)&&!overlayOpen();
     if(standby){
       if(available&&active===editor&&standby.editor===editor&&standby.path.at(-1)===track
-        &&standby.path.every((node,index)=>node===(standby.path[index-1]||editor).parentElement))return;
+        &&standby.path.every((node,index)=>node===(standby.path[index-1]||editor).parentElement)){
+        positionStandby();return;
+      }
       clearStandby('blur');
       return;
     }
@@ -216,12 +246,14 @@
       path.push(node);
       if(node!==track)continue;
       // Windows IME needs the original editable focused before the first keystroke.
-      // Keep only its DOM path rendered; reveal it without changing the text input client.
+      // Keep only its DOM path rendered and the caret at the expanded position.
       standby={editor,path,origin:active};
       for(const part of path)part.setAttribute(inputPath,'');
       editor.setAttribute(inputAttr,'');
+      positionStandby();
       editor.focus({preventScroll:true});
       if(document.activeElement!==editor)clearStandby();
+      else inputResize.observe(binding.shell);
       return;
     }
   }
@@ -319,7 +351,7 @@
       ],options));
     }
     folded=next==='open'?'opening':'closing';
-    motion.onfinish=()=>{if(animation[0]===motion)commit(next);};
+    motion.onfinish=()=>{if(animation[0]===motion){commit(next);prepareInput();}};
   }
   function check(){
     frame=0;if(mode==='off')return;
