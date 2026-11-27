@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.38"><img alt="版本" src="https://img.shields.io/badge/version-v0.5.38-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.40"><img alt="版本" src="https://img.shields.io/badge/version-v0.5.40-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -21,7 +21,7 @@
 - **四项统计**：本轮首次响应耗时（TTFT）、输出速度、缓存比例与统计时间。点击统计条打开设置，各项可单独显隐，也可拖动调整顺序。
 - **工作区文件树**：在聊天左侧实时显示当前工作区或 worktree，文件按类型分组、组内按名称排序。空格用 PowerToys Peek 或[已配置的 QuickLook](src/interface/README.md#工作区文件树)预览，双击打开，点击项目名打开当前目录。面板宽度可拖动，同一项目的聊天共享打开状态。
 - **统一设置面板**：正文宽度可在 768–1600 px 间调整；「AI 回复字号」可独立设为 10–40 px，留空则跟随原生。也可设置文件列表默认收起、开关配色自定义修复。修改自动保存，支持撤销、重做与恢复默认。
-- **自动隐藏输入框**：在「界面设置」选择关闭、最小化或完全隐藏。已有聊天的空输入框失焦后收起，任务运行中也一样；切入已有聊天时直接应用所选状态。用鼠标从侧栏点开聊天后，可直接连按两次 Enter 展开并输入，最小化时也可点击「展开输入框」。开启「发送后自动隐藏」后，发送成功时即使焦点还在输入框里也会收起。空白新聊天、未发送的草稿和附件保持显示。
+- **自动隐藏输入框**：在「界面设置」选择关闭、最小化或完全隐藏。已有聊天的空输入框失焦后收起，任务运行中也一样；切入已有聊天时直接应用所选状态。在正文区直接打字即可展开，首个拼音字母就进入中文输入法。用鼠标从侧栏点开聊天后，也可连按两次 Enter 展开并输入，最小化时也可点击「展开输入框」。开启「发送后自动隐藏」后，发送成功时即使焦点还在输入框里也会收起。空白新聊天、未发送的草稿和附件保持显示。
 - **表格阅读与排序**：按内容分配列宽，可独立于正文宽度整体居中。点击表头循环切换排序方向与原始顺序；按住 Ctrl 依次选择多列，先选的优先；Alt 可预设或反转方向。设置中可选择首次点击采用智能、升序或降序。排序仅改变当前页面的视觉顺序，复制仍保留原始顺序。
 - **斜杠菜单设置排序**：展开「界面设置 → 命令界面」，可独立展开「命令」和「Skills」，拖动标题旁的把手即可换位；命令区只保留按钮组，不显示小标题。
 - **斜杠菜单中的 Skills 显隐**：打开「界面设置 → 命令界面 → Skills」即可逐项显示或隐藏。默认隐藏 Health、Excel Live Control、Spreadsheets、Visualize、Create Statusline；不禁用技能，也不改变原生 `$` 选择器。
@@ -37,7 +37,7 @@ TTFT 取本轮首次模型响应。速度优先使用 magpie 提供的本轮最�
 
 ## 开始使用
 
-1. 从 [v0.5.38 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.38) 下载 `better-codex-v0.5.38-windows-x64-portable.zip`。
+1. 从 [v0.5.40 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.40) 下载 `better-codex-v0.5.40-windows-x64-portable.zip`。
 2. **完整解压**到可写、准备长期保留的目录。
 3. 双击 `BetterCodex.exe`；点击输入框底部的统计文字调节正文宽度。便携包不需要安装 Python/Node.js，首次启动不下载依赖。
 
@@ -45,7 +45,7 @@ Codex 未运行时，从快捷方式启动会自动运行体检；如果 Codex �
 
 随时双击 `Stop.cmd` 停止增强、恢复原生布局；Codex 和聊天历史保留。再次运行联合入口可恢复增强。
 
-## v0.5.38 功能
+## v0.5.40 功能
 
 | 使用场景 | 能力 |
 | --- | --- |
@@ -110,7 +110,7 @@ Codex 页面更新可能需要适配；不同版本、全部窗口布局和显�
 
 ## 开发与来源
 
-体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.5.38-source.zip`。当前源码安装需要 Python 3.11+、Node.js 22.15.0 或更新版本，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`，运行增强无需 npm 包或 Playwright。语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
+体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.5.40-source.zip`。当前源码安装需要 Python 3.11+、Node.js 22.15.0 或更新版本，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`，运行增强无需 npm 包或 Playwright。语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
 
 本地采集器复用自 [codex-token-hud](https://github.com/drkang7/codex-token-hud)。感谢 [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud)、[codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) 与 [openai/codex](https://github.com/openai/codex)。复用范围、版本和许可见[第三方声明](THIRD_PARTY_NOTICES.md)。
 

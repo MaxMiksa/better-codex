@@ -14,6 +14,9 @@
   const entryAttributes=['data-above-composer-conversation-id','data-composer-placement','data-app-shell-active-page','data-app-shell-focus-area','data-right-panel-composer-overlay-content'];
   const stateAttr='data-bc-composer-fold',trackAttr='data-bc-composer-fold-track';
   const pathAttr='data-bc-fold-status-path',statusAttr='data-bc-fold-status-row';
+  const inputPath='data-bc-fold-input-path',inputAttr='data-bc-fold-input';
+  const keptPath=`:is([${pathAttr}],[${inputPath}])`;
+  const keptChild=`:is(${keptPath},[${statusAttr}],[${inputAttr}])`;
   const collapsed=`:is([${stateAttr}="minimize"],[${stateAttr}="hide"])`;
   const doubleEnter=350,sendTimeout=3500,sidebarTimeout=3000;
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
@@ -25,22 +28,24 @@
     #codex-hud-expand-composer:hover{background:color-mix(in srgb,var(--bc-composer-surface,var(--color-background-secondary,#323237)) 88%,currentColor)}
     #codex-hud-expand-composer:focus-visible{outline:2px solid var(--codex-base-accent,currentColor);outline-offset:-3px}
     #codex-hud-expand-composer[hidden]{display:none}
-    ${collapsed}>[${trackAttr}]:not([${pathAttr}]),${collapsed} [${pathAttr}] > :not([${pathAttr}],[${statusAttr}]){display:none!important}
-    ${collapsed} [${pathAttr}]{display:contents!important}
+    ${collapsed}>[${trackAttr}]:not(${keptPath}),${collapsed} ${keptPath} > :not(${keptChild}){display:none!important}
+    ${collapsed} ${keptPath}{display:contents!important}
+    ${collapsed} [${inputAttr}]{position:fixed!important;inset:auto 0 0 auto!important;width:0!important;height:0!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}
     ${collapsed}:has(>[${trackAttr}][${pathAttr}]){display:flex;flex-flow:row wrap;justify-content:center;align-items:center;gap:8px}
     ${collapsed} [${statusAttr}]{width:max-content;max-width:100%;min-width:0;height:auto!important;align-self:center}
     ${collapsed} [${statusAttr}]>div{position:relative!important;inset:auto!important;padding-bottom:0!important}
     [${stateAttr}="moving"]{position:relative;min-height:0!important;overflow:clip}
     [${stateAttr}="moving"]>[${trackAttr}]{position:absolute;inset:auto 0 0;transform-origin:center bottom}
     [${stateAttr}="moving"]>#codex-hud-expand-composer{position:absolute;inset:auto auto 0 50%;translate:-50% 0}
-    [${stateAttr}="moving"][data-bc-fold-closing]>[${trackAttr}]{pointer-events:none;interactivity:inert}
+    [data-bc-fold-closing]>[${trackAttr}]{pointer-events:none}
+    [data-bc-fold-closing]>[${trackAttr}]:not([${inputPath}]),[data-bc-fold-closing] [${inputPath}] > :not([${inputPath}],[${inputAttr}]){interactivity:inert}
   `;
   const pill=document.createElement('button');
   pill.type='button';pill.id='codex-hud-expand-composer';pill.hidden=true;
   pill.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 22V4a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H8zM8 7h8m-8 3.5h8M8 14h5"/></svg><span></span>';
   const pillLabel=pill.lastElementChild;
   let mode='off',binding=null,threadId=null,folded='open',animation=[],listeners=null,frame=0;
-  let foldAfterSend=false,sendAttempt=null,sidebarClick=null;
+  let foldAfterSend=false,sendAttempt=null,sidebarClick=null,standby=null;
   let enterAt=-Infinity,pressed=false,swallow=false,composing=false,escapeHeld=false;
   const visible=e=>Boolean(e?.getClientRects().length&&e.getBoundingClientRect().height>0&&getComputedStyle(e).visibility==='visible'&&!e.closest(inactive));
   const foldedOrClosing=()=>['minimize','hide','closing'].includes(folded);
@@ -51,13 +56,14 @@
     const {shell,track}=binding;
     stopAnimation();
     shell.removeAttribute('data-bc-fold-closing');
-    if(next==='open'){shell.removeAttribute(stateAttr);track.removeAttribute(trackAttr);}
+    if(next==='open'){shell.removeAttribute(stateAttr);track.removeAttribute(trackAttr);clearStandby();}
     else{shell.setAttribute(stateAttr,next);track.setAttribute(trackAttr,'');}
     pill.hidden=next!=='minimize';
     folded=next;
   }
   function detach(){
     resetKeys();
+    clearStandby('blur');
     if(binding){commit('open');setStatus(binding.status, false);pill.remove();binding=null;}
   }
   function main(root,keepFolded=false){
@@ -180,6 +186,45 @@
     return window.__codexComposerHud?.settingsOpen?.()||[...document.querySelectorAll(popups)].some(popup=>
       visible(popup)&&(!ignoreMenusOutside||!menuOutside(popup,ignoreMenusOutside)));
   }
+  function clearStandby(returnFocus){
+    if(!standby)return;
+    const {editor,path,origin}=standby;
+    standby=null;
+    if(returnFocus&&document.activeElement===editor){
+      if(returnFocus==='origin'&&origin===binding?.scroll&&visible(origin))origin.focus({preventScroll:true});
+      if(document.activeElement===editor)editor.blur();
+    }
+    editor.removeAttribute(inputAttr);
+    for(const node of path)node.removeAttribute(inputPath);
+  }
+  function prepareInput(){
+    if(!binding||!foldedOrClosing())return;
+    const {editor,scroll,root,track}=binding,active=document.activeElement;
+    if(!standby&&(!document.hasFocus()||document.getSelection()?.isCollapsed===false
+      ||![scroll,document.body,document.documentElement].includes(active)))return;
+    const available=main(root)&&editor.matches('[contenteditable="true"],textarea:not([readonly]):not(:disabled)')
+      &&!editor.closest('[hidden],'+inactive)&&!overlayOpen();
+    if(standby){
+      if(available&&active===editor&&standby.editor===editor&&standby.path.at(-1)===track
+        &&standby.path.every((node,index)=>node===(standby.path[index-1]||editor).parentElement))return;
+      clearStandby('blur');
+      return;
+    }
+    if(!available)return;
+    const path=[];
+    for(let node=editor.parentElement;node;node=node.parentElement){
+      path.push(node);
+      if(node!==track)continue;
+      // Windows IME needs the original editable focused before the first keystroke.
+      // Keep only its DOM path rendered; reveal it without changing the text input client.
+      standby={editor,path,origin:active};
+      for(const part of path)part.setAttribute(inputPath,'');
+      editor.setAttribute(inputAttr,'');
+      editor.focus({preventScroll:true});
+      if(document.activeElement!==editor)clearStandby();
+      return;
+    }
+  }
   function armSidebarFocus(event){
     if(!event.isTrusted||event.defaultPrevented||event.detail===0||event.button!==0||event.pointerType&&event.pointerType!=='mouse'
       ||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||composing)return;
@@ -222,7 +267,7 @@
   }
   function canFold(allowedFocus,keepClosing=false){
     const active=document.activeElement;
-    return !composing&&(!binding.root.contains(active)||active===allowedFocus)&&!active?.closest('#codex-composer-hud')
+    return !composing&&(!binding.root.contains(active)||active===allowedFocus||active===standby?.editor)&&!active?.closest('#codex-composer-hud')
       &&!binding.root.querySelector('[aria-expanded="true"]')&&!overlayOpen(keepClosing?binding.root:null);
   }
   function updatePillSurface(){
@@ -278,6 +323,9 @@
   }
   function check(){
     frame=0;if(mode==='off')return;
+    reconcile();prepareInput();
+  }
+  function reconcile(){
     const next=find(foldedOrClosing());
     if(!next||!ready(next)){
       if(next?.id!==threadId)threadId=null;
@@ -300,7 +348,9 @@
       if(active===binding.editor||active===sent.button)active.blur();
       transition(mode);return;
     }
-    if(!safe(binding,foldedOrClosing())){commit('open');resetKeys();return;}
+    if(!safe(binding,foldedOrClosing())){
+      clearStandby('origin');commit('open');resetKeys();return;
+    }
     // Native navigation may preserve or restore the caret before the destination is ready.
     // Only override that focus for a matching mouse switch, never after user input.
     const click=active===next.editor?matchingSidebarClick():null;
@@ -319,16 +369,20 @@
     if(canFold()){transition(mode);handoffSidebarFocus();}
   }
   function schedule(){if(!frame)frame=requestAnimationFrame(check);}
-  function wake(){
+  function wake(immediate=false){
     const latest=find();
-    if(!binding||latest?.root!==binding.root||latest?.id!==binding.id||!ready(latest)){detach();return false;}
-    sendAttempt=null;bind(latest);transition('open');binding.editor.focus({preventScroll:true});return true;
+    if(!binding||latest?.root!==binding.root||latest?.id!==binding.id||latest.track!==binding.track||!ready(latest)
+      ||immediate&&latest.editor!==standby?.editor){detach();return false;}
+    if(overlayOpen()){clearStandby('blur');return false;}
+    sendAttempt=null;bind(latest);
+    if(immediate)commit('open');else transition('open');
+    if(document.activeElement!==binding.editor)binding.editor.focus({preventScroll:true});
+    return true;
   }
   const consume=event=>{event.preventDefault();event.stopImmediatePropagation();};
   const plainKey=event=>!event.defaultPrevented&&!event.isComposing&&event.keyCode!==229&&!composing
     &&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey;
   function foldOnEscape(event){
-    if(escapeHeld){consume(event);return;}
     const active=document.activeElement;
     if(!event.isTrusted||!plainKey(event)||event.repeat||!binding||active!==binding.editor||!['open','opening'].includes(folded))return;
     const next=find();
@@ -338,18 +392,34 @@
     escapeHeld=true;consume(event);
     active.blur();
     transition(mode);
+    prepareInput();
+  }
+  const inputKeys=event=>event.isComposing||event.keyCode===229||event.key==='Process'||event.key==='Dead'
+    ||event.key.length===1&&event.key!==' '&&(!event.altKey&&!event.ctrlKey&&!event.metaKey||event.getModifierState('AltGraph'));
+  function standbyEvent(event){
+    return standby&&event.isTrusted&&standby.editor===event.composedPath()[0]&&document.activeElement===standby.editor;
   }
   function keydown(event){
     sidebarClick=null;
+    if(escapeHeld&&event.key==='Escape'){consume(event);return;}
+    const parked=standbyEvent(event);
+    if(parked&&!event.defaultPrevented){
+      if(inputKeys(event)){enterAt=-Infinity;wake(true);return;}
+      if(event.key==='Tab'||event.key===' '||event.key==='Escape'||/^(?:Arrow(?:Up|Down|Left|Right)|Page(?:Up|Down)|Home|End)$/.test(event.key)){
+        enterAt=-Infinity;clearStandby('origin');return;
+      }
+    }
     if(event.key==='Escape'){enterAt=-Infinity;foldOnEscape(event);return;}
     if(swallow&&event.key==='Enter'&&event.repeat){consume(event);return;}
     if(event.key==='Enter')armSend(event);
-    const target=event.composedPath()[0],inside=target===document.body||target===document.documentElement
+    const target=event.composedPath()[0],inside=parked||target===document.body||target===document.documentElement
       ||(target instanceof Element&&binding?.scroll.contains(target)&&(!target.closest(interactive)||target===binding.scroll));
     if(event.key!=='Enter'||!plainKey(event)
       ||!inside||!binding||!foldedOrClosing()||overlayOpen()){
+      if(parked&&event.key==='Enter'&&!event.defaultPrevented)consume(event);
       enterAt=-Infinity;return;
     }
+    if(parked)consume(event);
     if(event.repeat||pressed){enterAt=-Infinity;return;}
     pressed=true;
     const now=performance.now();
@@ -376,13 +446,18 @@
     document.head.append(style);listeners=new AbortController();
     const on=(target,type,fn)=>target.addEventListener(type,fn,{capture:true,signal:listeners.signal});
     on(window,'keydown',keydown);on(window,'keyup',keyup);
+    on(window,'focus',schedule);
     on(document,'focusin',event=>{
       const target=event.target;
+      if(target===standby?.editor)return;
+      clearStandby();
       if(sidebarClick&&target!==sidebarClick.button
         &&!(target instanceof Element&&target.matches('[data-codex-composer="true"],.thread-scroll-container')&&main(target)))sidebarClick=null;
       enterAt=-Infinity;schedule();
     });
     on(document,'focusout',schedule);
+    on(document,'beforeinput',event=>{if(standbyEvent(event)&&event.inputType?.startsWith('insert'))wake(true);});
+    on(document,'paste',event=>{if(standbyEvent(event))wake(true);});
     on(document,'input',event=>{
       if(event.isTrusted){
         sidebarClick=null;
@@ -395,8 +470,17 @@
       if(sendAttempt&&!event.composedPath().includes(sendAttempt.root))sendAttempt=null;
       schedule();
     });on(document,'pointerup',schedule);
-    on(document,'compositionstart',()=>{composing=true;sidebarClick=null;resetKeys();schedule();});on(document,'compositionend',()=>{composing=false;schedule();});
-    on(window,'blur',event=>{composing=false;if(event.target===window){sidebarClick=null;escapeHeld=false;}resetKeys();});on(window,'resize',schedule);on(window,'languagechange',schedule);
+    on(document,'compositionstart',event=>{
+      composing=true;sidebarClick=null;resetKeys();
+      if(standbyEvent(event))wake(true);
+      schedule();
+    });on(document,'compositionend',()=>{composing=false;schedule();});
+    on(window,'blur',event=>{
+      if(event.target===standby?.origin)return;
+      composing=false;
+      if(event.target===window){sidebarClick=null;escapeHeld=false;}
+      resetKeys();
+    });on(window,'resize',schedule);on(window,'languagechange',schedule);
     on(reduced,'change',()=>{if(binding&&animation.length)commit(folded==='opening'?'open':mode);});
     observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:[
       ...entryAttributes,rowActive,rowId,'data-response-update-thread',
@@ -409,7 +493,7 @@
     listeners?.abort();listeners=null;observer.disconnect();cancelAnimationFrame(frame);frame=0;
     composing=false;threadId=null;sendAttempt=null;sidebarClick=null;escapeHeld=false;detach();style.remove();
   }
-  pill.addEventListener('click',wake);
+  pill.addEventListener('click',()=>wake());
   window.__codexComposerFold={
     update(value,afterSend=false){
       const next=['minimize','hide'].includes(value)?value:'off';

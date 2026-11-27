@@ -47,6 +47,7 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     const blur=()=>page.locator('.thread-scroll-container').focus();
     const edit=value=>editor.evaluate((e,value)=>{e.innerHTML=value;},value);
     const focus=()=>page.evaluate(()=>document.activeElement.id);
+    const inputReady=()=>page.waitForFunction(()=>document.activeElement?.hasAttribute('data-bc-fold-input'));
     const twice=async()=>{await page.keyboard.press('Enter');await page.keyboard.press('Enter');};
     const insertMessage=()=>page.locator('#transcript').evaluate((e,message)=>e.insertAdjacentHTML('beforeend',message),message);
     const openHeight=await shape();
@@ -79,7 +80,7 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
       for(const type of ['keydown','keyup'])document.addEventListener(type,e=>{if(e.key==='Escape')window.nativeEsc.push(type);});
     });
     await page.keyboard.down('Escape');await settled('minimize');
-    check('escape-folds-before-key-repeat-or-release',await focus()!=='editor'&&!await editor.isVisible());
+    check('escape-folds-before-key-repeat-or-release',await focus()==='editor'&&!await editor.isVisible());
     await page.keyboard.down('Escape');await page.keyboard.up('Escape');
     check('holding-escape-does-not-forward-repeats-to-native-actions',await page.evaluate(()=>window.nativeEsc.length===0));
     await pill.click();await settled(null);
@@ -103,6 +104,41 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('minimized-pill-click-focuses-native-editor',await focus()==='editor');
     await blur();await mode('hide');await settled('hide');
     check('hide-releases-all-composer-height-with-no-persistent-affordance',!(await pill.isVisible())&&!(await editor.isVisible())&&await shape()===0);
+    const timeline=page.locator('#timeline');
+    await page.locator('#transcript').evaluate(e=>e.style.minHeight='200vh');
+    await inputReady();await page.keyboard.press('PageDown');
+    await page.waitForFunction(()=>document.querySelector('#timeline').scrollTop>0);
+    check('page-down-still-scrolls-the-conversation-with-the-editor-hidden',await state()==='hide');
+    await page.locator('#transcript').evaluate(e=>e.style.minHeight='');
+    await inputReady();await page.keyboard.press('Tab');
+    check('tab-keeps-normal-focus-order-outside-the-hidden-editor',await focus()==='message-action'&&await state()==='hide');
+    await blur();
+    await inputReady();
+    check('fully-hidden-editor-is-already-focused-before-native-ime-input',await editor.evaluate(e=>e===window.editorIdentity));
+    await editor.evaluate(e=>{
+      window.nativeComposition=[];
+      for(const type of ['compositionstart','compositionupdate','compositionend','beforeinput','input'])e.addEventListener(type,event=>{
+        window.nativeComposition.push({type,composing:event.isComposing,data:event.data,open:!e.hasAttribute('data-bc-fold-input'),focused:document.activeElement===e});
+      });
+    });
+    const cdp=await browser.newCDPSession(page);
+    await cdp.send('Input.imeSetComposition',{text:'n',selectionStart:1,selectionEnd:1});
+    await settled(null);
+    check('first-ime-letter-reveals-the-same-editor-without-breaking-composition',await editor.innerText()==='n'
+      &&await page.evaluate(()=>window.nativeComposition.some(e=>e.type==='beforeinput'&&e.data==='n'&&e.composing&&e.open&&e.focused)));
+    await cdp.send('Input.imeSetComposition',{text:'nihao',selectionStart:5,selectionEnd:5});
+    await cdp.send('Input.insertText',{text:'你好'});
+    check('composition-commit-replaces-all-pinyin-without-a-raw-prefix',await editor.innerText()==='你好'
+      &&await page.evaluate(()=>window.nativeComposition.filter(e=>e.type==='compositionstart').length===1));
+    await edit(empty);await page.keyboard.press('Escape');await settled('hide');
+    await page.keyboard.type('Go');
+    check('english-typing-reveals-the-editor-with-no-missing-or-duplicated-keys',await state()===null&&await editor.innerText()==='Go');
+    await edit(empty);await page.keyboard.press('Escape');await settled('hide');
+    await cdp.send('Input.imeSetComposition',{text:'n',selectionStart:1,selectionEnd:1});
+    await cdp.send('Input.imeSetComposition',{text:'',selectionStart:0,selectionEnd:0});
+    check('canceling-ime-composition-leaves-an-empty-focused-editor',await state()===null&&await focus()==='editor'&&!(await editor.innerText()).trim());
+    await edit(empty);await page.keyboard.press('Escape');await settled('hide');
+    await cdp.detach();
     await page.locator('#message-action').focus();await twice();
     check('interactive-message-controls-keep-their-enter-key',await state()==='hide');
     await blur();
@@ -244,7 +280,7 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await selected('a',id);
     check('sidebar-focus-stays-put-while-the-old-transcript-is-mounted',await focus()==='chat-a'&&await state()===null);
     await loaded(id);
-    check('mouse-selection-focuses-timeline-after-the-target-chat-is-ready',await focus()==='timeline'&&await state()==='minimize');
+    check('mouse-selection-prepares-input-after-the-target-chat-is-ready',await focus()==='editor'&&await state()==='minimize'&&!(await editor.isVisible()));
     await twice();await settled(null);
     check('sidebar-click-then-double-enter-focuses-input-without-extra-activation-or-send',await focus()==='editor'&&await activationCount()===1&&await page.evaluate(()=>window.nativeEnter===0));
     await blur();await settled('minimize');await page.locator('#chat-a').focus();await twice();
@@ -297,7 +333,7 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await selected('b',nextId);await loaded(nextId);await settled('minimize');
     check('new-user-interaction-cancels-delayed-sidebar-focus-handoff',await focus()==='message-action');
     await mode('hide');await settled('hide');
-    await page.locator('#chat-b').click();await page.waitForFunction(()=>document.activeElement.id==='timeline');
+    await page.locator('#chat-b').click();await inputReady();
     await twice();await settled(null);
     check('temporary-sidebar-id-can-wake-a-fully-hidden-input-for-its-own-chat',await focus()==='editor'&&await activationCount()===5&&await page.evaluate(()=>window.nativeEnter===0));
 
@@ -311,7 +347,7 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
         resolve({focus:document.activeElement.id,fold:shell.dataset.bcComposerFold,animations:shell.getAnimations().length});
       });
     })),id);
-    check('historical-chat-autofocus-is-redirected-and-hidden-before-paint',restoredEntry.focus==='timeline'&&restoredEntry.fold==='hide'&&restoredEntry.animations===0);
+    check('historical-chat-autofocus-becomes-hidden-input-readiness-before-paint',restoredEntry.focus==='editor'&&restoredEntry.fold==='hide'&&restoredEntry.animations===0);
     await page.locator('#chat-b').click();await selected('b',nextId);
     await editor.evaluate(e=>e.focus());await editor.click();
     await loaded(nextId);
@@ -320,7 +356,7 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await page.locator('#chat-a').click();
     check('sidebar-can-change-chats-without-taking-focus-first',await focus()==='editor');
     await selected('a',id);await loaded(id);
-    check('retained-editor-focus-also-yields-on-confirmed-mouse-navigation',await focus()==='timeline'&&await state()==='hide');
+    check('retained-editor-focus-also-hides-on-confirmed-mouse-navigation',await focus()==='editor'&&await state()==='hide');
 
     await mode('minimize');await blur();await settled('minimize');
     await pill.click();await settled(null);
@@ -382,7 +418,8 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     check('first-confirmed-send-from-home-folds-the-new-conversation',!(await editor.isVisible())&&await shape()===0);
 
     await mode('off');await settled(null);
-    check('off-cleans-layout-styles-and-controls-without-reload',await editor.isVisible()&&await pill.count()===0&&await page.locator('#codex-hud-composer-fold').count()===0);
+    check('off-cleans-layout-styles-and-controls-without-reload',await editor.isVisible()&&await pill.count()===0
+      &&await page.locator('#codex-hud-composer-fold,[data-bc-fold-input],[data-bc-fold-input-path]').count()===0);
     console.log(count+' composer fold checks passed');
   }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
