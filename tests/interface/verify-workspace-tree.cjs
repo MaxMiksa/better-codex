@@ -26,6 +26,26 @@ async function checkNativeActions(){
     const yes=()=>true,run=(kind,relative,still=yes)=>perform({kind,root,relative},still);
     check('Preview passes a single literal path to the known Peek executable',
       await run('preview',path.basename(doc))===null&&JSON.stringify(calls.pop())===JSON.stringify(['peek',preview,[doc]]));
+    const quick=path.join(dir,'QuickLook.exe');
+    await fs.writeFile(quick,'fixture');
+    const views={...settings,workspaceTreeQuickLookPath:quick};
+    const quickOptions={candidates:[preview],peek:async(...args)=>calls.push(['peek',...args]),
+      quickLook:async(...args)=>calls.push(['quickLook',...args]),shell};
+    const previewRequest={kind:'preview',root,relative:path.basename(doc)};
+    const quickPerform=sendQuickLook=>createWorkspaceActions(views,{...quickOptions,sendQuickLook});
+    check('Opted-in QuickLook reuses the resident service without launching a process',
+      await quickPerform(async(...args)=>{calls.push(['send',...args]);return true;})(previewRequest,yes)===null&&
+      JSON.stringify(calls.pop())===JSON.stringify(['send',doc,quick])&&calls.length===0);
+    check('An absent pipe starts QuickLook once with the validated path',
+      await quickPerform(async()=>false)(previewRequest,yes)===null&&
+      JSON.stringify(calls.pop())===JSON.stringify(['quickLook',quick,[doc]])&&calls.length===0);
+    let currentChecks=0;
+    check('A delayed fallback rechecks the current chat and failed delivery is not retried',
+      await quickPerform(async()=>false)(previewRequest,()=>++currentChecks===1)===null&&
+      await quickPerform(async()=>{throw Error();})(previewRequest,yes)==='actionFailed'&&calls.length===0);
+    check('A missing preferred executable leaves installed Peek available',
+      await createWorkspaceActions({...views,workspaceTreeQuickLookPath:path.join(other,'QuickLook.exe')},
+        quickOptions)(previewRequest,yes)===null&&calls.pop()?.[0]==='peek');
     check('Open uses the default app for ordinary documents',await run('open',path.basename(doc))===null&&calls.pop()?.[0]==='open');
     check('Folder and locate use separate Explorer verbs',await run('folder','')===null&&
       JSON.stringify(calls.pop())===JSON.stringify(['folder',root])&&await run('locate',path.basename(doc))===null&&calls.pop()?.[0]==='locate');

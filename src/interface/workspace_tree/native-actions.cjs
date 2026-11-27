@@ -17,21 +17,33 @@ function peekCandidates(){
     .map(windowsPath).filter(base=>base?.length>3)
     .map(base=>path.win32.join(base,'PowerToys','WinUI3Apps','PowerToys.Peek.UI.exe'));
 }
-async function findPeek(candidates){
+async function findExecutable(candidates){
   for(const candidate of new Set(candidates)){
     try{if((await fs.lstat(candidate)).isFile())return candidate;}catch{}
   }
   return null;
 }
-function startPeek(file,args){
+function startPreview(file,args){
   return new Promise((resolve,reject)=>{
     const child=spawn(file,args,{cwd:path.dirname(file),detached:true,stdio:'ignore'});
     child.once('error',reject);
     child.once('spawn',()=>{child.unref();resolve();});
   });
 }
-function createWorkspaceActions({codexHome,python,home=os.homedir()},
-  {candidates=peekCandidates(),peek=startPeek,shell,desktopPid=()=>null}={}){
+function createWorkspaceActions({codexHome,python,home=os.homedir(),workspaceTreeQuickLookPath},
+  {candidates=peekCandidates(),peek=startPreview,quickLook=startPreview,sendQuickLook,shell,desktopPid=()=>null}={}){
+  const configured=windowsPath(workspaceTreeQuickLookPath);
+  const quickLookPath=path.win32.basename(configured??'').toLowerCase()==='quicklook.exe'?configured:null;
+  const dispatchQuickLook=sendQuickLook??(async(file,executable)=>{
+    try{
+      await execute(python,['-I','-B',shellHelper,'quicklook',file,executable],
+        {cwd:os.tmpdir(),windowsHide:true,timeout:1500});
+      return true;
+    }catch(error){
+      if(error.code===4)return false; // No running pipe; no path was sent.
+      throw error;
+    }
+  });
   const shellAction=shell??((verb,file)=>{
     const pid=verb==='folder'?desktopPid():null;
     const args=['-I','-B',shellHelper,verb,file];
@@ -59,11 +71,16 @@ function createWorkspaceActions({codexHome,python,home=os.homedir()},
       const previewable=document||peekSource.has(extension)||peekNames.has(path.win32.basename(realFile).toLowerCase());
       const preview=kind==='preview'&&previewable;
       const locateOnly=(kind==='open'&&!document)||(kind==='preview'&&!previewable);
-      const executable=preview?await findPeek(candidates):null;
+      const quick=preview&&quickLookPath?await findExecutable([quickLookPath]):null;
+      const executable=preview&&!quick?await findExecutable(candidates):null;
       if(!await stillCurrent())return null;
       if(preview){
-        if(!executable)return 'peekUnavailable';
-        await peek(executable,[realFile]);
+        if(quick){
+          if(!await dispatchQuickLook(realFile,quick)&&await stillCurrent())await quickLook(quick,[realFile]);
+        }else{
+          if(!executable)return 'peekUnavailable';
+          await peek(executable,[realFile]);
+        }
       }else{
         try{await shellAction(locateOnly?'locate':kind,realFile);}
         catch(error){

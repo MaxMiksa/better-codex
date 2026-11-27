@@ -10,7 +10,7 @@ If magpie is installed, the collector may read `$XDG_CONFIG_HOME/magpie/settings
 
 The display connection inspects local interface structure and selected-chat metadata. If a client-side temporary ID needs matching, the title is compared in memory against the local index. It is not sent to a remote service. The display interface binds to `127.0.0.1`; another local process with access could inspect or control the app. Do not expose or forward that port.
 
-The workspace tree lists directories through the local Codex App Server. When you explicitly preview, open, or locate an item, Better-Codex passes the selected path to local PowerToys Peek or the Windows shell. It does not upload files or record opened paths in its logs. PowerToys and your default apps handle those files according to their own settings.
+The workspace tree lists directories through the local Codex App Server. When you explicitly preview, open, or locate an item, Better-Codex passes the selected path to local PowerToys Peek, your explicitly configured QuickLook, or the Windows shell. It does not upload files or record opened paths in its logs. The previewer and your default apps handle those files according to their own settings.
 
 When the enhanced slash menu opens, Better-Codex reads eligible Markdown templates from the first level of Codex Home's `prompts` folder. It holds template text in local memory only; it doesn't include it in Better-Codex logs, status files or reports. Choosing a template inserts it into the current Codex draft without sending it.
 
@@ -22,7 +22,7 @@ The source implementation also keeps a local SQLite runtime history for five day
 
 停止增强功能使用 `Stop.cmd`，不会退出 Codex。工具的设置、统计、聊天标识及标题等运行信息留在 `.runtime/`。原始会话记录可能含正文，本地解析不等于从未接触内容；工具不把完整聊天正文或完整原始日志导出到状态文件。请勿在公开 Issue 中上传运行目录、认证文件、原始日志或含私人内容的截图。
 
-工作区文件树通过本地 Codex App Server 列出文件。主动预览、打开或定位时，Better-Codex 将所选路径交给本机 PowerToys Peek 或 Windows 外壳，不上传文件，也不把打开的路径写入日志。PowerToys 和默认应用按各自的设置处理这些文件。
+工作区文件树通过本地 Codex App Server 列出文件。主动预览、打开或定位时，Better-Codex 将所选路径交给本机 PowerToys Peek、你明确配置的 QuickLook 或 Windows 外壳，不上传文件，也不把打开的路径写入日志。预览器和默认应用按各自的设置处理这些文件。
 
 打开增强斜杠菜单时，Better-Codex 读取 Codex Home 中 `prompts` 一级目录下的可用 Markdown 模板。模板正文只留在本机内存，不写入 Better-Codex 的日志、状态文件或报告。选择模板只会插入当前 Codex 草稿，不会发送。
 

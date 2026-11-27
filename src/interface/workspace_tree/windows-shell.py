@@ -1,4 +1,4 @@
-"""Invoke only the shell verbs selected by the workspace action host."""
+"""Invoke only the native verbs selected by the workspace action host."""
 
 import ctypes
 from ctypes import wintypes
@@ -123,10 +123,54 @@ def open_folder(path: str, desktop_pid: int = 0) -> bool:
     return bool(current and current != source)
 
 
+def preview_quicklook(path: str, executable: str) -> int:
+    """Send to the opted-in, running QuickLook. Return 4 only for an absent pipe."""
+    import pywintypes
+    import win32api
+    import win32con
+    import win32file
+    import win32pipe
+    import win32process
+    import win32security
+
+    if any(char in path for char in "|\r\n\0"):
+        return 1
+    token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32con.TOKEN_QUERY)
+    try:
+        sid, _ = win32security.GetTokenInformation(token, win32security.TokenUser)
+    finally:
+        token.Close()
+    pipe = r"\\.\pipe\QuickLook.App.Pipe." + win32security.ConvertSidToStringSid(sid)
+    try:
+        # SECURITY_IDENTIFICATION: the server must not impersonate this client.
+        client = win32file.CreateFile(pipe, win32con.GENERIC_WRITE, 0, None, win32con.OPEN_EXISTING,
+                                      win32con.SECURITY_SQOS_PRESENT | 0x10000, None)
+    except pywintypes.error as exc:
+        return 4 if exc.winerror == 2 else 1
+    try:
+        owner = win32pipe.GetNamedPipeServerProcessId(client)
+        process = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, owner)
+        try:
+            image = win32process.GetModuleFileNameEx(process, 0)
+        finally:
+            process.Close()
+        if not os.path.samefile(image, executable):
+            return 1
+        data = f"QuickLook.App.PipeMessages.Invoke|{path}|\n".encode("utf-8")
+        error, written = win32file.WriteFile(client, data)
+        return 0 if not error and written == len(data) else 1
+    except (OSError, pywintypes.error):
+        return 1
+    finally:
+        client.Close()
+
+
 def main() -> int:
     if os.name != "nt" or len(sys.argv) not in (3, 4):
         return 1
     verb, path = sys.argv[1:3]
+    if verb == "quicklook":
+        return preview_quicklook(path, sys.argv[3]) if len(sys.argv) == 4 else 1
     if len(sys.argv) == 4 and (verb != "folder" or not sys.argv[3].isdigit()):
         return 1
     desktop_pid = int(sys.argv[3]) if len(sys.argv) == 4 else 0
