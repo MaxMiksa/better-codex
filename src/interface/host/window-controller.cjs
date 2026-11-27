@@ -4,6 +4,7 @@ const {formatMetrics}=require('../statistics/metrics-view.cjs');
 const {createWriter}=require('./runtime-writer.cjs');
 const {readBinding}=require('../statistics/chat-binding.cjs');
 const {isMainPageUrl,pageGuard}=require('./page-contract.cjs');
+const {listDesktopRenameTargets,setDesktopThreadTitle}=require('./thread-title-api.cjs');
 const pageModules=['__codexWorkspaceTree','__codexTableSort','__codexCustomAccent','__codexFileChanges','__codexReadingWidth','__codexComposerHud','__codexComposerFold','__codexAiRename','__codexCommandMenu'];
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const promptBinding='__betterCodexRequestPrompts';
@@ -120,13 +121,20 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
       window.__betterCodexRuntime===runtime?window.__codexAiRename?.pull?.(requestId):null,
     {runtime:state.id,requestId});
     if(!request)return;
-    aiRename.start(request,(status,value)=>{
+    const onState=(status,value)=>{
       renameStatus=status;
-      if(value.running||!active())return;
+      if(value.running&&!value.batch||!active())return;
       page.evaluate(({runtime,value})=>{
         if(window.__betterCodexRuntime===runtime)window.__codexAiRename?.state?.(value);
       },{runtime:state.id,value}).catch(()=>{});
+    };
+    if(request.kind==='project')aiRename.startProject(request,onState,{
+      listTargets:(ids,signal)=>listDesktopRenameTargets(page,ids,signal),
+      saveTitle:async options=>{
+        if(!await setDesktopThreadTitle(page,options))throw Error('title-api-unavailable');
+      }
     });
+    else aiRename.start(request,onState);
   }
   function onRenameRequest({name,payload}){
     if(name===renameBinding&&typeof payload==='string'&&payload.length<=80)acceptRename(payload).catch(()=>{});

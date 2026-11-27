@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.43"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.43-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.44-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -26,7 +26,7 @@ Images use real Codex screenshots; table content and statistics are examples.
 - **Reorder the slash-menu settings:** open **Interface settings → Command menu** for the two independent **Commands** and **Skills** sections. Drag their handles to reorder them. The Commands section keeps its button groups without subheadings.
 - **Choose which Skills appear in the slash menu:** open **Interface settings → Command menu → Skills** to show or hide individual Skills. Health, Excel Live Control, Spreadsheets, Visualize, and Create Statusline are hidden by default. Skills remain enabled and available through the native `$` picker.
 - **Prompt shortcuts in the slash menu:** reusable Markdown prompts from the first level of Codex Home's `prompts` folder appear below Skills in a three-column section. Activate one to insert its text at the current cursor without replacing your draft or sending it. `Ctrl+↑/↓` jumps between command groups, Skills and Prompt.
-- **AI rename:** choose the sparkle item at the top of a local chat's sidebar menu, or use AI rename in the slash menu. Luna generates a concise Chinese title such as `feat：AI 重命名`, and Codex saves it in the background for the selected chat even if you switch chats. You can rename different chats in parallel; repeat requests for the same chat are ignored while it is running. Luna receives user messages and the first sentence of each assistant final answer. Your draft is untouched.
+- **AI rename:** rename one local chat from its sidebar menu or the slash menu, or choose **Batch AI rename** from a project's `…` menu. The batch takes active chats in that sidebar group, including its worktree chats, and skips any title already containing `：`. Luna generates titles such as `feat：AI 重命名`; it does not choose the chats. Codex saves the titles in the background without touching your draft.
 - **Local runtime history:** inspect recent startup, enhancement and recovery events with `tools/token-hud-local/Get-RuntimeHistory.ps1`. Records stay local and expire after five days; chat text is not recorded.
 
 <p align="center"><img src="Presentation/table-sorting.png" alt="A six-column table in Codex with status icons, native sorting controls and two sorting priorities" width="900" /></p>
@@ -37,7 +37,7 @@ TTFT uses the first model response in the current turn. Speed uses magpie's late
 
 ## Get started
 
-1. Download `better-codex-v0.5.43-windows-x64-portable.zip` from [v0.5.43 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.43).
+1. Download `better-codex-v0.5.44-windows-x64-portable.zip` from [v0.5.44 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44).
 2. **Extract the entire ZIP** to a writable folder you plan to keep.
 3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No Python/Node.js installation or first-launch dependency download is needed.
 
@@ -45,7 +45,7 @@ The shortcut runs the startup check when Codex isn't running. If Codex is alread
 
 Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
 
-## v0.5.43 features
+## v0.5.44 features
 
 | Task | What you get |
 | --- | --- |
@@ -53,7 +53,7 @@ Run `Stop.cmd` at any time to stop enhancements and restore the native layout. C
 | Adjust reading space | Click the statistics to set a width limit up to 1600px; main chats, side chats and subagents stay within their panels, and the input box keeps its width |
 | Browse file changes | Multi-file lists start collapsed and can expand together; review/undo remain available, and a manually expanded card keeps its state |
 | Use Custom colors | Readable user-message bubbles and send buttons with a custom accent; native presets remain intact |
-| Name a chat with AI | The slash menu can summarize the current local chat with Luna into a short Chinese `feat：` / `bug：` style title and apply it through native rename; failures keep the original |
+| Name chats with AI | Use a chat's sidebar menu, the slash menu, or a project's `…` menu to batch-rename its eligible chats |
 | Start and maintain | Combined shortcut, separate login-start switch, startup checks and sanitized reports; optional monitoring restores the enhancement entry after Codex updates |
 
 Statistics follow the main input area's layout. Labels follow Codex's English/Simplified Chinese interface, falling back to the launch language when none is declared; other languages fall back to English. Chat mode keeps reading width and reply font size without these statistics. Documents and blank pages keep their native layout.
@@ -110,7 +110,7 @@ Local state can contain chat identifiers, titles, paths and usage. **Do not uplo
 
 ## Development and credits
 
-For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.43-source.zip`. Current source installation needs Python 3.11+, Node.js 22.15.0 or later; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. No npm package or Playwright is needed to run the enhancements. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
+For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.44-source.zip`. Current source installation needs Python 3.11+, Node.js 22.15.0 or later; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. No npm package or Playwright is needed to run the enhancements. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
 
 The local collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions and licenses.
 

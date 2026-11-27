@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.43"><img alt="版本" src="https://img.shields.io/badge/version-v0.5.43-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44"><img alt="版本" src="https://img.shields.io/badge/version-v0.5.44-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -26,7 +26,7 @@
 - **斜杠菜单设置排序**：展开「界面设置 → 命令界面」，可独立展开「命令」和「Skills」，拖动标题旁的把手即可换位；命令区只保留按钮组，不显示小标题。
 - **斜杠菜单中的 Skills 显隐**：打开「界面设置 → 命令界面 → Skills」即可逐项显示或隐藏。默认隐藏 Health、Excel Live Control、Spreadsheets、Visualize、Create Statusline；不禁用技能，也不改变原生 `$` 选择器。
 - **斜杠菜单中的 Prompt 快捷入口**：Codex Home 的 `prompts` 一级目录中的 Markdown 模板会以三列显示在 Skills 下方。选择后只在当前光标处插入正文，不替换草稿、不自动发送；`Ctrl+↑/↓` 可在命令组、Skills 和 Prompt 之间快速跳转。
-- **AI 重命名**：从左侧本地聊天菜单顶部的闪光图标入口，或斜杠菜单启动。Luna 生成 `feat：AI 重命名` 这样的简短中文标题，Codex 在后台保存；切换聊天也不会改错目标。不同聊天可同时重命名，同一聊天处理期间不会重复提交。Luna 只收到用户消息和每条助手最终回复的第一句话，不改草稿。
+- **AI 重命名**：从侧栏聊天菜单或斜杠菜单重命名单个聊天，也可在项目的 `…` 菜单选择「批量 AI 重命名」。批量功能只处理该侧栏分组内未删除、未归档且标题不含 `：` 的聊天，包括归入该分组的工作树聊天。程序筛选，Luna 只生成 `feat：AI 重命名` 这样的标题；Codex 在后台保存，不改草稿。
 - **本地运行历史**：通过 `tools/token-hud-local/Get-RuntimeHistory.ps1` 查询近期启动、增强与恢复事件；记录仅留本机、保留五天，不记录聊天正文。
 
 <p align="center"><img src="Presentation/table-sorting.png" alt="Codex 原生渲染的六列宽表，包含状态图标、排序控件和两级排序优先级" width="900" /></p>
@@ -37,7 +37,7 @@ TTFT 取本轮首次模型响应。速度优先使用 magpie 提供的本轮最�
 
 ## 开始使用
 
-1. 从 [v0.5.43 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.43) 下载 `better-codex-v0.5.43-windows-x64-portable.zip`。
+1. 从 [v0.5.44 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44) 下载 `better-codex-v0.5.44-windows-x64-portable.zip`。
 2. **完整解压**到可写、准备长期保留的目录。
 3. 双击 `BetterCodex.exe`；点击输入框底部的统计文字调节正文宽度。便携包不需要安装 Python/Node.js，首次启动不下载依赖。
 
@@ -45,7 +45,7 @@ Codex 未运行时，从快捷方式启动会自动运行体检；如果 Codex �
 
 随时双击 `Stop.cmd` 停止增强、恢复原生布局；Codex 和聊天历史保留。再次运行联合入口可恢复增强。
 
-## v0.5.43 功能
+## v0.5.44 功能
 
 | 使用场景 | 能力 |
 | --- | --- |
@@ -53,7 +53,7 @@ Codex 未运行时，从快捷方式启动会自动运行体检；如果 Codex �
 | 调整阅读空间 | 点击统计文字设置最高 1600px 的正文宽度；主聊天、侧边聊天与子代理各自受面板宽度约束，输入框保持原宽度 |
 | 浏览文件变更 | 多文件列表默认收起，可展开全部；保留查看变更和撤销，手动展开的同一卡片保持状态 |
 | 使用 Custom 配色 | 修正自定义强调色下的消息气泡和发送按钮，保持文字可读；预设色沿用原生 |
-| AI 重命名 | 左侧聊天菜单顶部带图标，斜杠菜单也可用；点击后按选定的聊天 ID 后台生成并保存，不弹窗 |
+| AI 重命名 | 聊天菜单和斜杠菜单可单独改名；项目 `…` 菜单可批量处理符合条件的聊天 |
 | 启动与维护 | 联合快捷方式、独立登录启动开关、启动体检与脱敏报告；可选监测 Codex 更新后恢复增强入口 |
 
 统计随主输入区布局变化；语言跟随 Codex 的英文/简体中文界面，未声明语言时回退启动语言，其他语言回退英文。Chat 模式沿用正文宽度与 AI 回复字号，不显示本项目统计；文档和空白页保持原生。
@@ -110,7 +110,7 @@ Codex 页面更新可能需要适配；不同版本、全部窗口布局和显�
 
 ## 开发与来源
 
-体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.5.43-source.zip`。当前源码安装需要 Python 3.11+、Node.js 22.15.0 或更新版本，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`，运行增强无需 npm 包或 Playwright。语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
+体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.5.44-source.zip`。当前源码安装需要 Python 3.11+、Node.js 22.15.0 或更新版本，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`，运行增强无需 npm 包或 Playwright。语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
 
 本地采集器复用自 [codex-token-hud](https://github.com/drkang7/codex-token-hud)。感谢 [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud)、[codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) 与 [openai/codex](https://github.com/openai/codex)。复用范围、版本和许可见[第三方声明](THIRD_PARTY_NOTICES.md)。
 

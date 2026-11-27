@@ -5,12 +5,8 @@ const {trackRenameChild}=require('./rename-child.cjs');
 
 // The desktop transport speaks the same App Server protocol and delivers native
 // thread/name/updated notifications. It never dispatches a UI action.
-async function setDesktopThreadTitle(page,{threadId,title,signal}){
-  if(!validThreadId(threadId))throw new Error('invalid-thread');
-  if(signal?.aborted)throw new Error('cancelled');
-  let result;
-  try{
-    result=await page.evaluate(async({threadId,title})=>{
+async function desktopRenameRequest(page,input){
+  return page.evaluate(async({threadId,title,expected,ids,cursor})=>{
       if(location.protocol!=='app:'||location.host!=='-'||location.pathname!=='/index.html'||
         typeof window.electronBridge?.sendMessageFromView!=='function')return 'unavailable';
       function request(method,params,timeout=3500){
@@ -33,9 +29,24 @@ async function setDesktopThreadTitle(page,{threadId,title,signal}){
             request:{id,method,params},timeoutMs:timeout})).catch(()=>finish('transport'));
         });
       }
+      async function list(threadIds,cursor=null){
+        const {data,nextCursor}=await request('thread/list',{includedThreadIds:threadIds,archived:false,
+          limit:100,cursor,useStateDbOnly:true,modelProviders:[]},1750);
+        if(!Array.isArray(data)||nextCursor!=null&&typeof nextCursor!=='string')throw Error('catalog');
+        const wanted=new Set(threadIds);
+        const rows=data.map(({id,name})=>{
+          if(typeof id!=='string'||!wanted.has(id.toLowerCase())||name!==null&&typeof name!=='string')throw Error('catalog');
+          return {id:id.toLowerCase(),name};
+        });
+        return {rows,nextCursor:nextCursor??null};
+      }
+      if(ids)return list(ids,cursor);
       const read={threadId,includeTurns:false};
       try{
-        if((await request('thread/read',read,750))?.thread?.id!==threadId)return 'unavailable';
+        if(expected){
+          const {rows}=await list([threadId]);
+          if(rows.length!==1||rows[0].name!==expected.name||rows[0].name?.includes('：'))return 'not-eligible';
+        }else if((await request('thread/read',read,750))?.thread?.id!==threadId)return 'unavailable';
       }catch{return 'unavailable';}
       try{await request('thread/name/set',{threadId,name:title});}
       catch(error){return error==='rejected'?'title-api-rejected':'title-not-confirmed';}
@@ -44,13 +55,39 @@ async function setDesktopThreadTitle(page,{threadId,title,signal}){
         if(thread?.id===threadId&&thread?.name===title)return 'ok';
       }catch{}
       return 'title-not-confirmed';
-    },{threadId,title});
+  },input);
+}
+
+async function listDesktopRenameTargets(page,threadIds,signal){
+  const rows=[];
+  for(let i=0;i<threadIds.length;i+=100){
+    const ids=threadIds.slice(i,i+100),seen=new Set();
+    let cursor=null;
+    do{
+      if(signal?.aborted)throw Error('cancelled');
+      const result=await desktopRenameRequest(page,{ids,cursor});
+      if(!Array.isArray(result?.rows)||result.nextCursor&&seen.has(result.nextCursor))throw Error('project-catalog');
+      rows.push(...result.rows);
+      cursor=result.nextCursor;
+      if(cursor)seen.add(cursor);
+    }while(cursor);
+  }
+  return rows;
+}
+
+async function setDesktopThreadTitle(page,{threadId,title,signal,expected}){
+  if(!validThreadId(threadId))throw new Error('invalid-thread');
+  if(signal?.aborted)throw new Error('cancelled');
+  let result;
+  try{
+    result=await desktopRenameRequest(page,{threadId,title,expected});
   }catch{
     // A lost renderer can mean the write reached the host. Do not replay it.
     throw new Error('title-not-confirmed');
   }
   if(result==='unavailable')return false;
   if(result==='ok')return true;
+  if(result==='not-eligible')throw Error(result);
   throw new Error(result==='title-api-rejected'?result:'title-not-confirmed');
 }
 
@@ -114,4 +151,4 @@ async function setThreadTitle({executable,codexHome,threadId,title,signal,timeou
   }
 }
 
-module.exports={setDesktopThreadTitle,setThreadTitle};
+module.exports={listDesktopRenameTargets,setDesktopThreadTitle,setThreadTitle};

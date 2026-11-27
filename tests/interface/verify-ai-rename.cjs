@@ -10,7 +10,7 @@ const commandMenu=require('../../src/interface/appearance/command-menu.js');
 const i18nSource=require('../../src/platform/i18n/i18n.js').pageSource('zh-CN');
 const browserPath=process.env.HUD_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const aiRenameSource=fs.readFileSync(path.join(__dirname,'../../src/interface/appearance/ai-rename.js'),'utf8');
-const {setDesktopThreadTitle,setThreadTitle}=require('../../src/interface/host/thread-title-api.cjs');
+const {listDesktopRenameTargets,setDesktopThreadTitle,setThreadTitle}=require('../../src/interface/host/thread-title-api.cjs');
 const {PassThrough}=require('node:stream');
 const {EventEmitter}=require('node:events');
 const {spawn}=require('node:child_process');
@@ -180,6 +180,36 @@ async function waitFor(predicate,timeout=3000){
     applied.some(item=>item.threadId===otherId));
   parallel.close();
 
+  const [third,fourth,coloned,inactive,outside]=[3,4,5,6,7].map(n=>id.slice(0,-1)+n);
+  const projectIds=[id,otherId,third,fourth,coloned,inactive];
+  const names=new Map([[id,'half: width'],[otherId,null],[third,'original'],[fourth,'queued'],[coloned,'有：旧名'],[outside,'outside']]);
+  const requestedCatalogs=[],modelFinishers=[],projectSaves=[];
+  readIds=[];states=[];
+  const project=makeManager({callFactory:()=>({
+    run:()=>new Promise(resolve=>modelFinishers.push(resolve)),cancel(){}
+  })});
+  const projectOptions={listTargets:async ids=>{
+    requestedCatalogs.push(ids);
+    return [...ids,outside].filter(id=>names.has(id)).map(id=>({id,name:names.get(id)}));
+  },saveTitle:async({threadId,expected})=>{
+    if(threadId===third)throw Error('not-eligible');
+    projectSaves.push({threadId,expected});
+  }};
+  const projectJob=project.startProject({requestId:'batch',projectId:id,threadIds:projectIds,unresolved:1},onState,projectOptions);
+  project.startProject({requestId:'batch-duplicate',projectId:id,threadIds:projectIds},onState,projectOptions);
+  await waitFor(()=>modelFinishers.length===3);
+  check('batch-only-starts-three-models-for-eligible-project-members',readIds.join()===String([id,otherId,third])&&
+    states.some(({status})=>status.reason==='busy'));
+  names.set(fourth,'changed while queued');
+  for(const finish of modelFinishers)finish('{"title":"feat: AI 重命名"}');
+  await projectJob;
+  const finalBatch=states.at(-1).notice;
+  check('batch-rechecks-queued-chats-and-summarizes-guarded-saves',modelFinishers.length===3&&
+    requestedCatalogs.length===2&&String(requestedCatalogs[1])===fourth&&projectSaves.length===2&&
+    projectSaves.find(save=>save.threadId===id)?.expected.name==='half: width'&&
+    finalBatch.phase==='success'&&finalBatch.finished===4&&finalBatch.renamed===2&&finalBatch.skipped===3&&finalBatch.failed===0);
+  await project.close();
+
   applied=[];states=[];
   const failed=makeManager({callFactory:()=>({run:async()=>{throw new Error('model');},cancel(){}})});
   await failed.start({requestId:'failed',threadId:id},onState);
@@ -274,13 +304,15 @@ async function waitFor(predicate,timeout=3000){
 
   const desktopCalls=[];
   let failDesktop=null;
+  let listReply=()=>({data:[{id,name:'old',preview:'not returned'}]});
   const desktop=new EventTarget();
   desktop.electronBridge={sendMessageFromView:async({type,hostId,request})=>{
     assert.equal(type,'mcp-request');assert.equal(hostId,'local');
     desktopCalls.push(request);
     const event=new Event('message');
     Object.assign(event,{source:desktop,origin:location.origin,data:{type:'mcp-response',hostId,
-      message:{id:request.id,...(request.method===failDesktop?{error:{code:-32000}}:answer(request))}}});
+      message:{id:request.id,...(request.method===failDesktop?{error:{code:-32000}}:
+        request.method==='thread/list'?{result:listReply(request.params)}:answer(request))}}});
     desktop.dispatchEvent(event);
   }};
   globalThis.window=desktop;
@@ -296,6 +328,25 @@ async function waitFor(predicate,timeout=3000){
     failDesktop='thread/name/set';desktopCalls.length=0;
     await assert.rejects(setDesktopThreadTitle(desktopPage,rpcOptions),/title-api-rejected/);
     check('desktop-rpc-does-not-replay-a-rejected-write',desktopCalls.length===2);
+    failDesktop=null;desktopCalls.length=0;
+    listReply=({cursor})=>cursor?{data:[{id:otherId,name:null}]}:{data:[{id,name:'old',preview:'not returned'}],nextCursor:'next'};
+    assert.deepEqual(await listDesktopRenameTargets(desktopPage,[id,otherId]),[{id,name:'old'},{id:otherId,name:null}]);
+    check('desktop-project-catalog-requests-only-active-included-ids-and-follows-cursor',desktopCalls.length===2&&
+      desktopCalls.every(({method,params})=>method==='thread/list'&&String(params.includedThreadIds)===String([id,otherId])&&
+        params.archived===false&&params.useStateDbOnly===true)&&desktopCalls[1].params.cursor==='next');
+    listReply=()=>({data:[{id:otherId,name:'outside'}]});
+    await assert.rejects(listDesktopRenameTargets(desktopPage,[id]),/catalog/);
+    check('desktop-project-catalog-rejects-outside-ids',true);
+    const guarded={...rpcOptions,expected:{name:'old'}};
+    listReply=()=>({data:[{id,name:'old'}]});desktopCalls.length=0;
+    check('desktop-project-save-rechecks-active-title-before-writing',await setDesktopThreadTitle(desktopPage,guarded)&&
+      desktopCalls.map(call=>call.method).join('|')==='thread/list|thread/name/set|thread/read');
+    for(const data of [[],[{id,name:'manual change'}],[{id,name:'AI：title'}]]){
+      listReply=()=>({data});desktopCalls.length=0;
+      await assert.rejects(setDesktopThreadTitle(desktopPage,guarded),/not-eligible/);
+      assert.deepEqual(desktopCalls.map(call=>call.method),['thread/list']);
+    }
+    check('desktop-project-save-never-writes-if-chat-disappeared-or-title-changed',true);
   }finally{
     delete globalThis.window;delete globalThis.location;
   }
@@ -478,6 +529,60 @@ async function waitFor(predicate,timeout=3000){
     check('native-menu-rerender-restores-the-action-once-at-the-top',
       await owned.locator('[role="menuitem"]').first().textContent()==='AI 重命名'&&
       await owned.locator('[data-bc-sidebar-ai-rename]').count()===1);
+    const projectPage=await context.newPage();
+    await projectPage.route('https://fixture.invalid/**',route=>route.fulfill(route.request().url().endsWith('.js')?
+      {contentType:'text/javascript',body:`export const __webpack_require__={c:{module:{exports:{
+        A2(){}, Nj(){}, Uz(){}, Iy(){}, TB(key){return key==='client-thread-bindings-v1'?{'client-new-thread:${third}':'${otherId}'}:null;}
+      }}}};`}:{contentType:'text/html',body:'<script type="module" src="/assets/fixture.js"></script>'}));
+    await projectPage.goto('https://fixture.invalid/');
+    await projectPage.evaluate(i18nSource);
+    await projectPage.evaluate(aiRenameSource);
+    const linkedId='g-p-'+fourth.replaceAll('-','');
+    await projectPage.evaluate(({id,third,fourth,inactive,linkedId})=>{
+      for(const [heading,projectId,group] of [
+        ['local',id,{group:{projectId:id,threadKeys:[`local:${fourth}`]}}],
+        ['linked',linkedId,{project:{gizmo:{id:linkedId}},linkedLocalProjectId:id,
+          localThreadKeys:[`local:${id}`,`local:client-new-thread:${third}`,`local:${id}`,`remote:${inactive}`]}],
+        ['remote',fourth,{group:{projectId:fourth,threadKeys:[`local:${inactive}`]}}],
+      ]){
+        const outer=document.createElement('div');
+        outer.dataset.sidebarProjectKind=heading==='remote'?'remote':'local';
+        outer.innerHTML=`<div data-app-action-sidebar-project-row data-app-action-sidebar-project-id="${projectId}">
+          <button>${heading}</button></div>`;
+        const row=outer.firstElementChild;
+        row.__reactFiber$fixture={stateNode:row,return:{memoizedProps:group}};
+        row.querySelector('button').onclick=()=>{
+          document.querySelector('[role="menu"]')?.remove();
+          const menu=document.createElement('div');
+          menu.setAttribute('role','menu');menu.dataset.state='open';
+          menu.innerHTML='<div role="menuitem" tabindex="-1">置顶</div><div role="menuitem">编辑</div>';
+          menu.__reactFiber$fixture={stateNode:menu,return:{tag:4,return:{
+            memoizedProps:{trigger:'click',preserveBrowserContextMenu:true,getItems:()=>[]},return:{stateNode:row}
+          }}};
+          menu.onkeydown=event=>{if(event.key==='Escape')menu.remove();};
+          document.body.append(menu);
+        };
+        document.body.append(outer);
+      }
+    },{id,third,fourth,inactive,linkedId});
+    const projectTop=projectPage.locator('[role="menu"] [role="menuitem"]').first();
+    await projectPage.getByRole('button',{name:'remote'}).click();
+    check('project-menu-does-not-decorate-unproven-nonlocal-groups',await projectTop.textContent()==='置顶');
+    await projectPage.getByRole('button',{name:'local'}).click();
+    check('local-project-menu-adds-batch-action-without-native-rename-item',await projectTop.textContent()==='批量 AI 重命名');
+    await projectTop.click();
+    const localRequest=await projectPage.evaluate(()=>window.__codexAiRename.pull());
+    check('local-project-menu-enqueues-unmounted-member-without-expanding',localRequest.kind==='project'&&
+      localRequest.projectId===id&&String(localRequest.threadIds)===fourth&&await projectPage.locator('[role="menu"]').count()===0);
+    await projectPage.evaluate(requestId=>window.__codexAiRename.state({requestId,phase:'success'}),localRequest.requestId);
+    await projectPage.getByRole('button',{name:'linked'}).click();
+    await projectTop.click();
+    await projectPage.waitForFunction(()=>window.__codexAiRename.snapshot().busy);
+    let linkedRequest;
+    await waitFor(async()=>!!(linkedRequest=await projectPage.evaluate(()=>window.__codexAiRename.pull())));
+    check('linked-project-menu-resolves-hidden-alias-and-deduplicates-native-group',linkedRequest.projectId===linkedId&&
+      String(linkedRequest.threadIds)===String([id,otherId])&&linkedRequest.unresolved===0);
+    await projectPage.close();
     await page.evaluate(()=>window.__codexAiRename.remove());
     check('page-module-cleans-up',await page.locator('[data-bc-ai-rename-root],[id="better-codex-ai-rename-style"],[data-bc-sidebar-ai-rename]').count()===0);
   }finally{

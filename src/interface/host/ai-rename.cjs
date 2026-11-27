@@ -138,12 +138,12 @@ async function defaultExecutable(){
 function createAiRenameManager({settings,readTranscript=readThreadTranscript,resolveExecutable=defaultExecutable,
   callFactory=createLunaClient,applyTitle=setThreadTitle}){
   const jobs=new Map();
-  let closed=false;
+  let closed=false,batch=null;
   function failureReason(error){
     const value=error?.code||error?.message||'failed';
-    return /^(invalid-thread|empty|transcript-unavailable|transcript-changed|title-api-unavailable|title-api-rejected|title-api-timeout|title-not-confirmed|format|type|description|language|characters|too-long|timeout|model|cancelled|codex-missing|failed)$/.test(value)?value:'failed';
+    return /^(invalid-thread|empty|transcript-unavailable|transcript-changed|title-api-unavailable|title-api-rejected|title-api-timeout|title-not-confirmed|format|type|description|language|characters|too-long|timeout|model|cancelled|codex-missing|not-eligible|failed)$/.test(value)?value:'failed';
   }
-  function start({requestId,threadId},onState){
+  function start({requestId,threadId},onState,save=applyTitle){
     if(closed||typeof requestId!=='string')return;
     const report=(phase,reason,metadata={},title)=>{
       if(closed)return;
@@ -170,7 +170,7 @@ function createAiRenameManager({settings,readTranscript=readThreadTranscript,res
       modelMs=Date.now()-modelStarted;
       if(abort.signal.aborted)throw new Error('cancelled');
       saveStarted=Date.now();
-      await applyTitle({executable,codexHome:settings.codexHome,threadId,title,signal:abort.signal});
+      await save({executable,codexHome:settings.codexHome,threadId,title,signal:abort.signal});
       report('success',null,{titleLength:Array.from(title).length,modelMs,saveMs:Date.now()-saveStarted,
         durationMs:Date.now()-started},title);
     })().catch(error=>{
@@ -182,16 +182,67 @@ function createAiRenameManager({settings,readTranscript=readThreadTranscript,res
     report('running',null);
     return job.done;
   }
+  function startProject({requestId,projectId,threadIds,unresolved},onState,{listTargets,saveTitle}){
+    if(closed||typeof requestId!=='string')return;
+    const counts={total:0,finished:0,renamed:0,failed:0,skipped:Number.isSafeInteger(unresolved)&&unresolved>0?unresolved:0};
+    const report=(phase,reason=null)=>{
+      if(closed)return;
+      try{onState({phase,reason,updatedAt:Date.now(),batch:true,...counts},
+        {requestId,phase,reason,batch:true,running:phase==='running',...counts});}catch{}
+    };
+    if(!(validThreadId(projectId)||typeof projectId==='string'&&/^g-p-[\da-f]{32}$/i.test(projectId))||
+      !Array.isArray(threadIds)||!threadIds.every(validThreadId)){report('failed','project-catalog');return;}
+    if(batch){report('failed','busy');return;}
+    const ids=[...new Set(threadIds.map(id=>id.toLowerCase()))];
+    const abort=new AbortController(),current={abort};
+    batch=current;
+    const catalog=async ids=>{
+      const allowed=new Set(ids),entries=await listTargets(ids,abort.signal),result=new Map();
+      for(const {id,name} of entries){
+        if(allowed.has(id)&&(name===null||typeof name==='string')&&!name?.includes('：'))result.set(id,name);
+      }
+      return result;
+    };
+    current.done=(async()=>{
+      const initial=await catalog(ids),queue=[...initial.keys()];
+      counts.total=queue.length;
+      if(!queue.length){report('success');return;}
+      report('running');
+      for(let offset=0;offset<queue.length&&!closed;offset+=3){
+        const work=queue.slice(offset,offset+3);
+        const selected=offset?await catalog(work):initial;
+        if(closed)return;
+        await Promise.all(work.map(async(threadId,index)=>{
+          const name=initial.get(threadId);
+          let outcome='skipped';
+          if(selected.has(threadId)&&selected.get(threadId)===name){
+            outcome='failed';
+            await start({requestId:requestId+':'+(offset+index),threadId},(_status,value)=>{
+              if(value.phase==='success')outcome='renamed';
+              else if(value.phase==='failed'&&['busy','not-eligible','empty'].includes(value.reason))outcome='skipped';
+            },options=>saveTitle({...options,expected:{name}}));
+          }
+          counts[outcome]++;
+          counts.finished++;
+          if(counts.finished<counts.total)report('running');
+        }));
+      }
+      report('success');
+    })().catch(()=>report('failed','project-catalog')).finally(()=>{if(batch===current)batch=null;});
+    report('running');
+    return current.done;
+  }
   function close(){
     closed=true;
+    batch?.abort.abort();
     const running=[...jobs.values()];
     for(const {abort,client} of running){
       abort.abort();
       try{client?.cancel();}catch{}
     }
-    return Promise.allSettled(running.map(job=>job.done));
+    return Promise.allSettled([...running.map(job=>job.done),batch?.done]);
   }
-  return {start,close};
+  return {start,startProject,close};
 }
 module.exports={normalizeTitle,parseTitleResponse,titlePrompt,generateTitle,
   createLunaClient,createAiRenameManager,defaultExecutable,MAX_TITLE,EXAMPLES};

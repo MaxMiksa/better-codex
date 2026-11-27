@@ -3,7 +3,10 @@
   if(window.__codexAiRename)return;
   const fallback={running:'AI 正在整理会话…',success:'已重命名为 {title}',failed:'AI 重命名失败，已保留原名',noChat:'请先打开已保存的聊天',busy:'AI 重命名正在处理',
     unavailable:'无法读取聊天记录，已保留原名',changing:'聊天记录仍在更新，请稍后重试',noMessages:'没有可用于命名的用户消息',
-    unconfirmed:'未能确认新标题是否已保存'};
+    unconfirmed:'未能确认新标题是否已保存',batchAction:'批量 AI 重命名',batchChecking:'正在检查项目聊天…',
+    batchProgress:'批量 AI 重命名：{finished}/{total}',batchNone:'当前项目没有需要重命名的聊天',
+    batchDone:'已重命名 {renamed} 个，跳过 {skipped} 个，失败 {failed} 个',
+    batchUnavailable:'无法核实项目聊天，已停止批量重命名'};
   const t=(key,values={})=>window.__codexHudI18n?.t?.(key,values)??(fallback[key.replace(/^aiRename\./,'')]||key).replace(/\{(\w+)\}/g,(match,name)=>Object.hasOwn(values,name)?String(values[name]):match);
   const style=document.createElement('style');style.id='better-codex-ai-rename-style';
   style.textContent=`[data-bc-ai-rename-root]{position:fixed;z-index:2147483002;display:flex;align-items:center;gap:8px;max-width:min(440px,calc(100vw - 24px));min-height:36px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--color-border-primary,#ffffff24) 88%,transparent);border-radius:12px;background:color-mix(in srgb,var(--color-background-elevated,#2b2b2b) 94%,transparent);color:var(--color-text-primary,var(--color-text,currentColor));box-shadow:0 12px 34px #0006;font:500 13px/1.35 var(--font-sans,'Segoe UI',sans-serif);pointer-events:none;transform:translate(-50%,-100%)}
@@ -21,7 +24,7 @@
   const sparkle='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.9 5.1L5 10l5.1 1.9L12 17l1.9-5.1L19 10l-5.1-1.9Z"/><path d="M5 3v4M3 5h4M19 17v4M17 19h4"/></svg>';
   const spinner='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>';
   const jobs=new Map();
-  let timer=0;
+  let timer=0,projectResolving=false,disposed=false;
   function position(){
     const composers=[...document.querySelectorAll('[data-codex-composer-root]')].filter(element=>element.checkVisibility()&&element.getBoundingClientRect().width>0)
       .sort((a,b)=>b.getBoundingClientRect().top-a.getBoundingClientRect().top);
@@ -45,17 +48,25 @@
     },kind==='success'?4200:5200);
   }
   function available(){return Boolean(window.__codexComposerHud?.snapshot?.().id);}
+  function arm(job){
+    clearTimeout(job.timeout);
+    job.timeout=setTimeout(()=>state({requestId:job.request.requestId,phase:'failed',
+      reason:job.request.kind==='project'?'project-catalog':job.sent?'title-not-confirmed':'failed'}),180000);
+  }
+  function enqueue(data,message){
+    const id='ai-rename:'+Date.now()+':'+Math.random().toString(36).slice(2);
+    const job={sent:false,request:{...data,requestId:id,createdAt:Date.now()}};
+    jobs.set(id,job);
+    arm(job);
+    show('running',message);
+    try{window.__betterCodexRequestAiRename?.(id);}catch{} // the worker also polls as a fallback
+    return true;
+  }
   function requestFor(snapshot){
     if(typeof snapshot?.id!=='string'||!snapshot.id){show('failed',t('aiRename.noChat'));return false;}
     const threadKey=snapshot.id.toLowerCase();
-    if([...jobs.values()].some(job=>job.threadKey===threadKey)){show('failed',t('aiRename.busy'));return false;}
-    const id='ai-rename:'+Date.now()+':'+Math.random().toString(36).slice(2);
-    const job={threadKey,sent:false,request:{requestId:id,threadId:snapshot.id,generation:snapshot.generation,createdAt:Date.now()}};
-    jobs.set(id,job);
-    job.timeout=setTimeout(()=>state({requestId:id,phase:'failed',reason:job.sent?'title-not-confirmed':'failed'}),180000);
-    show('running',t('aiRename.running'));
-    try{window.__betterCodexRequestAiRename?.(id);}catch{} // the worker also polls as a fallback
-    return true;
+    if([...jobs.values()].some(job=>job.request.threadId?.toLowerCase()===threadKey)){show('failed',t('aiRename.busy'));return false;}
+    return enqueue({threadId:snapshot.id,generation:snapshot.generation},t('aiRename.running'));
   }
   function request(){return requestFor(window.__codexComposerHud?.snapshot?.());}
   function pull(id){
@@ -67,9 +78,22 @@
   }
   function state(value){
     const job=jobs.get(value?.requestId);
-    if(!job||!['success','failed'].includes(value.phase))return;
+    if(!job)return;
+    if(job.request.kind==='project'&&value.phase==='running'){
+      arm(job);
+      show('running',value.total?t('aiRename.batchProgress',value):t('aiRename.batchChecking'));
+      return;
+    }
+    if(!['success','failed'].includes(value.phase))return;
     clearTimeout(job.timeout);
     jobs.delete(value.requestId);
+    if(job.request.kind==='project'){
+      if(value.phase==='success')
+        show('success',value.total||value.skipped?t('aiRename.batchDone',value):t('aiRename.batchNone'));
+      else if(value.reason==='busy')show('failed',t('aiRename.busy'));
+      else show('failed',t('aiRename.batchUnavailable')+(value.finished?' · '+t('aiRename.batchDone',value):''));
+      return;
+    }
     if(value.phase==='success')show('success',t('aiRename.success',{title:value.title||''}));
     else{
       const message=value.reason==='transcript-unavailable'?t('aiRename.unavailable'):
@@ -81,6 +105,8 @@
     }
   }
   const rowSelector='[data-app-action-sidebar-thread-id]';
+  const projectSelector='[data-app-action-sidebar-project-row][data-app-action-sidebar-project-id]';
+  const targetSelector=rowSelector+','+projectSelector;
   const uuid=/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
   const menuSelector='[role="menu"][data-state="open"]';
   const menuEntries='[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]';
@@ -90,6 +116,75 @@
   function fiberOf(element){
     const key=Object.getOwnPropertyNames(element).find(key=>key.startsWith('__reactFiber$'));
     return key?element[key]:null;
+  }
+  function projectScope(row){
+    if(row.closest('[data-sidebar-project-kind]')?.getAttribute('data-sidebar-project-kind')!=='local')return null;
+    const id=row.dataset.appActionSidebarProjectId;
+    for(let fiber=fiberOf(row);fiber;fiber=fiber.return){
+      const p=fiber.memoizedProps;
+      // Use the native group's complete list, never the mounted rows or cwd.
+      if(uuid.test(id??'')&&p?.group?.projectId===id&&Array.isArray(p.group.threadKeys))
+        return {id,keys:p.group.threadKeys};
+      if(/^g-p-[\da-f]{32}$/i.test(id??'')&&p?.project?.gizmo?.id===id&&uuid.test(p.linkedLocalProjectId??'')&&Array.isArray(p.localThreadKeys))
+        return {id,keys:p.localThreadKeys};
+    }
+    return null;
+  }
+  async function readClientBindings(){
+    const readers=new Set();
+    for(const script of document.scripts){
+      if(script.type!=='module'||!script.src)continue;
+      const url=new URL(script.src);
+      if(url.origin!==location.origin||!/^\/assets\/[^/]+\.js$/.test(url.pathname))continue;
+      try{
+        const loader=(await import(url.href)).__webpack_require__;
+        for(const module of Object.values(loader?.c??{})){
+          const api=module?.exports;
+          // This is the initialized persisted-atom reader on compatible builds.
+          // Don't load a private chunk, write atoms, or guess a module ID.
+          if(api&&['TB','A2','Nj','Uz','Iy'].every(key=>typeof api[key]==='function'))readers.add(api.TB);
+        }
+      }catch{}
+    }
+    if(readers.size===1)try{return [...readers][0]('client-thread-bindings-v1',null);}catch{}
+    return null;
+  }
+  async function requestProject(scope){
+    if(projectResolving||[...jobs.values()].some(job=>job.request.kind==='project')){
+      show('failed',t('aiRename.busy'));return;
+    }
+    projectResolving=true;
+    show('running',t('aiRename.batchChecking'));
+    try{
+      const keys=[...new Set(scope.keys.filter(key=>typeof key==='string'&&key.startsWith('local:')))];
+      const aliases=new Set(keys.filter(key=>key.startsWith('local:client-new-thread:')));
+      const bindings=aliases.size?await readClientBindings():null;
+      if(disposed)return;
+      const mounted=new Map();
+      for(const row of aliases.size?document.querySelectorAll(rowSelector):[]){
+        const key=row.getAttribute('data-app-action-sidebar-thread-id');
+        if(!aliases.has(key))continue;
+        const id=sidebarThreadId(row);
+        if(id){
+          if(!mounted.has(key))mounted.set(key,new Set());
+          mounted.get(key).add(id);
+        }
+      }
+      const ids=new Set();
+      let unresolved=0;
+      for(const key of keys){
+        const raw=key.slice(6);
+        if(uuid.test(raw)){ids.add(raw.toLowerCase());continue;}
+        const alias=raw.slice('client-new-thread:'.length);
+        if(!raw.startsWith('client-new-thread:')||!uuid.test(alias)){unresolved++;continue;}
+        const mapped=bindings&&Object.hasOwn(bindings,raw)?bindings[raw]:null;
+        const candidates=new Set(mounted.get(key));
+        if(typeof mapped==='string'&&uuid.test(mapped)&&mapped.toLowerCase()!==alias.toLowerCase())candidates.add(mapped.toLowerCase());
+        if(candidates.size===1)ids.add([...candidates][0]);
+        else unresolved++;
+      }
+      enqueue({kind:'project',projectId:scope.id,threadIds:[...ids],unresolved},t('aiRename.batchChecking'));
+    }finally{projectResolving=false;}
   }
   function sidebarThreadId(row){
     if(row.getAttribute('data-app-action-sidebar-thread-host-id')!=='local'||
@@ -122,7 +217,7 @@
       if(fiber.sibling)stack.push(fiber.sibling);
       // The trigger is rendered in the owner's normal tree, not its menu portal.
       if(fiber.tag===4||element instanceof Element&&element.matches('[role="menu"]'))continue;
-      if(element instanceof Element&&element.isConnected&&element.matches(rowSelector)){
+      if(element instanceof Element&&element.isConnected&&element.matches(targetSelector)){
         if(row&&row!==element)return null;
         row=element;
       }else if(fiber.child)stack.push(fiber.child);
@@ -135,7 +230,7 @@
     const labelledBy=menu.getAttribute('aria-labelledby');
     const triggerElement=labelledBy&&document.getElementById(labelledBy);
     if(menu.id&&triggerElement?.getAttribute('aria-haspopup')==='menu'&&
-      triggerElement.getAttribute('aria-controls')===menu.id)return triggerElement.closest(rowSelector);
+      triggerElement.getAttribute('aria-controls')===menu.id)return triggerElement.closest(targetSelector);
     let clickMenu=false;
     // Radix and desktop overlay adapters can insert dozens of layers between
     // the menu content and its owner. Follow the ancestry rather than counting them.
@@ -144,15 +239,15 @@
       if(element instanceof Element&&element!==menu){
         if(element.matches('[role="menu"]'))return null; // portaled submenu
         if(clickMenu){
-          const row=element.closest(rowSelector);
+          const row=element.closest(targetSelector);
           if(row)return row;
         }
       }
       const trigger=props?.triggerRef?.current;
       if(trigger instanceof Element&&trigger.isConnected&&
         (menu.id&&props.contentId===menu.id||trigger.id&&menu.getAttribute('aria-labelledby')===trigger.id))
-        return trigger.closest(rowSelector);
-      if(props?.menuShortcuts===true&&typeof props.getItems==='function'){
+        return trigger.closest(targetSelector);
+      if(typeof props?.getItems==='function'&&(props.menuShortcuts===true||typeof props.preserveBrowserContextMenu==='boolean')){
         if(clickMenu)return null; // do not fall through from an unrelated nested click menu
         if(props.trigger==='click')clickMenu=true;
         else return uniqueTriggerRow(fiber.child);
@@ -165,9 +260,10 @@
     const items=menu.matches(menuSelector)?menuEntriesFor(menu):[];
     const rename=items.find(item=>item.getAttribute('aria-keyshortcuts')?.toLowerCase()==='r'||
       /^(?:rename(?: chat)?|重命名(?:聊天)?)(?:\s*r)?$/iu.test(item.textContent.trim()));
-    const row=rename&&rename.getAttribute('aria-disabled')!=='true'&&!rename.hasAttribute('data-disabled')?
-      menuOwner(menu):null;
-    const id=row&&sidebarThreadId(row),first=items[0];
+    const row=items.length?menuOwner(menu):null;
+    const project=row?.matches(projectSelector)?projectScope(row):null;
+    const id=project?.id??(row?.matches(rowSelector)&&rename&&rename.getAttribute('aria-disabled')!=='true'&&!rename.hasAttribute('data-disabled')?
+      sidebarThreadId(row):null),first=items[0];
     if(previous?.row===row&&previous?.id===id&&menu.contains(previous.item)){
       if(previous.item.nextElementSibling!==first)first.before(previous.item);
       return;
@@ -176,18 +272,25 @@
     if(!id)return;
     const item=document.createElement('button'),icon=document.createElement('span');
     item.type='button';item.setAttribute('role','menuitem');item.tabIndex=-1;item.dataset.bcSidebarAiRename='';
-    item.className=rename.className;
+    item.className=(project?first:rename).className;
     item.style.cssText='display:flex;justify-content:flex-start;align-items:center;gap:8px;width:100%;text-align:start';
     icon.style.cssText='display:grid;place-items:center;width:16px;height:16px;flex:none';
     icon.innerHTML=sparkle;
     icon.firstElementChild.setAttribute('width','16');icon.firstElementChild.setAttribute('height','16');
-    const label=window.__codexHudI18n?.t?.('command.ai-rename')||'AI 重命名';
+    const label=project?t('aiRename.batchAction'):window.__codexHudI18n?.t?.('command.ai-rename')||'AI 重命名';
     item.append(icon,document.createTextNode(label));
     item.addEventListener('pointermove',event=>{if(event.pointerType==='mouse')item.focus({preventScroll:true});});
     item.addEventListener('click',event=>{
       event.stopPropagation();
-      if(!menu.matches(menuSelector)||menuOwner(menu)!==row||sidebarThreadId(row)!==id||!menu.contains(item))return;
-      requestFor({id});
+      if(!menu.matches(menuSelector)||menuOwner(menu)!==row||!menu.contains(item))return;
+      if(project){
+        const scope=projectScope(row);
+        if(scope?.id!==id)return;
+        requestProject(scope).catch(()=>{if(!disposed)show('failed',t('aiRename.batchUnavailable'));});
+      }else{
+        if(sidebarThreadId(row)!==id)return;
+        requestFor({id});
+      }
       // Dismiss only the menu that owns the new item. The title is saved by the host API.
       item.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));
     });
@@ -209,7 +312,7 @@
       const target=change.target instanceof Element?change.target:change.target.parentElement;
       const menu=target?.closest('[role="menu"]');
       if(menu)menus.add(menu);
-      if(change.type==='attributes'&&target?.matches(rowSelector)){
+      if(change.type==='attributes'&&target?.matches(targetSelector)){
         for(const open of document.querySelectorAll(menuSelector))menus.add(open);
       }
       for(const node of change.addedNodes){
@@ -221,10 +324,11 @@
     for(const menu of menus)if(menu.isConnected)extendMenu(menu);
   });
   menuObserver.observe(document.body,{childList:true,subtree:true,attributes:true,
-    attributeFilter:['data-state','aria-disabled','data-disabled','data-app-action-sidebar-thread-id']});
+    attributeFilter:['data-state','aria-disabled','data-disabled','data-app-action-sidebar-thread-id','data-app-action-sidebar-project-id']});
   for(const menu of document.querySelectorAll(menuSelector))extendMenu(menu);
   window.addEventListener('keydown',menuKey,true);
   function remove(){
+    disposed=true;
     if(timer)clearTimeout(timer);
     for(const job of jobs.values())clearTimeout(job.timeout);
     jobs.clear();
@@ -234,5 +338,5 @@
     window.removeEventListener('resize',position);style.remove();host.remove();delete window.__codexAiRename;
   }
   window.addEventListener('resize',position);
-  window.__codexAiRename={request,pull,state,available,remove,snapshot:()=>({busy:jobs.size>0,visible:!host.hidden,text:text.textContent})};
+  window.__codexAiRename={request,pull,state,available,remove,snapshot:()=>({busy:projectResolving||jobs.size>0,visible:!host.hidden,text:text.textContent})};
 })();
