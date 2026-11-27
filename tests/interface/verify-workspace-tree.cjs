@@ -63,7 +63,8 @@ async function checkNativeActions(){
     const exceptions=[];page.on('pageerror',error=>exceptions.push(error.message));
     const url='https://workspace-tree.invalid/index.html';
     await page.route(url,route=>route.fulfill({contentType:'text/html',body:
-      '<!doctype html><html lang="zh-CN"><body><section data-app-shell-active-page="true">'+
+      '<!doctype html><html lang="zh-CN"><body><button id="sidebar">Sidebar chat</button>'+
+      '<section data-app-shell-active-page="true">'+
       '<div data-app-shell-main-titlebar><div data-app-shell-header-toolbar style="display:flex">'+
       '<div>Chat</div><div id="actions" style="display:flex"><button id="native">Native files</button></div></div></div>'+
       '<main data-app-shell-main-surface><div id="dock" style="display:flex;height:520px">'+
@@ -94,6 +95,20 @@ async function checkNativeActions(){
         type:'mcp-notification',hostId,method:'fs/changed',params:{watchId,changedPaths:['ignored']}
       },origin);
       app.change=id=>document.querySelector('#thread').setAttribute('data-above-composer-conversation-id',id);
+      document.querySelector('#sidebar').addEventListener('contextmenu',event=>{
+        event.preventDefault();
+        const background=document.querySelector('[data-app-shell-active-page="true"]');
+        background.setAttribute('aria-hidden','true');background.setAttribute('data-aria-hidden','true');
+        const menu=document.createElement('div');menu.setAttribute('role','menu');menu.setAttribute('aria-label','Sidebar menu');
+        const item=document.createElement('button');item.setAttribute('role','menuitem');item.textContent='Rename';
+        menu.append(item);
+        document.body.append(menu);item.focus();
+        menu.addEventListener('keydown',event=>{
+          if(event.key!=='Escape')return;
+          menu.remove();
+          background.removeAttribute('aria-hidden');background.removeAttribute('data-aria-hidden');
+        });
+      });
       window.__betterCodexWorkspaceAction=id=>{
         const tree=window.__codexWorkspaceTree,request=tree.pullAction(id);
         if(!request||tree.pullAction(id)!==null)throw Error('Invalid action');
@@ -240,6 +255,25 @@ async function checkNativeActions(){
     await search.fill('index.ts');
     await row('index.js').waitFor({state:'detached'});
     check('filters loaded files without another read',await row('index.ts').count()===1&&(await roots()).length===2);
+    await evalPage(()=>{
+      fixture.menuPane=document.querySelector('[data-bc-workspace-files]');
+      fixture.menuTree=fixture.menuPane.shadowRoot.querySelector('bc-workspace-file-tree');
+      fixture.menuRequests=fixture.requests.length;
+    });
+    await page.locator('#sidebar').click({button:'right'});
+    const sidebarMenu=page.getByRole('menu',{name:'Sidebar menu'});
+    await sidebarMenu.waitFor();
+    const afterReconcile=()=>evalPage(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+    await afterReconcile();
+    check('a native sidebar menu keeps the mounted tree visible and directory watches intact',await evalPage(()=>{
+      const dock=document.querySelector('[data-bc-workspace-files]');
+      return dock===fixture.menuPane&&dock.checkVisibility()&&dock.closest('[data-aria-hidden]')&&
+        dock.shadowRoot.querySelector('bc-workspace-file-tree')===fixture.menuTree&&
+        fixture.requests.length===fixture.menuRequests&&fixture.watches.size===2;
+    }));
+    await page.keyboard.press('Escape');await afterReconcile();
+    check('dismissing the sidebar menu does not reset the filter or reopen the tree',await search.inputValue()==='index.ts'&&
+      await row('index.ts').getAttribute('aria-selected')==='true'&&await evalPage(()=>fixture.requests.length===fixture.menuRequests));
     await search.fill('asdjkl-nonexistent');
     await pane.getByText('没有匹配的文件').waitFor();
     await search.fill('');
@@ -280,6 +314,11 @@ async function checkNativeActions(){
     await row('package.json').click();
     await page.keyboard.press('Space');
     check('current scope can confirm a pending launch',await evalPage(()=>window.__codexWorkspaceTree.confirmAction(fixture.actions.at(-1).id)));
+    await page.locator('#sidebar').click({button:'right'});
+    await afterReconcile();
+    check('preserving the dock during a sidebar menu does not authorize pending shell actions',await evalPage(()=>
+      !window.__codexWorkspaceTree.confirmAction(fixture.actions.at(-1).id)));
+    await page.keyboard.press('Escape');await afterReconcile();
     await evalPage(()=>{fixture.pane=document.querySelector('[data-bc-workspace-files]');fixture.delay=160;});
     await change(c);await pane.getByText('正在加载…').waitFor();await waitRow('worktree.md');
     check('a previous chat can no longer confirm its pending action',await evalPage(()=>

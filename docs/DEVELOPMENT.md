@@ -66,6 +66,8 @@ File grouping uses the pinned renderer's sort option; sorting changes don't requ
 
 Project-name clicks prefer the window's initialized `appServices.openIn.open` with the local `fileManager` target. The adapter checks the loaded entry's module cache by export name, never by asset hash or module ID. This is an internal desktop compatibility point, not a public API. When absent, keep the Windows fallback; do not register another AppHost port for an existing view or retry an already dispatched native action.
 
+An open native sidebar menu must not unmount the current workspace dock or reset its filter, expanded folders or directory watches. Menu-managed accessibility markers may preserve an already matched visual scope, but must not enable file actions or attach a tree to a different chat.
+
 ## Run the affected checks
 
 ```powershell

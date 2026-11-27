@@ -8,13 +8,14 @@
   const sidebarRow='[data-app-action-sidebar-thread-id]';
   const idPattern=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
   const excluded='[inert],[aria-hidden="true"]';
-  const visible=node=>node?.getClientRects().length>0&&node.checkVisibility()&&!node.closest(excluded);
+  const persistentBlock='[inert]:not([data-inert-ed]),[aria-hidden="true"]:not([data-aria-hidden])';
   function single(node,selector,test=()=>true){
     const matches=[...node.querySelectorAll(selector)].filter(test);
     return matches.length===1?matches[0]:null;
   }
-  function layout(){
-    const page=single(document,activeSelector,n=>!n.closest(excluded));
+  function layout(blocked=excluded){
+    const visible=node=>node.getClientRects().length>0&&node.checkVisibility()&&!node.closest(blocked);
+    const page=single(document,activeSelector,n=>!n.closest(blocked));
     if(!page)return null;
     const slot=single(page,toolbarSelector,visible);
     const main=single(page,mainSelector,visible);
@@ -27,7 +28,7 @@
     const dockStyle=getComputedStyle(dock);
     if(dockStyle.display!=='flex'||dockStyle.flexDirection!=='row')return null;
     const ids=[...new Set([...content.querySelectorAll(threadMarker)]
-      .filter(n=>!n.closest(excluded+',[data-app-shell-focus-area="right-panel"]'))
+      .filter(n=>!n.closest(blocked+',[data-app-shell-focus-area="right-panel"]'))
       .map(n=>n.getAttribute('data-above-composer-conversation-id')).filter(id=>idPattern.test(id??'')))];
     if(ids.length!==1)return null;
     const id=ids[0];
@@ -144,6 +145,14 @@
   headerNotice.className='notice';headerNotice.setAttribute('role','status');headerNotice.hidden=true;
   triggerShadow.append(projectLabel,headerNotice);
   let enabled=false,disposed=false,frame=0,binding=null,surface=null,current=null,noticeTimer=0;
+  function visualLayout(){
+    const active=layout();
+    if(active||!binding)return active;
+    // Radix temporarily hides the menu background from accessibility, not from sight.
+    // Preserve only the already bound chat; action validation still uses strict layout().
+    const background=layout(persistentBlock);
+    return same(binding.scope,background)?background:null;
+  }
   const fileItem=(view,path)=>{
     const item=typeof path==='string'?view?.tree?.getItem(path):null;
     return item&&!item.isDirectory()?item:null;
@@ -326,7 +335,7 @@
     if(!root)return;
     const view={context,tree:null,dirs:null,unsubscribe:null,expanded:[],pathCount:0,updating:false};
     current=view;
-    const isCurrent=()=>current===view&&binding===context&&pane.isConnected&&same(scope,layout());
+    const isCurrent=()=>current===view&&binding===context&&pane.isConnected&&same(scope,visualLayout());
     const displayStatus=()=>{
       const filter=input.value.trim();
       const noMatches=filter&&view.tree.getSearchMatchingPaths().length===0;
@@ -399,7 +408,7 @@
     const transport=bcWorkspaceTransport();
     try{
       const {project}=await transport.send('project/read',{projectId},1400);
-      if(binding!==context||!same(context.scope,layout())||project?.id?.toLowerCase()!==projectId)return;
+      if(binding!==context||!same(context.scope,visualLayout())||project?.id?.toLowerCase()!==projectId)return;
       const name=projectName(project.name);
       if(name){context.name=name;label();}
     }catch{/* The workspace folder name remains visible. */}
@@ -407,7 +416,7 @@
   }
   async function resolve(context){
     const {scope}=context,transport=bcWorkspaceTransport();
-    const valid=()=>binding===context&&same(scope,layout());
+    const valid=()=>binding===context&&same(scope,visualLayout());
     let explicitId=null;
     try{
       const result=await transport.send('thread/read',{threadId:scope.id,includeTurns:false},2400);
@@ -447,7 +456,7 @@
   }
   function reconcile(){
     if(disposed)return null;
-    const scope=enabled?layout():null;
+    const scope=enabled?visualLayout():null;
     if(!scope){binding=null;hide();triggerHost.remove();return null;}
     if(scope.slot.firstElementChild!==triggerHost)scope.slot.prepend(triggerHost);
     if(!same(binding?.scope,scope)){
@@ -487,7 +496,8 @@
   });
   observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:[
     'data-app-shell-active-page','data-above-composer-conversation-id','data-app-action-sidebar-thread-id',
-    'data-app-action-sidebar-thread-kind','data-app-action-sidebar-thread-host-id','inert','aria-hidden','hidden'
+    'data-app-action-sidebar-thread-kind','data-app-action-sidebar-thread-host-id','inert','aria-hidden','hidden',
+    'data-aria-hidden','data-inert-ed'
   ]});
   observer.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   window.addEventListener('resize',schedule);
