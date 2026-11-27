@@ -11,6 +11,7 @@ HERE = ROOT / 'tools/token-hud-local'
 RUNTIME = ROOT / '.runtime/token-hud/embedded'
 import psutil
 from src.platform.codex.desktop_package import discover
+from src.platform.codex.display_runtime import node_has_websocket
 from src.lifecycle.installation.install_taskbar_entry import install
 from src.platform.i18n.localization import language, text
 from src.platform.settings.settings_store import update_settings
@@ -42,14 +43,17 @@ def running(settings):
         return False
 
 
+def check_node(node):
+    if not node_has_websocket(node):
+        raise ValueError('Bundled Node WebSocket unavailable')
+
+
 def prepare():
     python = ROOT / 'runtime/python/python.exe'
     node = ROOT / 'runtime/node/node.exe'
-    playwright = ROOT / 'runtime/node_modules/playwright'
     if Path(sys.executable) != python:
         raise ValueError(text('portable.bundledPython'))
-    subprocess.run([str(node), '-e', 'require(process.argv[1]).chromium || process.exit(1)',
-                    str(playwright)], check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    check_node(node)
     package = discover()
     current = read(RUNTIME / 'settings.json')
     location = read(RUNTIME / 'portable-location.json')
@@ -59,7 +63,6 @@ def prepare():
             raise ValueError(text('portable.otherCopy'))
         return current
     settings = {'port': current.get('port', 19163), 'python': str(python), 'node': str(node),
-                'playwright': str(playwright),
                 'codexHome': current.get('codexHome') or os.environ.get('CODEX_HOME') or str(Path.home() / '.codex'),
                 'collectorDir': str(HERE / 'collector')}
     RUNTIME.mkdir(parents=True, exist_ok=True)
@@ -88,9 +91,7 @@ def main():
         import win32com.client
         import win32api
         node = ROOT / 'runtime/node/node.exe'
-        subprocess.run([str(node), '-e', 'require(process.argv[1]).chromium || process.exit(1)',
-                        str(ROOT / 'runtime/node_modules/playwright')], check=True,
-                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        check_node(node)
         discover()
         print(json.dumps({'status': 'ready', 'bundledRuntimes': True, 'downloads': False, 'locale': language(), 'message': text('portable.ready')}, ensure_ascii=False))
         return 0

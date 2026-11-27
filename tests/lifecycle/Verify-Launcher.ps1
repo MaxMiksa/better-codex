@@ -157,7 +157,7 @@ $receipt = Invoke-ComposerLaunch -CheckOnly
 Assert-Launch 'legacy-admin-preference-check-is-read-only' ($script:activationArguments -eq 'untouched' -and -not $receipt.activationSucceeded)
 
 & {
-    function Get-Content { '{"python":"Get-FixturePackage","node":"fixture","playwright":"fixture","collectorDir":"fixture","port":19163,"recoverAfterUpdate":true,"runAsAdministrator":true}' }
+    function Get-Content { '{"python":"Get-FixturePackage","node":"fixture","collectorDir":"fixture","port":19163,"recoverAfterUpdate":true,"runAsAdministrator":true}' }
     function Test-Path { $true }
     function Get-FixturePackage { $global:LASTEXITCODE=0; '{"executable":"C:\\Codex\\ChatGPT.exe","packageVersion":"99.1.0.0"}' }
     function Get-Process { [pscustomobject]@{Id=123;Path='C:\Codex\ChatGPT.exe'} }

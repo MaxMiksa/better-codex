@@ -1,6 +1,5 @@
 """Build a complete offline Windows ZIP from pinned, verified upstream archives."""
 import argparse
-import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
@@ -9,7 +8,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tarfile
 import urllib.request
 import zipfile
 
@@ -18,14 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def download(item, cache):
     path = cache / item['url'].rsplit('/', 1)[-1]
-    algorithm, expected = ('sha256', item['sha256']) if 'sha256' in item else item['integrity'].split('-', 1)
-    if 'sha256' not in item:
-        expected = base64.b64decode(expected).hex()
     if not path.exists():
         with urllib.request.urlopen(item['url'], timeout=60) as response, path.with_suffix('.part').open('wb') as stream:
             shutil.copyfileobj(response, stream)
         path.with_suffix('.part').replace(path)
-    if hashlib.new(algorithm, path.read_bytes()).hexdigest() != expected:
+    if hashlib.sha256(path.read_bytes()).hexdigest() != item['sha256']:
         raise ValueError('Download digest mismatch: '+path.name)
     return path
 
@@ -53,7 +48,7 @@ def build(work):
     cache = work / 'downloads'
     cache.mkdir(exist_ok=True)
     lock = json.loads((ROOT / 'scripts/portable-lock.json').read_text(encoding='utf-8'))
-    items = [lock['python'], lock['node'], *lock['wheels'], *lock['npm']]
+    items = [lock['python'], lock['node'], *lock['wheels']]
     with ThreadPoolExecutor(max_workers=4) as pool:
         archives = list(pool.map(lambda item: download(item, cache), items))
     spec = importlib.util.spec_from_file_location('source_package', ROOT / 'scripts/package.py')
@@ -62,8 +57,9 @@ def build(work):
     version = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
     if version != (ROOT / 'VERSION').read_text().strip():
         raise ValueError('Version mismatch')
-    app = work / 'app'
-    app.mkdir(exist_ok=True)
+    app = work / ('app-v' + version)
+    # Never ship files left behind by a previous runtime layout.
+    app.mkdir()
     product = source.public_files(include_tests=False)
     for path in product:
         target(app, path.relative_to(ROOT)).write_bytes(path.read_bytes())
@@ -78,12 +74,6 @@ def build(work):
         unzip(archive, site)
     (python / 'python314._pth').write_text('python314.zip\n.\nLib/site-packages\nLib/site-packages/win32\nLib/site-packages/win32/lib\nLib/site-packages/Pythonwin\nimport site\n', encoding='utf-8')
     (site / 'sitecustomize.py').write_text('import os\nfrom pathlib import Path\n_dll = os.add_dll_directory(str(Path(__file__).parent / "pywin32_system32"))\n', encoding='utf-8')
-    for item, archive in zip(lock['npm'], archives[2+len(lock['wheels']):]):
-        with tarfile.open(archive, 'r:gz') as bundle:
-            for member in bundle.getmembers():
-                if member.isfile() and member.name.startswith('package/'):
-                    path = member.name.removeprefix('package/')
-                    target(app / 'runtime/node_modules' / item['name'], path).write_bytes(bundle.extractfile(member).read())
     compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
     assembly = work / 'AssemblyInfo.cs'
     assembly.write_text('using System.Reflection;\n[assembly: AssemblyTitle("Better-Codex")]\n[assembly: AssemblyVersion("'+version+'.0")]\n[assembly: AssemblyFileVersion("'+version+'.0")]\n', encoding='utf-8')

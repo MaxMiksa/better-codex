@@ -79,7 +79,7 @@ function patch(value={}){
 
 async function runWindow({page,state,settings,store,sources,readThemes,readPrompts,aiRename,workspaceAction,runtime,stopping}){
   const writer=createWriter(),write=writer.write;
-  const active=()=>!state.stopped&&!stopping()&&!page.isClosed()&&isMainPageUrl(page.url());
+  const active=()=>!state.stopped&&!stopping()&&!page.isClosed()&&session?.isConnected()&&isMainPageUrl(page.url());
   let session,previous,settingsSaveError=null;
   const collector=createCollector({settings,runtime});
   let renameStatus={phase:'idle',reason:null,updatedAt:0};
@@ -106,7 +106,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
       if(!requested||!active())return;
       const entries=await readPrompts();
       if(active())await page.evaluate(({runtime,requests,entries})=>{
-        if(location.protocol==='app:'&&location.host==='-'&&location.pathname==='/index.html'&&window.__betterCodexRuntime===runtime)window.__codexCommandMenu?.promptState?.({requests,entries});
+        if(window.__betterCodexRuntime===runtime)window.__codexCommandMenu?.promptState?.({requests,entries});
       },{runtime:state.id,requests:[payload],entries});
     }catch{} // Navigation or a disconnected reader must not interrupt ordinary window updates.
   }
@@ -143,7 +143,7 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
   }
   try{
     fs.mkdirSync(runtime,{recursive:true});
-    session=await page.context().newCDPSession(page);
+    session=await page.attach();
     if(sources.aiRename){
       session.on('Runtime.bindingCalled',onRenameRequest);
       await session.send('Runtime.addBinding',{name:renameBinding}).catch(()=>{});
@@ -247,13 +247,14 @@ async function runWindow({page,state,settings,store,sources,readThemes,readPromp
   }finally{
     // Each worker owns only its page, CDP session, collector and runtime directory.
     await collector.stop();
-    if(!page.isClosed())await page.evaluate(modules=>{
+    if(!page.isClosed())await page.evaluate(({modules,id})=>{
+      if(window.__betterCodexRuntime!==id)return;
       for(const name of modules){
         try{window[name]?.remove();}catch{}
       }
       delete window.__codexHudI18n;delete window.__codexHudLanguage;
       delete window.__betterCodexRuntime;
-    },pageModules).catch(()=>{});
+    },{modules:pageModules,id:state.id}).catch(()=>{});
     if(session){
       if(sources.aiRename){session.off('Runtime.bindingCalled',onRenameRequest);await session.send('Runtime.removeBinding',{name:renameBinding}).catch(()=>{});}
       if(readPrompts){session.off('Runtime.bindingCalled',onPromptRequest);await session.send('Runtime.removeBinding',{name:promptBinding}).catch(()=>{});}

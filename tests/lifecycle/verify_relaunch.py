@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.lifecycle.recovery import relaunch
+from src.lifecycle.recovery import desktop_restart, relaunch
 
 
 class RelaunchChecks(unittest.TestCase):
@@ -15,11 +15,11 @@ class RelaunchChecks(unittest.TestCase):
         root.mkdir(parents=True, exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=root)
         self.root = Path(self.temporary.name)
-        for name in ['python.exe', 'node.exe', 'package.json', 'metrics.py']:
+        for name in ['python.exe', 'node.exe', 'metrics.py']:
             (self.root / name).touch()
         self.settings_path = self.root / 'settings.json'
         self.settings = {'python': str(self.root / 'python.exe'), 'node': str(self.root / 'node.exe'),
-                         'playwright': str(self.root), 'collectorDir': str(self.root), 'runAsAdministrator': True, 'port': 19163}
+                         'collectorDir': str(self.root), 'runAsAdministrator': True, 'port': 19163}
         relaunch.save(self.settings_path, self.settings)
         self.package = {'packageVersion': '26.1.1.0', 'sha256': 'fixture', 'executable': 'C:/fixture/ChatGPT.exe'}
         self.running = [{'pid': 123, 'started': 100, 'main': True, 'debuggingRequested': True}]
@@ -27,7 +27,8 @@ class RelaunchChecks(unittest.TestCase):
         self.calls, self.closed = [], []
         self.close_allowed, self.close_completes, self.reconnects = True, True, True
         self.activity = {'state': 'idle', 'activeCount': 0, 'checkedAt': 1000}
-        self.patches = [patch.object(relaunch, 'discover', side_effect=lambda: dict(self.package)),
+        self.patches = [patch.object(desktop_restart, 'node_has_websocket', return_value=True),
+                        patch.object(relaunch, 'discover', side_effect=lambda: dict(self.package)),
                         patch.object(relaunch, 'session_activity', side_effect=lambda *_: dict(self.activity)),
                         patch.object(relaunch, 'desktops', side_effect=lambda _: [dict(p) for p in self.running]),
                         patch.object(relaunch, 'port_status', side_effect=lambda *_: self.port),
@@ -68,6 +69,13 @@ class RelaunchChecks(unittest.TestCase):
 
     def test_unknown_or_network_only_does_not_arm(self):
         self.assertFalse(self.plan('unknown', False)['automatic'])
+
+    def test_unsupported_node_does_not_request_close(self):
+        plan = self.plan()
+        with patch.object(desktop_restart, 'node_has_websocket', return_value=False):
+            with self.assertRaises(ValueError):
+                relaunch.execute(self.settings_path, plan)
+        self.assertFalse(self.closed or self.calls)
 
     def test_confirmed_plugin_failure_arms(self):
         self.assertTrue(self.plan()['automatic'])

@@ -32,21 +32,21 @@ Keep temporary work in `.validation-runtime/<task>/`. Existing real-model prompt
 
 ## Set up a source copy
 
-Use Windows 11 x64, the official Codex Store app, Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1. From the source root:
+Use Windows 11 x64, the official Codex Store app, Python 3.11+, Node.js 22.15.0 or later (the portable ZIP uses 24.x). From the source root:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 ```
 
-Source installation may download Python/Node dependencies. Install.ps1 accepts -PythonExecutable, -NodeExecutable, -PnpmExecutable and -PlaywrightPath for existing tools, -Language en / zh-CN for messages, and -CheckOnly for dependency checks. Portable users already have their runtimes and do not need this source setup.
+Source installation may download Python dependencies. Install.ps1 accepts -PythonExecutable, -NodeExecutable, -Language en / zh-CN and -CheckOnly. Older automation can still pass -PnpmExecutable or -PlaywrightPath, but the installer no longer uses either. Existing settings with a Playwright path are preserved but ignored by the product. Portable users already have their runtimes and do not need this source setup.
 
-The root package.json describes the product; do not install dependencies at the root. The [Node runtime manifest and lock](../scripts/node/README.md) supply a dedicated `.runtime/token-hud/node` prefix. Its pnpm install uses a frozen lock, ordinary directories and disabled lifecycle scripts. To prepare only Node dependencies without invoking Python setup:
+The runtime uses the native Node WebSocket and does not load npm packages. Browser tests in the source distribution can use the locked Playwright test dependency. Prepare it separately (pnpm 12.16.1 and Node 24.11.1+ in the 24.x line):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-NodeDependencies.ps1 -PnpmExecutable <pnpm-12.16.1-path>
 ```
 
-Add `-NodeHome <isolated-prefix>` for verification and `-Offline` to rebuild from a populated pnpm store. This command does not change installed settings, global tools or PATH. Existing explicit Playwright paths continue to work. The portable builder keeps its pinned archive-based layout in `runtime/node_modules`; its contents do not reference pnpm's store.
+Add `-NodeHome <isolated-prefix>` for verification and `-Offline` to rebuild from a populated pnpm store. This command does not change installed settings, global tools or PATH. The browser test runner can also use `HUD_PLAYWRIGHT` or a dependency JSON with a valid Playwright path. Neither production startup nor the portable bundle depends on the test installation.
 
 Browser checks use installed Edge and Playwright; no browser download is needed. Optional native preview checks also need Pillow in the development interpreter.
 
@@ -87,7 +87,7 @@ The product's [runtime history contract](../src/platform/observability/README.md
 
 [release/public-files.json](../release/public-files.json) defines runtime and sourceExtras. Source packaging combines both; portable packaging adds pinned runtimes to runtime only. [scripts/portable-lock.json](../scripts/portable-lock.json) fixes dependency versions and integrity hashes. runtime/ is shipped content; .runtime/ is installation state.
 
-Run candidate builds in an isolated source copy. The builders write version-named files in dist/ and can replace an existing candidate of the same name; preserve released artifacts in the main workspace.
+Run candidate builds in an isolated source copy. The builders write version-named files in dist/ and can replace an existing candidate of the same name; preserve released artifacts in the main workspace. Use a fresh portable staging directory for each build so files from a previous runtime cannot enter the ZIP.
 
 ```powershell
 python -B -X utf8 scripts/package.py

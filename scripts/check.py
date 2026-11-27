@@ -34,8 +34,11 @@ def main():
     dependencies = json.loads(args.dependencies.read_text(encoding='utf-8-sig')) if args.dependencies else {}
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     os.environ['BETTER_CODEX_TEST_WORK'] = str(folder)
-    if dependencies.get('playwright'):
-        os.environ['HUD_PLAYWRIGHT'] = dependencies['playwright']
+    playwright = next((str(path) for value in (os.environ.get('HUD_PLAYWRIGHT'), dependencies.get('playwright'),
+                      ROOT / '.runtime/token-hud/node/node_modules/playwright')
+                      if value and (path := Path(value).resolve()).joinpath('package.json').is_file()), None)
+    if playwright:
+        os.environ['HUD_PLAYWRIGHT'] = playwright
     if dependencies.get('node'):
         os.environ['PATH'] = str(Path(dependencies['node']).parent) + os.pathsep + os.environ.get('PATH', '')
     script = ROOT / case['path']
@@ -50,7 +53,10 @@ def main():
         shell = shutil.which('pwsh') if case['kind'] == 'pwsh' else str(Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
         command = [shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script), *arguments]
     if args.case == 'multi-window':
-        selected = {key: dependencies[key] for key in ('python', 'node', 'playwright')}
+        if not playwright:
+            parser.error('Install test Playwright via scripts/Install-NodeDependencies.ps1 or set HUD_PLAYWRIGHT.')
+        selected = {'python': dependencies.get('python') or sys.executable,
+                    'node': command[0], 'playwright': playwright}
         fixture = work / 'dependencies.json'
         fixture.write_text(json.dumps(selected), encoding='utf-8')
         command.append(str(fixture))

@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.33"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.33-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.35"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.35-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -37,7 +37,7 @@ TTFT uses the first model response in the current turn. Speed uses magpie's late
 
 ## Get started
 
-1. Download `better-codex-v0.5.33-windows-x64-portable.zip` from [v0.5.33 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.33).
+1. Download `better-codex-v0.5.35-windows-x64-portable.zip` from [v0.5.35 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.35).
 2. **Extract the entire ZIP** to a writable folder you plan to keep.
 3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No Python/Node.js installation or first-launch dependency download is needed.
 
@@ -45,7 +45,7 @@ The shortcut runs the startup check when Codex isn't running. If Codex is alread
 
 Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
 
-## v0.5.33 features
+## v0.5.35 features
 
 | Task | What you get |
 | --- | --- |
@@ -110,7 +110,7 @@ Local state can contain chat identifiers, titles, paths and usage. **Do not uplo
 
 ## Development and credits
 
-For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.33-source.zip`. Current source installation needs Python 3.11+, Node.js 24.11.1 or later in the 24.x line, and pnpm 12.16.1; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. Use `-PnpmExecutable <path>` if that pnpm version is outside PATH. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
+For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.35-source.zip`. Current source installation needs Python 3.11+, Node.js 22.15.0 or later; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. No npm package or Playwright is needed to run the enhancements. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
 
 The local collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions and licenses.
 

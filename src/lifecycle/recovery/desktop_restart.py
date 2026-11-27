@@ -6,6 +6,7 @@ import subprocess
 import psutil
 
 from src.platform.codex.desktop_listener import verified_listener
+from src.platform.codex.display_runtime import node_has_websocket
 
 from src.platform.paths import ROOT
 
@@ -17,11 +18,12 @@ def preflight(settings):
     if type(settings.get('port')) is not int or not 1024 <= settings['port'] <= 65535:
         raise ValueError('Invalid display port')
     for dependency in [settings['python'], settings['node'],
-                       str(Path(settings['playwright']) / 'package.json'),
                        str(Path(settings['collectorDir']) / 'metrics.py'),
                        str(ROOT / 'tools/token-hud-local/Start-ComposerHud.ps1')]:
         if not Path(dependency).is_file():
             raise ValueError('Recovery launch dependency unavailable')
+    if not node_has_websocket(settings['node']):
+        raise ValueError('Recovery Node WebSocket unavailable')
 
 
 def powershell(script, *args):

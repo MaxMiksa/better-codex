@@ -51,6 +51,7 @@ def main():
     check('portable-no-tests-or-private-state', not any(name.startswith(('tests/', 'prompts/', 'src/prompts/', '.runtime/')) for name in portable))
     manifest = json.loads(portable['runtime/manifest.json'])
     runtime = {name for name in portable if name.startswith('runtime/') and name != 'runtime/manifest.json'}
+    check('portable-no-node-modules', not any(name.startswith(('runtime/node_modules/', 'scripts/node/')) for name in portable))
     check('runtime-manifest-set', set(manifest['files']) == runtime)
     check('runtime-file-digests', all(hashlib.sha256(portable[name]).hexdigest() == digest for name, digest in manifest['files'].items()))
     check('portable-exact-file-set', set(portable) == set(expected_runtime) | runtime | {'runtime/manifest.json', 'BetterCodex.exe'})
@@ -80,6 +81,7 @@ def main():
         check('prepare-' + str(number), invoke(app, '--prepare-only')['status'] == 'prepared')
     settings = app / '.runtime/token-hud/embedded/settings.json'
     data = json.loads(settings.read_text(encoding='utf-8-sig'))
+    check('portable-settings-do-not-need-playwright', 'playwright' not in data)
     check('optional-modes-default-off', not data.get('recoverAfterUpdate') and 'runAsAdministrator' not in data)
     data.update(readingWidth=1280, customAccent=False)
     settings.write_text(json.dumps(data), encoding='utf-8')

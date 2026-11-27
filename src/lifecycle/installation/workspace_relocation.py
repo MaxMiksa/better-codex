@@ -20,7 +20,7 @@ from src.platform.settings.settings_store import update_settings
 from src.platform.paths import ROOT
 RUNTIME = ROOT / '.runtime/token-hud/embedded'
 PLAN = RUNTIME / 'workspace-rename/plan.json'
-DEPENDENCIES = ('python', 'node', 'playwright', 'collectorDir')
+DEPENDENCIES = ('python', 'node', 'collectorDir')
 POWERSHELL = Path(os.environ['WINDIR']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
 
 
@@ -84,7 +84,7 @@ def dependency_patch(settings, previous):
             path = ROOT / path.relative_to(previous)
         except ValueError:
             pass
-        required = path / ('package.json' if key == 'playwright' else 'metrics.py') if key in ('playwright', 'collectorDir') else path
+        required = path / 'metrics.py' if key == 'collectorDir' else path
         if not required.is_file():
             raise ValueError('dependency-missing-' + key)
         if path != Path(settings[key]):

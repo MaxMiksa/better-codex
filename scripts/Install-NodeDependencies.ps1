@@ -19,7 +19,7 @@ if ($LASTEXITCODE -ne 0 -or $pnpmVersion.Trim() -ne '12.16.1') {
 $source = Join-Path $PSScriptRoot 'node'
 $manifest = Get-Content -LiteralPath (Join-Path $source 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $product = Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($manifest.dependencies.playwright -ne $product.dependencies.playwright) {
+if ($manifest.dependencies.playwright -ne $product.devDependencies.playwright) {
     throw 'The product and locked Node runtime must use the same Playwright version.'
 }
 [IO.Directory]::CreateDirectory($NodeHome) | Out-Null

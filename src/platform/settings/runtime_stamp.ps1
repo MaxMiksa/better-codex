@@ -11,7 +11,7 @@ function Get-BetterCodexRuntimeStamp($Settings) {
         $parts = @($files | Sort-Object | ForEach-Object {
             $_ + ':' + [BitConverter]::ToString($hash.ComputeHash([IO.File]::ReadAllBytes((Join-Path $workspace $_))))
         })
-        foreach ($key in @('python','node','playwright','collectorDir','port')) { $parts += $key + ':' + $Settings.$key }
+        foreach ($key in @('python','node','collectorDir','port')) { $parts += $key + ':' + $Settings.$key }
         return [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes(($parts -join "`n")))).Replace('-','')
     } finally { $hash.Dispose() }
 }

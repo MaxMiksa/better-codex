@@ -22,19 +22,5 @@
       "url": "https://files.pythonhosted.org/packages/90/4b/07c77d8ba0e01349358082713400435347df8426208171ce297da32c313d/pywin32-311-cp314-cp314-win_amd64.whl",
       "sha256": "3aca44c046bd2ed8c90de9cb8427f581c479e594e99b5c0bb19b29c10fd6cb87"
     }
-  ],
-  "npm": [
-    {
-      "name": "playwright",
-      "version": "1.62.1",
-      "url": "https://registry.npmjs.org/playwright/-/playwright-1.62.1.tgz",
-      "integrity": "sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg=="
-    },
-    {
-      "name": "playwright-core",
-      "version": "1.62.1",
-      "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.62.1.tgz",
-      "integrity": "sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw=="
-    }
   ]
 }

@@ -9,6 +9,7 @@ import time
 import psutil
 
 from src.platform.paths import ROOT
+from src.platform.codex.display_runtime import node_has_websocket
 from src.lifecycle.diagnostics.results import parts_row, t
 
 
@@ -109,18 +110,16 @@ def runtime(checks):
         parts.append(part('runtimeConfigInvalid', 'warning'))
     settings = checks.settings
     try:
-        for filename in [settings['python'], settings['node'], Path(settings['playwright']) / 'package.json',
+        for filename in [settings['python'], settings['node'],
                          Path(settings['collectorDir']) / 'metrics.py']:
             if not Path(filename).is_file():
                 raise ValueError('Missing dependency')
         if type(settings.get('port')) is not int or not 1024 <= settings['port'] <= 65535:
             raise ValueError('Invalid port')
-        probes = [[settings['python'], '-B', '-c', 'import psutil,win32api,win32com.client,tomllib; print("ok")'],
-                  [settings['node'], '-e', 'require(process.argv[1]);process.stdout.write("ok")', settings['playwright']]]
-        for command in probes:
-            result = subprocess.run(command, capture_output=True, timeout=4, creationflags=subprocess.CREATE_NO_WINDOW)
-            if result.returncode or result.stdout.strip() != b'ok':
-                raise ValueError('Dependency probe failed')
+        result = subprocess.run([settings['python'], '-B', '-c', 'import psutil,win32api,win32com.client,tomllib'],
+                                capture_output=True, timeout=4, creationflags=subprocess.CREATE_NO_WINDOW)
+        if result.returncode or not node_has_websocket(settings['node']):
+            raise ValueError('Dependency probe failed')
         parts.append(part('runtimeDependenciesReady'))
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         parts.append(part('runtimeDependenciesMissing', 'warning'))

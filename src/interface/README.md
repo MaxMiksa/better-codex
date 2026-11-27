@@ -13,6 +13,8 @@
 | workspace_tree/ | 当前本地工作区的只读目录树与按需监听 |
 | appearance/ | Custom 配色、可读前景、原生命令菜单显隐与 AI 重命名状态 |
 
+增强使用 Node 自带 WebSocket 直连已核实的 Codex 回环接口；正式运行不加载 Playwright，也不启动额外浏览器。只连接已识别的 Codex 主文档；新窗口、刷新和断线仍由各自窗口任务与后台处理。停止增强只断开己方连接，不关闭 Codex。浏览器测试可独立安装 Playwright。
+
 采集器源自 codex-token-hud v1.3.0-beta.8，版本和 MIT 许可见 [VERSION](statistics/collector/VERSION) / [LICENSE](statistics/collector/LICENSE)；稳定旧 collector 命令和许可位置继续保留。
 
 ## 数据来源与关联

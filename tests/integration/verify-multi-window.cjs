@@ -2,7 +2,8 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn,execFile}=require('node:child_process'),{promisify}=require('node:util');
 const execute=promisify(execFile),{createSettingsStore}=require('../../src/platform/settings/settings-store.cjs');
-const {pageGuard,isMainPageUrl}=require('../../src/interface/host/page-contract.cjs');
+const {isMainPageUrl}=require('../../src/interface/host/page-contract.cjs');
+const {connectToBrowser}=require('../../src/interface/host/local-cdp.cjs');
 const root=path.resolve(__dirname,'../..'),scratch=path.resolve(process.argv[2]),evidence=path.resolve(process.argv[3]);
 const dependencies=JSON.parse(fs.readFileSync(process.argv[4],'utf8').replace(/^\uFEFF/,''));
 const playwright=require(dependencies.playwright),fixtureUrl='https://hud-fixture.invalid/index.html';
@@ -17,47 +18,27 @@ async function until(fn,label,timeout=12000){
   throw Error('timeout: '+label);
 }
 
-// Only adapt Electron's app:// URL to an intercepted HTTPS fixture. All controller,
-// page, collector, settings and CDP behavior otherwise runs from production files.
-function browserAdapter(realPath,url,guard){
-  const real=require(realPath),pages=new WeakMap(),contexts=new WeakMap();
-  const fixtureGuard='location.origin==='+JSON.stringify(new URL(url).origin)+'&&location.pathname==='+JSON.stringify(new URL(url).pathname);
-  const pageProxy=page=>{
-    if(!pages.has(page))pages.set(page,new Proxy(page,{get(target,key){
-      if(key==='url')return ()=>target.url()===url||target.url().startsWith(url+'?')?'app://-/index.html'+target.url().slice(url.length):target.url();
-      if(key==='context')return ()=>contextProxy(target.context());
-      if(key==='evaluate')return (fn,arg)=>typeof fn==='function'&&fn.toString().includes(guard)
-        ? target.evaluate('('+fn.toString().replace(guard,fixtureGuard)+')('+JSON.stringify(arg)+')')
-        : target.evaluate(fn,arg);
-      const value=target[key];return typeof value==='function'?value.bind(target):value;
-    }}));
-    return pages.get(page);
-  };
-  const contextProxy=context=>{
-    if(!contexts.has(context))contexts.set(context,new Proxy(context,{get(target,key){
-      if(key==='pages')return ()=>target.pages().map(pageProxy);
-      if(key==='newCDPSession')return async page=>{
-        const raw=target.pages().find(candidate=>pageProxy(candidate)===page);
-        const session=await target.newCDPSession(raw);
-        return new Proxy(session,{get(object,property){
-          if(property==='send')return (method,params)=>{
-            if(method==='Runtime.evaluate')params={...params,expression:params.expression.replace(guard,fixtureGuard)};
-            return object.send(method,params);
-          };
-          const value=object[property];return typeof value==='function'?value.bind(object):value;
-        }});
-      };
-      const value=target[key];return typeof value==='function'?value.bind(target):value;
-    }}));
-    return contexts.get(context);
-  };
-  return {chromium:{async connectOverCDP(endpoint,options){
-    const browser=await real.chromium.connectOverCDP(endpoint,options);
-    return new Proxy(browser,{get(target,key){
-      if(key==='contexts')return ()=>target.contexts().map(contextProxy);
-      const value=target[key];return typeof value==='function'?value.bind(target):value;
-    }});
-  }}};
+async function checkDiscovery(){
+  let reply,requests=0;
+  const http=require('node:http'),server=http.createServer((req,res)=>{
+    requests++;
+    if(reply===null){res.writeHead(302,{Location:'/unexpected'});res.end();return;}
+    res.end(JSON.stringify({webSocketDebuggerUrl:reply}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const port=server.address().port;
+  try{
+    for(const endpoint of [
+      'ws://localhost:'+port+'/devtools/browser/fixture',
+      'ws://127.0.0.1:'+(port===65535?port-1:port+1)+'/devtools/browser/fixture',
+      'ws://127.0.0.1:'+port+'/devtools/page/fixture',
+      'ws://127.0.0.1:'+port+'/devtools/browser/fixture?extra=1'
+    ]){
+      reply=endpoint;await assert.rejects(connectToBrowser(port),/Invalid local CDP endpoint/);
+    }
+    reply=null;await assert.rejects(connectToBrowser(port),/CDP discovery failed/);
+    check('discovery-rejects-nonlocal-or-unexpected-endpoints-and-redirects',requests===5);
+  }finally{await new Promise(resolve=>server.close(resolve));}
 }
 function html(id){
   const source=fs.readFileSync(path.join(__dirname,'../interface/verify.cjs'),'utf8');
@@ -108,11 +89,16 @@ async function finish(child){
   fs.copyFileSync(path.join(root,'VERSION'),path.join(sandbox,'VERSION'));
   logs(home,A,110,13);logs(home,B,370,83);
   fs.writeFileSync(path.join(home,'config.toml'),'[desktop.appearanceDarkChromeTheme]\naccentSource="custom"\naccent="#39c4f7"\nsurface="#111111"\n');
-  const adapter=path.join(scratch,'browser-adapter.cjs');
-  fs.writeFileSync(adapter,'module.exports=('+browserAdapter.toString()+')('+JSON.stringify(dependencies.playwright)+','+JSON.stringify(fixtureUrl)+','+JSON.stringify(pageGuard)+');');
+  // Substitute only the document contract in the copied controller. The native
+  // CDP client, window worker and bindings are identical to the shipped files.
+  const host=path.join(sandbox,'src/interface/host');
+  const guard='location.origin==='+JSON.stringify(new URL(fixtureUrl).origin)+'&&location.pathname==="/index.html"';
+  fs.writeFileSync(path.join(host,'page-contract.cjs'),'module.exports={isMainPageUrl(value){try{const u=new URL(value);return u.origin==='+
+    JSON.stringify(new URL(fixtureUrl).origin)+'&&u.pathname==="/index.html";}catch{return false;}},pageGuard:'+JSON.stringify(guard)+'};');
   let context,controller,lock;
   let output='';
   try{
+    await checkDiscovery();
     context=await playwright.chromium.launchPersistentContext(path.join(scratch,'browser'),{
       headless:true,executablePath:process.env.HUD_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
       viewport:{width:1261,height:600},args:['--remote-debugging-address=127.0.0.1','--remote-debugging-port=0']});
@@ -122,10 +108,10 @@ async function finish(child){
     let p1=await context.newPage(),p2=await context.newPage();
     await Promise.all([p1.goto(fixtureUrl),p2.goto(fixtureUrl+'?initialRoute=fixture')]);
     await p2.evaluate(id=>{document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',id);},B);
-    const settings={...dependencies,port,playwright:adapter,codexHome:home,collectorDir:path.join(root,'tools/token-hud-local/collector'),readingWidth:1232,customAccent:true,sentinel:'保留中文设置'};
+    const settings={python:dependencies.python,node:dependencies.node,port,codexHome:home,collectorDir:path.join(root,'tools/token-hud-local/collector'),readingWidth:1232,customAccent:true,sentinel:'保留中文设置'};
     fs.writeFileSync(settingsPath,JSON.stringify(settings));
     const store=createSettingsStore(settingsPath,settings);
-    controller=spawn(dependencies.node,[path.join(__dirname,'../../src/interface/host/controller.cjs'),settingsPath,runtime],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+    controller=spawn(dependencies.node,[path.join(host,'controller.cjs'),settingsPath,runtime],{windowsHide:true,stdio:['ignore','pipe','pipe']});
     controller.stdout.on('data',chunk=>{output+=chunk;});controller.stderr.on('data',chunk=>{output+=chunk;});
     const view=()=>read(path.join(runtime,'view-status.json'));
     const track=()=>{for(const entry of view()?.windows||[]){const data=read(path.join(runtime,'windows',entry.windowId,'metrics.json'));if(data?.collector_pid)collectors.add(data.collector_pid);}};
@@ -249,6 +235,13 @@ async function finish(child){
     await store.patch({tableEnabled:true,tableCentered:true,tableSortMode:'smart'});
     await until(async()=>{const [one,two]=await Promise.all([snapshot(p1),snapshot(p2)]);return one.tableEnabled===true&&two.tableEnabled===true&&one.tableCentered===true&&two.tableCentered===true&&one.tableSortMode==='smart'&&two.tableSortMode==='smart';},'restore table preferences');
     check('table-preferences-restore-without-window-reload',await p1.evaluate(()=>window.__codexReadingWidth.update(1152).tableEnabled===true&&window.__codexTableSort.snapshot().enabled===true&&window.__codexTableSort.snapshot().defaultMode==='smart')&&await p2.evaluate(()=>window.__codexReadingWidth.update(1152).tableEnabled===true&&window.__codexTableSort.snapshot().enabled===true&&window.__codexTableSort.snapshot().defaultMode==='smart'));
+    await p1.route('https://hud-fixture.invalid/ignored.html',route=>route.fulfill({body:'Ignored'}));
+    await p1.goto('https://hud-fixture.invalid/ignored.html');
+    await until(()=>view()?.windows.length===1,'leave eligible document');
+    check('off-contract-document-stays-unmodified',await p1.evaluate(()=>!window.__codexComposerHud)&&await matching(p2,B,'- tok/s','83%'));
+    await p1.goto(fixtureUrl);
+    await until(async()=>view()?.windows.length===2&&await matching(p1,A,'- tok/s','13%'),'return to eligible document');
+    track();
     const first=view().windows.find(w=>w.id===A),second=view().windows.find(w=>w.id===B);
     check('selection-and-metrics-directories-are-disjoint',first.windowId!==second.windowId&&read(path.join(runtime,'windows',first.windowId,'selection.json')).thread_id===A&&read(path.join(runtime,'windows',second.windowId,'selection.json')).thread_id===B&&!fs.existsSync(path.join(runtime,'metrics.json')));
     for(let i=0;i<4;i++){
@@ -348,6 +341,14 @@ async function finish(child){
     check('stop-cleans-own-runtime-directories',fs.readdirSync(path.join(runtime,'windows')).length===0);
     await execute(dependencies.python,['-I','-c',"import psutil,sys; assert all(not psutil.pid_exists(int(p)) for p in sys.argv[1:])",...Array.from(collectors,String)],{windowsHide:true,timeout:5000});
     check('all-observed-test-collectors-exit',true);
+    fs.unlinkSync(path.join(runtime,'stop'));
+    // A browser-side disconnect must end the client promptly so the verified
+    // supervisor can relaunch it. The browser used here is a disposable fixture.
+    controller=spawn(dependencies.node,[path.join(host,'controller.cjs'),settingsPath,runtime],{windowsHide:true,stdio:'ignore'});
+    await until(async()=>await matching(p1,A,'- tok/s','13%'),'fresh controller after stop');
+    await context.close();context=null;
+    await until(()=>controller.exitCode!==null,'browser-side disconnect');
+    check('browser-disconnect-exits-and-cleans-window-workers',controller.exitCode===0&&fs.readdirSync(path.join(runtime,'windows')).length===0);
     fs.writeFileSync(path.join(evidence,'integration.json'),JSON.stringify({scope:'isolated Edge + production controller and collectors; app URL adapter; synthetic logs; no Codex desktop connection',passed:results.length,results},null,2));
     console.log(JSON.stringify({passed:results.length}));
   }catch(error){fs.writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({passed:results,error:String(error),controllerOutput:output},null,2));throw error;}

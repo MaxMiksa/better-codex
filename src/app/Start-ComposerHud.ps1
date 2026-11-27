@@ -149,7 +149,7 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
     $coldStart = $false
     try { $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
     try {
-        foreach ($dependency in @($settings.python,$settings.node,(Join-Path $settings.playwright 'package.json'),(Join-Path $settings.collectorDir 'metrics.py'))) {
+        foreach ($dependency in @($settings.python,$settings.node,(Join-Path $settings.collectorDir 'metrics.py'))) {
             if (-not $dependency -or -not (Test-Path -LiteralPath $dependency)) { throw (Get-BetterCodexText 'launch.dependencyMissing') }
         }
         $package = & $settings.python (Join-Path $PSScriptRoot '../../tools/token-hud-local/shared/desktop_package.py') | ConvertFrom-Json

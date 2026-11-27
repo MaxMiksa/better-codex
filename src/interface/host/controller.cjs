@@ -7,12 +7,13 @@ const {setDesktopThreadTitle,setThreadTitle}=require('./thread-title-api.cjs');
 const {createSettingsStore}=require('../../platform/settings/settings-store.cjs');
 const {runWindow}=require('./window-controller.cjs');
 const {isMainPageUrl}=require('./page-contract.cjs');
+const {connectToBrowser}=require('./local-cdp.cjs');
 const [settingsPath,runtime]=process.argv.slice(2),settings=JSON.parse(fs.readFileSync(settingsPath,'utf8').replace(/^\uFEFF/,''));
-const {chromium}=require(settings.playwright),stop=path.join(runtime,'stop');
+const stop=path.join(runtime,'stop');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const writer=createWriter(),write=writer.write;
 async function main(){
-  const browser=await chromium.connectOverCDP('http://127.0.0.1:'+settings.port,{timeout:5000});
+  const browser=await connectToBrowser(settings.port);
   const windows=new Map(),store=createSettingsStore(settingsPath,settings);
   const sources={i18n:require('../../platform/i18n/i18n.js').pageSource()};
   const readThemes=createThemeReader(path.join(settings.codexHome,'config.toml'));
@@ -39,7 +40,7 @@ async function main(){
       sources.workspaceTree=require('../workspace_tree/page-source.cjs').workspaceTreeSource({codexHome:settings.codexHome});
     }catch{/* An optional feature must not prevent other window enhancements. */}
     while(browser.isConnected()&&!fs.existsSync(stop)){
-      const pages=new Set(browser.contexts().flatMap(context=>context.pages()).filter(page=>!page.isClosed()&&isMainPageUrl(page.url())));
+      const pages=new Set([...browser.pages.values()].filter(page=>!page.isClosed()&&isMainPageUrl(page.url())));
       for(const [page,state] of windows){
         if(!pages.has(page))state.stopped=true;
         if(state.done&&(!pages.has(page)||Date.now()>=state.retryAt))windows.delete(page);
@@ -63,7 +64,7 @@ async function main(){
     for(const state of windows.values())state.stopped=true;
     await Promise.allSettled([...windows.values()].map(state=>state.task));
     write(path.join(runtime,'view-status.json'),{schemaVersion:2,controllerPid:process.pid,windows:[],reason:'disconnected',writes:writer.diagnostics(),checkedAt:Date.now()});
-    // Never invoke Browser.close on the user's app. Process exit disconnects CDP.
+    browser.close(); // Closes only our WebSocket.
   }
 }
 main().then(()=>process.exit(0),error=>{

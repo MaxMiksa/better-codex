@@ -31,13 +31,13 @@ python -B -X utf8 scripts/check.py metrics --work .validation-runtime/metrics
 python -B -X utf8 scripts/check.py composer --work .validation-runtime/composer --dependencies .runtime/token-hud/embedded/settings.json
 ```
 
-需要 Node/Playwright 时可指定依赖 JSON；runner 只读取 python/node/playwright，不修改该文件。按实际改动选择 case，工作目录须在本副本 .validation-runtime/ 内。源码版本与 runner/测试必须配套。
+Playwright 仅用于启动和操作隔离的 Edge 测试窗口，可单独执行 scripts/Install-NodeDependencies.ps1 安装。也可指定依赖 JSON 或 HUD_PLAYWRIGHT；runner 不修改运行设置。按实际改动选择 case，工作目录须在本副本 .validation-runtime/ 内。源码版本与 runner/测试必须配套。
 
 ## 副作用与验收边界
 
 observability 使用隔离 SQLite、子进程写锁/并发写入、只读文件属性和合成体检/页面快照，覆盖幂等与独立发生身份、schema、缺口恢复、CLI、敏感字段及发行集合 ZIP；不连接现用 Codex/HUD，不执行真实恢复。数据库目录不可写且健康状态也无法保存时，查询只报告 unknown 和非连续覆盖。
 
-登记 case 只使用合成数据、mock 或显式原生预览。多窗口使用独立 Edge 和假日志；迁移操作隔离 APPDATA 下的快捷方式及内部 junction；原生测试只操作自己创建的窗口。native-exit 验证未登记系统重启的自建进程可以正常退出，以及拒绝退出的进程保持存活，清理只回收自建进程。不得把现用 Codex、HUD 或其他任务作为可重启的测试对象。
+登记 case 只使用合成数据、mock 或显式原生预览。多窗口使用独立 Edge、原生 WebSocket 连接层和假日志，覆盖窗口刷新、拒绝非目标文档、停止清理及浏览器断线；迁移操作隔离 APPDATA 下的快捷方式及内部 junction；原生测试只操作自己创建的窗口。native-exit 验证未登记系统重启的自建进程可以正常退出，以及拒绝退出的进程保持存活，清理只回收自建进程。不得把现用 Codex、HUD 或其他任务作为可重启的测试对象。
 
 `metrics` 还使用合成网关记录和 mock 本机 opener 覆盖 magpie 数据源：显式与 XDG/default settings 路径、固定查询、0.75 秒和 2 MiB 边界、聊天 ID 与 `response_id` 精确关联、provider/model 路由、旁路/后台/子代理/失败过滤、输入缓存与输出计时口径、`ttft_ms` 边界、原生 route 速度汇总、同 route 恰一条精确关联记录、`calls=1`/`decode_n=1`/`decode_out`/`decode_ms` 边界、TTFT 与 TPS 独立缺失、本轮首次 TTFT 锁定、首个 canonical 无 response_id 时不冒充、20→500 条查找、每窗 8 个首次 TTFT scope、跨 15 分钟首样本和失败回退缓存、重复身份、坏配置/传输/载荷时整份回退及恢复后重新采用。该 case 还核对 monitor 发布结果保留来源关联和新增 last 字段，不访问真实 magpie、Codex 或网络。
 

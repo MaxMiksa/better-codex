@@ -2,6 +2,7 @@
 param(
     [string]$PythonExecutable = 'python',
     [string]$NodeExecutable = 'node',
+    # Legacy installer switches are accepted for existing scripts; neither is used at runtime.
     [string]$PnpmExecutable = 'pnpm',
     [ValidateRange(1024,65535)][int]$DisplayPort = 19163,
     [switch]$CheckOnly,
@@ -29,7 +30,9 @@ catch { throw (Get-BetterCodexText 'install.nodeMissing') }
 & $basePython -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'
 if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.pythonVersion') }
 $nodeVersion = & $node --version
-if ($LASTEXITCODE -ne 0 -or [int]($nodeVersion.TrimStart('v').Split('.')[0]) -lt 20) { throw (Get-BetterCodexText 'install.nodeVersion') }
+if ($LASTEXITCODE -ne 0 -or [version]($nodeVersion.TrimStart('v')) -lt [version]'22.15.0') { throw (Get-BetterCodexText 'install.nodeVersion') }
+& $node -e 'if(typeof WebSocket!==typeof Object)process.exit(1)'
+if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.nodeVersion') }
 $package = & $basePython -B -X utf8 (Join-Path $workspace 'tools/token-hud-local/shared/desktop_package.py') | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or -not $package.executable) { throw (Get-BetterCodexText 'install.codexMissing') }
 if ($CheckOnly) {
@@ -48,7 +51,6 @@ if ($SkipDependencies) {
     $python = $basePython
     & $python -c 'import psutil, win32com.client'
     if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.pythonModules') }
-    if (-not $PlaywrightPath) { throw (Get-BetterCodexText 'install.playwrightPath') }
 } else {
     $pythonHome = Join-Path $workspace '.runtime/token-hud/python'
     $python = Join-Path $pythonHome 'Scripts/python.exe'
@@ -58,15 +60,10 @@ if ($SkipDependencies) {
     }
     & $python -m pip install --disable-pip-version-check -r (Join-Path $workspace 'requirements.txt')
     if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.pythonFailed') }
-    $nodeHome = Join-Path $workspace '.runtime/token-hud/node'
-    & (Join-Path $workspace 'scripts/Install-NodeDependencies.ps1') -NodeExecutable $node -PnpmExecutable $PnpmExecutable -NodeHome $nodeHome
-    $PlaywrightPath = Join-Path $nodeHome 'node_modules/playwright'
 }
-& $node -e 'require(process.argv[1]).chromium || process.exit(1)' $PlaywrightPath
-if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.playwrightMissing') }
 [IO.Directory]::CreateDirectory($runtime) | Out-Null
 $codexHome = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' })
-$settings = @{port=$DisplayPort;python=$python;node=$node;playwright=[IO.Path]::GetFullPath($PlaywrightPath);codexHome=$codexHome;collectorDir=(Join-Path $workspace 'tools/token-hud-local/collector')}
+$settings = @{port=$DisplayPort;python=$python;node=$node;codexHome=$codexHome;collectorDir=(Join-Path $workspace 'tools/token-hud-local/collector')}
 Add-Type -AssemblyName System.Drawing
 $icon = [Drawing.Icon]::ExtractAssociatedIcon($package.executable)
 if (-not $icon) { throw (Get-BetterCodexText 'install.iconFailed') }

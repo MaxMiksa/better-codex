@@ -40,8 +40,7 @@ def fixture(name, startup=True):
     runtime.mkdir(parents=True)
     shutil.copy2(ROOT / '.runtime/token-hud/embedded/codex.ico', runtime / 'codex.ico')
     playwright = old / 'private modules/playwright'
-    playwright.mkdir(parents=True)
-    (playwright / 'package.json').write_text('{}')
+    # A stale legacy path is retained but no longer required.
     settings = {'python': sys.executable, 'node': sys.executable, 'playwright': str(playwright),
                 'collectorDir': str(old / 'tools/token-hud-local/collector'),
                 'codexHome': str(base / 'untouched-codex-home'), 'port': 19163,
@@ -100,7 +99,7 @@ check('apply', invoke(new, env, 'apply')['status'] == 'applied')
 check('real-old-path-junction', old.is_dir() and os.path.samefile(old, new))
 settings = json.loads((new / '.runtime/token-hud/embedded/settings.json').read_text())
 check('paths-rebased-and-preferences-preserved', settings['collectorDir'] == str(new / 'tools/token-hud-local/collector') and
-      settings['playwright'] == str(new / 'private modules/playwright') and settings['readingWidth'] == 1280 and
+      settings['playwright'] == str(old / 'private modules/playwright') and settings['readingWidth'] == 1280 and
       settings['customAccent'] is False and settings['otherPreference'] == {'preserve': True})
 for path in [new / 'launchers/Codex.lnk', *external]:
     link = shell.CreateShortcut(str(path))
