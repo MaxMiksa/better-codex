@@ -11,7 +11,9 @@ export const readJson=file=>JSON.parse(fs.readFileSync(file,'utf8').replace(/^\u
 export const main=url=>process.argv[1]&&url===pathToFileURL(path.resolve(process.argv[1])).href;
 const base=['.gitignore','Finish-Rename.cmd','Install.ps1','LICENSE','README.md','README-zh.md','Start.cmd','Stop.cmd',
   'THIRD_PARTY_NOTICES.md','package.json','docs/DEVELOPMENT.md','docs/PRIVACY.md','docs/UPGRADE-v1.md','Presentation/overview.png',
-  'Presentation/table-sorting.png','Presentation/file-changes.png',NATIVE];
+  'Presentation/workspace-tree.png','Presentation/command-menu.png','Presentation/ai-rename.png','Presentation/table-sorting.png',
+  'Presentation/file-changes.png','Presentation/zh/overview.png','Presentation/zh/workspace-tree.png','Presentation/zh/command-menu.png',
+  'Presentation/zh/ai-rename.png','Presentation/zh/table-sorting.png','Presentation/zh/file-changes.png',NATIVE];
 const source=['.gitattributes','CHANGELOG.md','pnpm-lock.yaml','pnpm-workspace.yaml','release/README.md','tsconfig.json'];
 const hiddenDirs=new Set(['prompts','evidence','files','private','archive','dist','runtime','node_modules','__pycache__','bin','obj','showcase']);
 const hiddenFiles=new Set(['agents.md','project.md','chat_logs.md','checklist.md','settings.json','package-lock.json','npm-shrinkwrap.json','yarn.lock','bun.lock','bun.lockb']);

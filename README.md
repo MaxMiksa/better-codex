@@ -8,61 +8,63 @@
   <a href="README-zh.md"><img alt="[中文说明]" src="https://img.shields.io/badge/%5B%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E%5D-2f3640.svg" /></a>
 </p>
 
-Make Windows Codex conversations easier to read, with statistics beside the input box, adjustable reading width and compact file changes. The latest source adds a unified settings panel and sortable tables. Independent community project; not affiliated with OpenAI.
+A reversible UI enhancement and startup layer for the official Windows Codex desktop app — bringing a unified settings panel, inline statistics, workspace file tree, enhanced slash command menu, AI chat renaming, auto-hiding input, sortable tables, and compact file changes. Independent community project; not affiliated with OpenAI.
 
-**Windows 11 x64 · Official Codex Store app · English / 简体中文 · Bundled portable runtimes**
+**Windows 11 x64 · Official Codex Store app · English / 简体中文 · Single bundled Node.js 24 runtime (~37 MB portable)**
 
-<p align="center"><img src="Presentation/overview.png" alt="Better-Codex interface settings and four inline statistics, based on a real Codex screenshot" width="760" /></p>
+<p align="center"><img src="Presentation/overview.png" alt="Better-Codex unified Interface settings panel and inline statistics bar, based on a real Codex screenshot" width="760" /></p>
 
-Images use real Codex screenshots; table content and statistics are examples.
+<p align="center"><sub>All visuals are based on real Codex screenshots (with distractions masked out); statistics values and sample tables are for demonstration.</sub></p>
 
-## Latest source
+## Features
 
-- **Four statistics:** time to first response (TTFT), output speed, cache percentage and sample age. Click the statistics to open settings; toggle individual fields or drag to reorder them.
-- **Workspace files:** view the current workspace or worktree beside the chat, with live updates and files grouped by type. Press Space to preview with the optional [Better Codex Preview](src/features/workspace-tree/host/preview/README.md), [QuickLook or PowerToys Peek](src/features/workspace-tree/README.md). Double-click to open a file, or click the project name to open its folder. Resize by dragging the edge; each project remembers whether the tree is open.
-- **One settings panel:** adjust reading width from 768 to 1600 px and AI reply font size from 10 to 40 px. Leave the font field blank to follow Codex. You can also choose whether file lists start collapsed and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
-- **Auto-hide the input:** choose **Off**, **Minimize** or **Hide** in Interface settings. An empty input collapses when it loses focus in an existing chat, even while a task is running. Type directly from the conversation to open the input with IME support from the first key. After clicking a chat in the sidebar, you can also press Enter twice to open and focus its input, or click **Expand input** in Minimize mode. With **Hide after sending** enabled, successful sends also collapse the input if it still has focus. Blank new chats, unsent drafts and attachments stay visible.
-- **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle through sorting directions and the original order; hold Ctrl to select multiple columns in priority order, or Alt to preset/reverse a direction. Choose Smart, Ascending or Descending as the first-click direction in settings. Sorting changes only the current visual order; copying retains the source order.
-- **Reorder the slash-menu settings:** open **Interface settings → Command menu** for the two independent **Commands** and **Skills** sections. Drag their handles to reorder them. The Commands section keeps its button groups without subheadings.
-- **Choose which Skills appear in the slash menu:** open **Interface settings → Command menu → Skills** to show or hide individual Skills. Health, Excel Live Control, Spreadsheets, Visualize, and Create Statusline are hidden by default. Skills remain enabled and available through the native `$` picker.
-- **Prompt shortcuts in the slash menu:** reusable Markdown prompts from the first level of Codex Home's `prompts` folder appear below Skills in a three-column section. Activate one to insert its text at the current cursor without replacing your draft or sending it. `Ctrl+↑/↓` jumps between command groups, Skills and Prompt.
-- **AI rename:** rename one local chat from its sidebar menu or the slash menu, or choose **Batch AI rename** from a project's `…` menu. The batch takes active chats in that sidebar group, including its worktree chats, and skips any title already containing `：`. Luna generates titles such as `feat：AI 重命名`; it does not choose the chats. Codex saves the titles in the background without touching your draft.
-- **Local runtime history:** inspect recent startup, enhancement and recovery events with `src/platform/observability/Get-RuntimeHistory.ps1`. Records stay local and expire after five days; chat text is not recorded.
+### Reading, layout & tables
 
-<p align="center"><img src="Presentation/table-sorting.png" alt="A six-column table in Codex with status icons, native sorting controls and two sorting priorities" width="900" /></p>
+- **Unified settings panel:** click the statistics bar beneath the input box to open **Interface settings**. Adjust reading width (`768–1600 px`) and AI reply font size (`10–40 px`; leave blank to follow Codex), center chat titles, toggle individual features, and rely on automatic saving, undo/redo, restore defaults, and multi-window sync. Main chats, side chats, and subagents stay within their panels while the input box keeps its native width; native file-page breadcrumbs stay flicker-free.
+- **Auto-hide input:** choose **Off**, **Minimize**, or **Hide** in Interface settings. An empty input collapses on blur in existing chats (even while a task is running) or on `Esc`, while keeping the bottom file-change pill visible. Type directly from the conversation to open the input with IME composition from the first key, press Enter twice after clicking a chat in the sidebar, or click **Expand input** in Minimize mode. Text selection never steals focus. With **Hide after sending** enabled, successful sends also collapse the input; blank new chats, unsent drafts, and attachments always stay visible.
+- **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle sorting directions and the original order; hold `Ctrl` to select multiple columns in priority order, or `Alt` to preset/reverse a direction. Pick **Smart**, **Ascending**, or **Descending** as the first-click default. Sorting changes only visual order; copying preserves the original Markdown order.
+- **Compact file changes:** multi-file change lists start collapsed by default while keeping native **Undo** and **View changes** actions intact; manually expanded cards keep their state.
 
-<p align="center"><img src="Presentation/file-changes.png" alt="A real collapsed file-change list with the native Undo and View changes actions" width="900" /></p>
+<p align="center"><img src="Presentation/table-sorting.png" alt="A six-column Markdown table in Codex with status icons, sorting controls, and two-level sort priority" width="900" /></p>
 
-TTFT uses the first model response in the current turn. Speed uses magpie's latest valid native value for that turn when available; after a confirmed disconnection, subsequent turns use the local request average. That local average includes waiting and reasoning and excludes known tool execution. Missing timing stays unavailable, and a turn keeps one speed source. These statistics do not promise faster generation.
+<p align="center"><img src="Presentation/file-changes.png" alt="A collapsed multi-file change card preserving native Undo and View changes actions" width="900" /></p>
+
+### Workspace files & slash command menu
+
+- **Workspace file tree:** view the current chat's workspace or worktree beside the conversation with live directory updates, instant filtering, type-grouped sorting, drag-to-resize rail, and per-project open state — coexisting cleanly with Codex's native right panel. Click the project title to open its folder, double-click to open a file (scripts and executables reveal rather than execute), right-click to reveal in Explorer, or press `Space` to preview with the optional standalone [Preview](https://github.com/MaxMiksa/preview) companion app, [QuickLook, or PowerToys Peek](src/features/workspace-tree/README.md).
+- **Enhanced `/` slash menu:** top-level commands appear in compact horizontal button groups, followed by a three-column **Skills** section and three-column **Prompt** shortcuts loaded from the first level of Codex Home's `prompts` folder. Open **Interface settings → Command menu** to reorder sections or commands and show/hide individual Skills (Health, Excel Live Control, Spreadsheets, Visualize, and Create Statusline are hidden by default while remaining enabled in the native `$` picker). Selecting a Prompt inserts its text at the cursor without replacing your draft or sending it; `Ctrl+↑/↓` jumps between sections.
+
+<p align="center"><img src="Presentation/workspace-tree.png" alt="Standalone Better-Codex workspace file tree showing type-grouped files and filter bar" width="340" /></p>
+
+<p align="center"><img src="Presentation/command-menu.png" alt="Enhanced slash command menu with horizontal command groups, three-column Skills, and four inline statistics" width="880" /></p>
+
+### AI rename
+
+- **Single & batch AI rename:** rename any local chat from its sidebar context menu or the `/` menu, or choose **Batch AI rename** from a project's `…` menu. Batch rename targets active local and worktree chats in that sidebar group whose titles do not already contain `：`, running up to 3 concurrent requests and re-checking before saving. Program logic selects the chats while Luna generates structured titles such as `feat：AI 重命名`; Codex saves them natively in the background without touching your draft.
+
+<p align="center"><img src="Presentation/ai-rename.png" alt="Batch AI rename from a project menu and single-chat AI rename from the sidebar menu" width="880" /></p>
+
+### Inline statistics, appearance & observability
+
+- **Four inline statistics:** time to first token (**TTFT**), output speed (**TPS**), input cache percentage, and sample age beside the main input bar — each window bound to its own main chat. Toggle individual fields or drag to reorder them in Interface settings; narrow bars automatically avoid buttons and quota rings. Labels follow Codex's English/Simplified Chinese interface. Chat mode keeps reading width and AI reply font size without statistics; documents and blank pages stay native.
+- **Custom accent correction:** computes WCAG-readable foreground colors for user bubbles and primary send buttons when using Codex's Custom accent theme; native presets remain untouched.
+- **Local runtime history:** inspect recent startup, enhancement, and recovery events from a 5-day local SQLite log via `src/platform/observability/Get-RuntimeHistory.ps1` (or `pnpm run history`). Records stay local and never store chat text.
+
+> **About statistics:** TTFT measures the first model response in the current turn. Speed prefers magpie's latest valid native measurement for that turn when available; after a confirmed disconnection, subsequent turns fall back to the local completed-response average (from a known request boundary to usage completion, including waiting and reasoning and excluding known tool execution; output usage includes reasoning and tool-call tokens). Missing timing stays unavailable rather than showing zero, and a turn never mixes speed sources. Cloud-only chats cannot provide local statistics, and statistics do not promise faster generation. If a collector exits, only statistics pause while reading width, workspace tree, tables, file changes, and appearance stay active.
 
 ## Get started
 
 1. Download `better-codex-v1.0.0-windows-x64-portable.zip` from [v1.0.0 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v1.0.0).
 2. **Extract the entire ZIP** to a writable folder you plan to keep.
-3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No separate Node.js installation or first-launch dependency download is needed.
+3. Run `BetterCodex.exe`. Click the statistics bar beneath the input box to open Interface settings. No separate Node.js, Python, or Playwright installation is needed, and first launch downloads no dependencies.
 
-The shortcut runs the startup check when Codex isn't running. If Codex is already running, even in the background, clicking the taskbar icon brings it forward without starting another check. The startup check runs minimized and opens the full window only when something needs attention. Once checks pass, it stays minimized or returns to the taskbar if it opened automatically, then closes after 30 seconds. When missing enhancements or a completed Codex update are confirmed, a **15-second relaunch countdown** starts after all checks finish. Click to act immediately; **X / Esc cancels**. Recovery requests normal exit, never forces termination, and does not loop after failure. Cancel while you have work to preserve, then relaunch when convenient.
+When Codex is not running, the shortcut runs a minimized startup check and opens the full window only if something needs attention; once checks pass, it stays minimized (or retracts automatically) and closes after 30 seconds. If Codex is already running, clicking the taskbar icon simply brings it forward without starting another check. When missing enhancements or a completed Codex update are confirmed, a **15-second relaunch countdown** starts after all checks finish — click to act immediately or press **X / Esc** to cancel while preserving active work. Recovery requests normal exit only, never forces termination, and does not loop on failure.
 
-Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
-
-## v1.0.0 features
-
-| Task | What you get |
-| --- | --- |
-| Read statistics | Average output speed, input cache percentage and sample age for the latest completed response; each window binds to its own main chat |
-| Adjust reading space | Click the statistics to set a width limit up to 1600px; main chats, side chats and subagents stay within their panels, and the input box keeps its width |
-| Browse file changes | Multi-file lists start collapsed and can expand together; review/undo remain available, and a manually expanded card keeps its state |
-| Use Custom colors | Readable user-message bubbles and send buttons with a custom accent; native presets remain intact |
-| Name chats with AI | Use a chat's sidebar menu, the slash menu, or a project's `…` menu to batch-rename its eligible chats |
-| Start and maintain | Combined shortcut, separate login-start switch, startup checks and sanitized reports; optional monitoring restores the enhancement entry after Codex updates |
-
-Statistics follow the main input area's layout. Labels follow Codex's English/Simplified Chinese interface, falling back to the launch language when none is declared; other languages fall back to English. Chat mode keeps reading width and reply font size without these statistics. Documents and blank pages keep their native layout.
-
-If a collector exits, only statistics become unavailable; reading width, file changes and appearance remain in place. Recovery is local and rate-limited, and data from an old collector is rejected.
+Run `Stop.cmd` at any time to stop enhancements and restore the native Codex layout without closing Codex or touching chat history. Launch `BetterCodex.exe` (or `Start.cmd`) again to re-enable enhancements.
 
 ## Common settings
 
-Run these commands from the initialized extracted folder. Login startup and Codex update monitoring are off by default. Use the ordinary Codex launch entry.
+Run these commands from the initialized folder. Login startup and Codex update monitoring are off by default. Use the ordinary Codex launch entry.
 
 | Task | PowerShell command |
 | --- | --- |
@@ -71,21 +73,18 @@ Run these commands from the initialized extracted folder. Login startup and Code
 | Read either switch | Use `-Mode Status` with its script |
 | Disable either switch | Use `-Mode Disable` with its script |
 | Read-only launch check | `.\src\app\Start-ComposerHud.ps1 -CheckOnly` |
+| Inspect 5-day runtime history | `.\src\platform\observability\Get-RuntimeHistory.ps1` |
 
-Keep a single login entry: turn off Codex's own login startup when enabling this project's entry. Update monitoring needs the enhancement host to keep running. A confirmed new version opens the same check before an optional relaunch; disabling monitoring does not cancel a countdown already open. It does not update Better-Codex itself. Recovery after a real future Codex upgrade still awaits natural-use acceptance.
+Keep a single login entry: disable Codex's own login startup when enabling Better-Codex's entry. Update monitoring requires the enhancement host to stay running; a confirmed Codex update opens the same check and cancelable relaunch countdown (it does not update Better-Codex itself, and recovery after a future real Codex upgrade still awaits natural-use acceptance).
 
-Use `launchers/Codex.lnk` for taskbar pinning. Unpin the original Codex entry first, then pin the combined shortcut. Windows may require repinning after caching a path or app identity.
+Use `launchers/Codex.lnk` for taskbar pinning — unpin the original Codex icon first, then pin the combined shortcut.
 
 <details>
 <summary>Upgrade, move or uninstall</summary>
 
-Upgrading from v0.5.x to v1.0.0? See [UPGRADE-v1.md](docs/UPGRADE-v1.md) (existing preferences migrate automatically and losslessly on first run).
-
-If administrator launch was enabled in v0.4.1, first run `Set-AdministratorLaunch.ps1 -Mode Disable` from the old copy's `tools/token-hud-local/` folder before upgrading, moving or uninstalling. This is a legacy-version command.
-
-Before upgrading or moving, disable any enabled login entry, then stop its enhancements with Stop.cmd. Extract the complete new package or move the whole folder, and run BetterCodex.exe from the new location. Path rebuilding preserves width preferences present in that folder. Repin if needed, then enable the switches you want. Shortcuts owned by another installation are not taken over.
-
-To uninstall, disable login startup, run Stop.cmd, unpin the shortcut, and delete the extracted folder. Codex and chat history remain.
+- **Upgrading from v0.5.x to v1.0.0:** see [UPGRADE-v1.md](docs/UPGRADE-v1.md). Existing preferences and shortcuts owned by this copy migrate automatically and losslessly to `.runtime/settings.json` on first run.
+- **General upgrade or folder move:** disable any enabled login startup, run `Stop.cmd`, extract the new package or move the entire folder, and run `BetterCodex.exe` from the new location (repining `launchers/Codex.lnk` if needed). Shortcuts owned by another installation are not taken over. *(If migrating from legacy v0.4.1 with administrator launch enabled, first disable it via `tools/token-hud-local/Set-AdministratorLaunch.ps1 -Mode Disable` in the old copy.)*
+- **Uninstall:** disable login startup, run `Stop.cmd`, unpin the shortcut, and delete the folder. Codex and your chat history remain intact.
 
 </details>
 
@@ -93,27 +92,23 @@ To uninstall, disable login startup, run Stop.cmd, unpin the shortcut, and delet
 
 | Symptom | Action |
 | --- | --- |
-| Statistics are absent | Start with the read-only check. For the full check, run `src/lifecycle/diagnostics/Show-StartupCheck.ps1`; cancel its relaunch countdown while working |
-| `restart-required` | The running instance lacks the display interface or required launch conditions. Exit normally when convenient, then use the combined entry |
-| `hud-preparation-failed` | Check for missing files. Stop this copy's enhancements and extract the complete ZIP to a new folder; do not run inside the ZIP |
-| A dash or temporarily hidden statistics | Usage/timing is unavailable, chat identity is uncertain, data is stale, or the layout is incompatible; this is not zero speed, and another chat's data is never substituted |
+| Statistics are absent | Run the read-only check first. For full diagnostics, run `src/lifecycle/diagnostics/Show-StartupCheck.ps1` and cancel the relaunch countdown if you are actively working |
+| `restart-required` | The running Codex instance lacks the display interface or required launch conditions; exit Codex normally when convenient and reopen via the combined shortcut |
+| `hud-preparation-failed` | Check for missing files; stop enhancements and extract the complete ZIP to a fresh folder (do not run inside the ZIP) |
+| A dash (`-`) or hidden statistics | Timing/usage is unavailable, chat identity is uncertain, data is stale, or the layout is incompatible; this is not zero speed, and another chat's data is never substituted |
 
-Speed is the **completed response average** from a known request boundary to the usage record, including waiting/reasoning and excluding known tool execution. Output usage includes reasoning and tool-call tokens. It is not a live per-token rate or a pure model decoding benchmark, and does not promise faster generation. Cloud-only chats cannot supply local statistics.
-
-Checks send no model message, do not verify model authentication, and do not control VPN software. Uncertain sandbox or proxy conditions stay unconfirmed.
-
-Codex UI updates may need adaptation. All app versions, window layouts and display scales have not been fully validated. The launcher is unsigned, so Windows may show a publisher prompt.
+Startup checks send no model message, do not verify model authentication, and do not control VPN software. Future Codex UI updates may require adaptation; not every app version, window layout, or display scale has been exhaustively validated. The portable launcher is unsigned, so Windows may show a publisher prompt on first run.
 
 ## Privacy
 
-Model requests keep Codex's existing connection. Better-Codex adds no model proxy and needs no extra API key. Portable packaging does not make model requests offline. AI rename is the one enhancement that sends conversation-derived text to a model, and only after you choose it; see [Privacy](docs/PRIVACY.md). Startup checks make a small credential-free HTTPS request through the detected network path.
+Model traffic stays on Codex's native connection — Better-Codex adds no model proxy and needs no extra API key (portable packaging does not make models offline). **AI rename** is the only feature that sends conversation-derived text to a model, and only after you explicitly trigger it; see [Privacy](docs/PRIVACY.md). Startup checks send a small credential-free HTTPS HEAD probe along the detected network path.
 
-Local state can contain chat identifiers, titles, paths and usage. **Do not upload .runtime/, authentication files or raw Codex logs.** Report the version, symptom and sanitized startup report instead. Do not expose or forward the local display interface to the internet. See [Privacy](docs/PRIVACY.md).
+Local state under `.runtime/` can contain chat identifiers, titles, paths, and usage. **Never upload `.runtime/`, authentication files, or raw Codex logs.** Share the version, symptom, and sanitized startup check report instead, and never expose or forward the local display port externally. See [Privacy](docs/PRIVACY.md).
 
 ## Development and credits
 
-For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v1.0.0-source.zip`. Source installation requires Node.js 24.11.1 or later in the 24.x line; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. No npm package or Playwright is needed to run the enhancements. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
+For a fixed source archive, download `better-codex-v1.0.0-source.zip` from [v1.0.0 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v1.0.0), or clone the `main` branch. Source installation requires **Node.js 24.11.1+** (24.x line) — run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1` (optional `-Language en` / `-Language zh-CN`). Production runtime requires zero npm packages, Python, or Playwright. See [DEVELOPMENT.md](docs/DEVELOPMENT.md) and [CHANGELOG.md](CHANGELOG.md).
 
-The local collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions and licenses.
+The local statistics collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions, and licenses.
 
 Issues and Pull Requests are welcome. Contact Zheyuan (Max) Kong: kongzheyuan@outlook.com · zheyuank@andrew.cmu.edu.
