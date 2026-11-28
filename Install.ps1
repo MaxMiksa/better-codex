@@ -1,77 +1,31 @@
-[CmdletBinding()]
 param(
-    [string]$PythonExecutable = 'python',
-    [string]$NodeExecutable = 'node',
-    # Legacy installer switches are accepted for existing scripts; neither is used at runtime.
-    [string]$PnpmExecutable = 'pnpm',
+    [string]$NodeExecutable,
     [ValidateRange(1024,65535)][int]$DisplayPort = 19163,
-    [switch]$CheckOnly,
-    [switch]$SkipDependencies,
-    [string]$PlaywrightPath,
-    [ValidateSet('auto','en','zh-CN')][string]$Language = 'auto'
+    [ValidateSet('auto','en','zh-CN')][string]$Language = 'auto',
+    [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
 if ($Language -ne 'auto') { $env:BETTER_CODEX_LANGUAGE = $Language }
-. (Join-Path $PSScriptRoot 'tools/token-hud-local/shared/i18n.ps1')
-$workspace = $PSScriptRoot
-$runtime = Join-Path $workspace '.runtime/token-hud/embedded'
-$settingsPath = Join-Path $runtime 'settings.json'
-$bundledPython = Join-Path $workspace 'runtime/python/python.exe'
-if (Test-Path -LiteralPath $bundledPython) {
-    $mode = $(if ($CheckOnly) { '--check' } else { '--prepare-only' })
-    & $bundledPython -B -X utf8 (Join-Path $workspace 'tools/token-hud-local/portable_bootstrap.py') $mode
-    if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.portableFailed') }
-    return
-}
-try { $basePython = (Get-Command $PythonExecutable -CommandType Application -ErrorAction Stop).Source }
-catch { throw (Get-BetterCodexText 'install.pythonMissing') }
-try { $node = (Get-Command $NodeExecutable -CommandType Application -ErrorAction Stop).Source }
-catch { throw (Get-BetterCodexText 'install.nodeMissing') }
-& $basePython -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'
-if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.pythonVersion') }
-$nodeVersion = & $node --version
-if ($LASTEXITCODE -ne 0 -or [version]($nodeVersion.TrimStart('v')) -lt [version]'22.15.0') { throw (Get-BetterCodexText 'install.nodeVersion') }
-& $node -e 'if(typeof WebSocket!==typeof Object)process.exit(1)'
-if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.nodeVersion') }
-$package = & $basePython -B -X utf8 (Join-Path $workspace 'tools/token-hud-local/shared/desktop_package.py') | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or -not $package.executable) { throw (Get-BetterCodexText 'install.codexMissing') }
-if ($CheckOnly) {
-    [pscustomobject]@{python=$basePython;node=$node;codexVersion=$package.packageVersion;writesPerformed=$false;locale=$script:BetterCodexLanguage;message=(Get-BetterCodexText 'install.checkReady')} | ConvertTo-Json
-    return
-}
-$launcher = Join-Path $runtime 'runtime/launcher.json'
-if (Test-Path -LiteralPath $launcher) {
-    $previous = Get-Content -LiteralPath $launcher -Raw -Encoding UTF8 | ConvertFrom-Json
-    $running = Get-Process -Id $previous.supervisorPid -ErrorAction SilentlyContinue
-    if ($running -and $running.StartTime.ToUniversalTime() -eq ([DateTimeOffset]$previous.startedAt).UtcDateTime) {
-        throw (Get-BetterCodexText 'install.running')
-    }
-}
-if ($SkipDependencies) {
-    $python = $basePython
-    & $python -c 'import psutil, win32com.client'
-    if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.pythonModules') }
+. (Join-Path $PSScriptRoot 'src/platform/i18n/i18n.ps1')
+$bundled = Join-Path $PSScriptRoot 'runtime/node/node.exe'
+$bootstrap = Join-Path $PSScriptRoot 'src/app/portable-bootstrap.cjs'
+$mode = if ($CheckOnly) { '--check' } else { '--prepare-only' }
+$nodeArguments = @('--no-warnings=ExperimentalWarning', $bootstrap, $mode)
+if (Test-Path -LiteralPath $bundled -PathType Leaf) {
+    $node = $bundled
 } else {
-    $pythonHome = Join-Path $workspace '.runtime/token-hud/python'
-    $python = Join-Path $pythonHome 'Scripts/python.exe'
-    if (-not (Test-Path -LiteralPath $python)) {
-        & $basePython -m venv $pythonHome
-        if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.venvFailed') }
+    $preferred = $NodeExecutable
+    if ($preferred -and -not [IO.Path]::IsPathRooted($preferred)) {
+        try { $preferred = (Get-Command $preferred -CommandType Application -ErrorAction Stop).Source }
+        catch { throw (Get-BetterCodexText 'install.nodeMissing') }
     }
-    & $python -m pip install --disable-pip-version-check -r (Join-Path $workspace 'requirements.txt')
-    if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.pythonFailed') }
+    if ($NodeExecutable -and -not (Test-Path -LiteralPath $preferred -PathType Leaf)) { throw (Get-BetterCodexText 'install.nodeMissing') }
+    if (-not $preferred) {
+        try { $preferred = (Get-Content -LiteralPath (Get-BetterCodexSettingsPath -ReadLegacy) -Raw -Encoding UTF8 | ConvertFrom-Json).node } catch { }
+    }
+    try { $node = Resolve-BetterCodexNode $preferred } catch { throw (Get-BetterCodexText 'install.nodeMissing') }
+    $nodeArguments += @('--source-install','--node',$node)
 }
-[IO.Directory]::CreateDirectory($runtime) | Out-Null
-$codexHome = $(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' })
-$settings = @{port=$DisplayPort;python=$python;node=$node;codexHome=$codexHome;collectorDir=(Join-Path $workspace 'tools/token-hud-local/collector')}
-Add-Type -AssemblyName System.Drawing
-$icon = [Drawing.Icon]::ExtractAssociatedIcon($package.executable)
-if (-not $icon) { throw (Get-BetterCodexText 'install.iconFailed') }
-$iconStream = [IO.File]::Create((Join-Path $runtime 'codex.ico'))
-try { $icon.Save($iconStream) } finally { $iconStream.Dispose(); $icon.Dispose() }
-$encodedSettings = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($settings | ConvertTo-Json -Compress)))
-& $python -I -X utf8 (Join-Path $workspace 'tools/token-hud-local/shared/settings_store.py') --file $settingsPath --patch-base64 $encodedSettings --create
-if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'settings.saveFailed') }
-& $python -B -X utf8 (Join-Path $workspace 'tools/token-hud-local/install_taskbar_entry.py')
-if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'install.shortcutFailed') }
-Write-Output (Get-BetterCodexText 'install.complete')
+if ($PSBoundParameters.ContainsKey('DisplayPort') -and -not $CheckOnly) { $nodeArguments += @('--port',"$DisplayPort") }
+& $node @nodeArguments
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

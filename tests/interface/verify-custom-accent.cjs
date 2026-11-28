@@ -1,8 +1,8 @@
 // Isolated browser contracts; live desktop acceptance is recorded separately.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
-const {parseChromeThemes,createThemeReader}=require('../../src/interface/appearance/chrome-theme.cjs');
-const {chromium}=require(process.env.HUD_PLAYWRIGHT||path.resolve(__dirname,'../../.runtime/token-hud/node/node_modules/playwright'));
-const source=fs.readFileSync(path.join(__dirname,'../../src/interface/appearance/custom-accent.js'),'utf8');
+const {parseChromeThemes,createThemeReader}=require('../../src/features/appearance/host/chrome-theme.cjs');
+const {chromium}=require(process.env.HUD_PLAYWRIGHT||path.resolve(__dirname,'../../scripts/node/node_modules/playwright'));
+const source=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/custom-accent.js'),'utf8');
 const results=[];
 const check=(name,ok)=>{assert.ok(ok,name);results.push(name);};
 const section='[desktop.appearanceDarkChromeTheme]\naccent = "#3a83f7"\naccentSource = "custom"\nsurface = "#111111"\n';

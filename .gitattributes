@@ -1,0 +1,7 @@
+tools/hud-prototype/*.patch text eol=lf whitespace=-blank-at-eol
+tools/hud-prototype/opencodex-fixes/*.patch text eol=lf whitespace=-blank-at-eol
+/src/generated/** text eol=lf
+/src/generated/native/*.exe binary
+# Native build identity hashes the exact script and compiler input bytes.
+/scripts/build-native.mjs text eol=lf
+/src/native/*.cs text eol=lf

@@ -1,0 +1,53 @@
+[data-codex-table-sort-header] {
+  cursor: var(--cursor-interaction, pointer);
+}
+
+[data-codex-table-sort-positioned] {
+  position: relative;
+}
+
+[data-codex-table-sort-control] {
+  display: inline-flex;
+  margin-inline-start: 5px;
+  vertical-align: middle;
+  line-height: 0;
+}
+
+[data-codex-table-sort-control][data-floating] {
+  position: absolute;
+  inset-inline-end: var(--codex-sort-inset, 1px);
+  top: var(--codex-sort-top, 8px);
+  margin: 0;
+  opacity: 0;
+}
+
+[data-codex-table-sort-header]:hover [data-codex-table-sort-control],
+[data-codex-table-sort-header]:focus-within [data-codex-table-sort-control],
+[data-codex-table-sort-control][data-visible] {
+  opacity: 1;
+}
+
+table[data-codex-table-sort-measuring] {
+  width: max-content !important;
+  min-width: 0 !important;
+}
+
+[data-markdown-table] > [class*="TableScroller"] > [class*="TableWrapper"] > table[data-codex-table-sort-measuring] > :is(thead, tbody, tfoot) > tr > :is(th, td) {
+  min-width: 0 !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+}
+
+[data-codex-table-sort-measuring] [data-codex-table-sort-control] {
+  display: none !important;
+}
+
+[data-codex-table-sort-measuring="icons"] [data-codex-table-sort-control] {
+  display: inline-flex !important;
+  position: static !important;
+  margin-inline-start: 5px !important;
+}
+
+[data-codex-hud-table-measuring] [data-codex-table-sort-control] {
+  display: none !important;
+}

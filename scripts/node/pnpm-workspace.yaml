@@ -1,4 +1,0 @@
-nodeLinker: hoisted
-enableGlobalVirtualStore: false
-pmOnFail: error
-allowBuilds: {}

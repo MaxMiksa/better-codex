@@ -1,18 +1,23 @@
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot '../../tools/token-hud-local/Start-ComposerHud.ps1') -FunctionsOnly
+. (Join-Path $PSScriptRoot '../../src/app/Start-ComposerHud.ps1') -FunctionsOnly
 $checks = [Collections.Generic.List[string]]::new()
 function Assert-Launch($Name, $Condition) {
     if (-not $Condition) { throw "Failed: $Name" }
     $checks.Add($Name)
 }
 $settings = @{port=19163}
-$package = @{executable='C:\WindowsApps\Codex_future\app\ChatGPT.exe'}
-$desktop = [pscustomobject]@{Id=123;Path=$package.executable}
-$listener = [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=123}
+$package = @{executable='C:\WindowsApps\Codex_future\app\ChatGPT.exe';packageFullName='fixture_full_name'}
+$desktop = [pscustomobject]@{Id=123;Path=$package.executable;Created='133000000000000000'}
+$listener = [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=123;Created=$desktop.Created;
+    Executable=$package.executable;PackageFullName=$package.packageFullName;CurrentSession=$true}
 $plan = Get-ComposerLaunchPlan $package $settings @() @()
 Assert-Launch 'cold-start-enables-local-display-interface' ($plan.attach -and $plan.arguments -match '19163')
 $plan = Get-ComposerLaunchPlan $package $settings @($desktop) @($listener)
 Assert-Launch 'future-package-path-reuses-verified-app' ($plan.attach -and $plan.arguments -eq '' -and $plan.reason -eq 'reuse-desktop')
+$listener.Created = '133000000000000001'
+$plan = Get-ComposerLaunchPlan $package $settings @($desktop) @($listener)
+Assert-Launch 'same-pid-with-different-kernel-time-refused' (-not $plan.attach -and $plan.reason -eq 'unverified-listener')
+$listener.Created = $desktop.Created
 $plan = Get-ComposerLaunchPlan $package $settings @($desktop) @()
 Assert-Launch 'existing-app-without-interface-preserved' (-not $plan.attach -and $plan.reason -eq 'restart-required')
 $listener.OwningProcess = 456
@@ -55,7 +60,7 @@ Assert-Launch 'old-running-package-not-assumed-current' (-not $plan.attach -and 
     Assert-Launch 'failed-save-does-not-switch-in-memory-port' ($refused -and $settings.port -eq 19165)
 }
 & {
-    $fixture = @{python='fixture';node='fixture';playwright='fixture';collectorDir='fixture';port=19163}
+    $fixture = @{node='fixture';playwright='fixture';collectorDir='fixture';port=19163}
     $original = Get-ComposerSupervisorStamp $fixture
     $fixture.readingWidth = 1000
     Assert-Launch 'visual-preference-does-not-refresh-supervisor' ((Get-ComposerSupervisorStamp $fixture) -eq $original)
@@ -67,26 +72,27 @@ Assert-Launch 'old-running-package-not-assumed-current' (-not $plan.attach -and 
 & {
     $current = Get-Process -Id $PID
     $record = @{supervisorPid=$PID;startedAt=$current.StartTime.ToUniversalTime().ToString('o');stamp='fixture'}
-    $testSettings = @{python=$current.Path}
+    $testSettings = @{node=$current.Path}
     $script:spawnedForCheck = 0
     function Get-Content { $record | ConvertTo-Json }
-    function Test-Path { param($LiteralPath) return $LiteralPath.EndsWith('launcher.json') }
+    function Test-Path { param($LiteralPath) return $LiteralPath.EndsWith('launcher.json') -and $LiteralPath -notlike '*token-hud*' }
     function Start-Process {
         $script:spawnedForCheck++
         return [pscustomobject]@{Id=987;StartTime=$current.StartTime}
     }
     function Set-Content { }
     function Get-ComposerSupervisorStamp { 'fixture' }
+    function Get-ComposerSupervisorRuntime($Process, $Settings) { if ($Process.Path -eq $Settings.node) { 'node' } }
     $reused = Start-ComposerSupervisor $testSettings 'unused-settings.json' $PSScriptRoot
     Assert-Launch 'live-supervisor-json-receipt-is-reused' ($reused -eq $PID -and $script:spawnedForCheck -eq 0)
     $record.startedAt = $current.StartTime.AddSeconds(-1).ToUniversalTime().ToString('o')
     $replacement = Start-ComposerSupervisor $testSettings 'unused-settings.json' $PSScriptRoot
     Assert-Launch 'recycled-pid-with-different-start-is-refused' ($replacement -eq 987 -and $script:spawnedForCheck -eq 1)
     $record.startedAt = $current.StartTime.ToUniversalTime().ToString('o')
-    $testSettings.python = 'C:\unrelated-python.exe'
+    $testSettings.node = 'C:\unrelated-node.exe'
     $replacement = Start-ComposerSupervisor $testSettings 'unused-settings.json' $PSScriptRoot
     Assert-Launch 'different-executable-is-refused' ($replacement -eq 987 -and $script:spawnedForCheck -eq 2)
-    $testSettings.python = $current.Path
+    $testSettings.node = $current.Path
     $record.Remove('stamp')
     $script:waitedForHost = $null
     function Wait-Process { param($InputObject,$Timeout,$ErrorAction); $script:waitedForHost=$InputObject.Id }
@@ -101,6 +107,8 @@ Assert-Launch 'old-running-package-not-assumed-current' (-not $plan.attach -and 
 # Exercise orchestration with mocked IO; no app activation or production edits.
 function Invoke-CodexActivation([string]$Arguments) { $script:activationArguments=$Arguments; return 987 }
 function Write-ComposerLaunchReceipt($Runtime,$Receipt) { }
+function Write-ComposerLaunchEvent { }
+function Initialize-BetterCodexSettings { Get-BetterCodexSettingsPath }
 function Get-Content { throw 'synthetic unreadable settings' }
 $script:launchSteps = [Collections.Generic.List[string]]::new()
 & {
@@ -157,11 +165,11 @@ $receipt = Invoke-ComposerLaunch -CheckOnly
 Assert-Launch 'legacy-admin-preference-check-is-read-only' ($script:activationArguments -eq 'untouched' -and -not $receipt.activationSucceeded)
 
 & {
-    function Get-Content { '{"python":"Get-FixturePackage","node":"fixture","collectorDir":"fixture","port":19163,"recoverAfterUpdate":true,"runAsAdministrator":true}' }
+    function Get-Content { '{"node":"fixture","port":19163,"recoverAfterUpdate":true,"runAsAdministrator":true}' }
     function Test-Path { $true }
-    function Get-FixturePackage { $global:LASTEXITCODE=0; '{"executable":"C:\\Codex\\ChatGPT.exe","packageVersion":"99.1.0.0"}' }
-    function Get-Process { [pscustomobject]@{Id=123;Path='C:\Codex\ChatGPT.exe'} }
-    function Get-NetTCPConnection { @() }
+    function Get-ComposerPackage { @{executable='C:\Codex\ChatGPT.exe';packageVersion='99.1.0.0'} }
+    function Get-ComposerDesktopSnapshot { [pscustomobject]@{Id=123;Path='C:\Codex\ChatGPT.exe'} }
+    function Get-ComposerListenerSnapshot { @() }
     function Start-ComposerSupervisor { $script:monitorStarts++; return 999 }
     function Wait-ComposerModelGateway { $script:gatewayWaits++ }
     $script:monitorStarts = 0
@@ -172,7 +180,7 @@ Assert-Launch 'legacy-admin-preference-check-is-read-only' ($script:activationAr
     Assert-Launch 'read-only-check-never-starts-update-monitor' ($script:monitorStarts -eq 1)
     Assert-Launch 'existing-desktop-and-read-only-check-skip-gateway-wait' ($script:gatewayWaits -eq 0)
     $RecoveryActivation = $true
-    function Get-Process { @() }
+    function Get-ComposerDesktopSnapshot { @() }
     $receipt = Invoke-ComposerLaunch
     Assert-Launch 'recovery-reopen-does-not-start-another-supervisor' ($script:monitorStarts -eq 1 -and $receipt.activationSucceeded)
     Assert-Launch 'cold-recovery-launch-waits-for-configured-gateway' ($script:gatewayWaits -eq 1)
@@ -192,18 +200,18 @@ Assert-Launch 'legacy-admin-preference-check-is-read-only' ($script:activationAr
     function Invoke-FixtureGateway {
         $script:gatewayHelperCalls++
         Assert-Launch 'gateway-helper-uses-settings-without-hardcoded-port' ($args -contains '--settings' -and $args -contains 'fixture-settings' -and
-            @($args | Where-Object { $_ -like '*model_gateway.py' }).Count -eq 1)
+            @($args | Where-Object { $_ -like '*model-gateway.cjs' }).Count -eq 1)
     }
     try {
         $env:MAGPIE_SKIP_WAIT = $null
-        Wait-ComposerModelGateway @{python='Invoke-FixtureGateway'} 'fixture-settings'
+        Wait-ComposerModelGateway @{node='Invoke-FixtureGateway'} 'fixture-settings'
         Assert-Launch 'cold-start-invokes-gateway-helper' ($script:gatewayHelperCalls -eq 1)
         $env:MAGPIE_SKIP_WAIT = '1'
-        Wait-ComposerModelGateway @{python='Invoke-FixtureGateway'} 'fixture-settings'
+        Wait-ComposerModelGateway @{node='Invoke-FixtureGateway'} 'fixture-settings'
         Assert-Launch 'explicit-gateway-wait-opt-out-is-preserved' ($script:gatewayHelperCalls -eq 1)
         $env:MAGPIE_SKIP_WAIT = $null
         function Invoke-FixtureGateway { throw 'fixture gateway helper failure' }
-        Wait-ComposerModelGateway @{python='Invoke-FixtureGateway'} 'fixture-settings'
+        Wait-ComposerModelGateway @{node='Invoke-FixtureGateway'} 'fixture-settings'
         Assert-Launch 'gateway-helper-failure-does-not-block-activation' $true
     } finally { $env:MAGPIE_SKIP_WAIT = $previousSkip }
 }
@@ -226,13 +234,13 @@ function Test-Path { $true }
     Assert-Launch 'diagnostic-failure-does-not-escape-into-activation' $true
 }
 & {
-    function Get-Content { '{"python":"Invoke-FixtureRelaunch","runAsAdministrator":true}' }
+    function Get-Content { '{"node":"Invoke-FixtureRelaunch","runAsAdministrator":true}' }
     function Invoke-FixtureRelaunch { $script:reloadArguments=$args; $global:LASTEXITCODE=0 }
     function Wait-ComposerModelGateway { throw 'Reload dispatch must not wait for the gateway' }
     Invoke-ComposerRelaunch
     Assert-Launch 'reload-executes-only-fixed-helper-and-settings' ($script:reloadArguments -contains '--execute' -and
-        @($script:reloadArguments | Where-Object { $_ -like '*relaunch.py' } | ForEach-Object { [IO.Path]::GetFullPath($_) }) -contains (Join-Path $script:BetterCodexRoot 'tools/token-hud-local/diagnostics/relaunch.py') -and
-        $script:reloadArguments -contains ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../.runtime/token-hud/embedded/settings.json'))))
+        @($script:reloadArguments | Where-Object { $_ -like '*relaunch.cjs' } | ForEach-Object { [IO.Path]::GetFullPath($_) }) -contains (Join-Path $script:BetterCodexRoot 'src/lifecycle/recovery/relaunch.cjs') -and
+        $script:reloadArguments -contains ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../.runtime/settings.json'))))
 }
 & {
     $script:monitorStarts = 0
@@ -259,7 +267,7 @@ function Test-Path { $true }
     $requests = @($ast.FindAll({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text -match '\$result.supervisorPid'}, $true))
     $request = [ScriptBlock]::Create($requests[0].Extent.Text)
     $Mode = 'Enable'; $workspace = 'fixture'; $settings = @{runAsAdministrator=$false}; $result = @{}
-    function Join-Path { param($Path,$ChildPath); Assert-Launch 'monitor-consumer-uses-stable-command' ($ChildPath -eq 'tools/token-hud-local/Start-ComposerHud.ps1'); return 'Invoke-FixtureMonitor' }
+    function Join-Path { param($Path,$ChildPath); Assert-Launch 'monitor-consumer-uses-stable-command' ($ChildPath -eq 'src/app/Start-ComposerHud.ps1'); return 'Invoke-FixtureMonitor' }
     function Invoke-FixtureMonitor { param($TaskMode); $script:requestedMode=$TaskMode; '{"supervisorPid":999,"activationSucceeded":false}' }
     . $request
     Assert-Launch 'settings-consumes-ordinary-monitor-json' ($script:requestedMode -eq 'Monitor' -and $result.supervisorPid -eq 999)

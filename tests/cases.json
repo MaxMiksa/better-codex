@@ -1,7 +1,10 @@
 {
   "metrics": {
-    "kind": "python",
-    "path": "tests/interface/verify_metrics.py"
+    "kind": "node",
+    "path": "tests/interface/verify-metrics.cjs",
+    "args": [
+      "{work}"
+    ]
   },
   "composer": {
     "kind": "node",
@@ -14,7 +17,9 @@
   "composer-fold": {
     "kind": "node",
     "path": "tests/interface/verify-composer-fold.cjs",
-    "args": ["{browser}"]
+    "args": [
+      "{browser}"
+    ]
   },
   "width": {
     "kind": "node",
@@ -26,7 +31,10 @@
   "table-sort": {
     "kind": "node",
     "path": "tests/interface/verify-table-sort.cjs",
-    "args": ["{browser}", "{evidence}"]
+    "args": [
+      "{browser}",
+      "{evidence}"
+    ]
   },
   "files": {
     "kind": "node",
@@ -38,7 +46,9 @@
   "workspace-tree": {
     "kind": "node",
     "path": "tests/interface/verify-workspace-tree.cjs",
-    "args": ["{evidence}"]
+    "args": [
+      "{evidence}"
+    ]
   },
   "accent": {
     "kind": "node",
@@ -55,38 +65,43 @@
     ]
   },
   "diagnostics": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_checks.py"
+    "kind": "node",
+    "path": "tests/lifecycle/verify-diagnostics.cjs",
+    "args": [
+      "{work}"
+    ]
   },
   "diagnostic-worker": {
     "kind": "powershell",
     "path": "tests/lifecycle/Verify-CheckWorker.ps1",
-    "args": ["{work}"]
+    "args": [
+      "{work}"
+    ]
   },
   "relaunch": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_relaunch.py",
+    "kind": "node",
+    "path": "tests/lifecycle/verify-relaunch.cjs",
     "args": [
       "{work}"
     ]
   },
   "session-activity": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_session_activity.py",
+    "kind": "node",
+    "path": "tests/lifecycle/verify-session-activity.cjs",
     "args": [
       "{work}"
     ]
   },
   "updates": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_update_recovery.py",
+    "kind": "node",
+    "path": "tests/lifecycle/verify-update-recovery.cjs",
     "args": [
       "{work}"
     ]
   },
   "supervisor": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_supervisor.py",
+    "kind": "node",
+    "path": "tests/lifecycle/verify-supervisor.cjs",
     "args": [
       "{work}"
     ]
@@ -99,44 +114,23 @@
     "kind": "pwsh",
     "path": "tests/lifecycle/Verify-Launcher.ps1"
   },
-  "native-close": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_close.py",
-    "args": [
-      "{work}"
-    ]
-  },
   "native-exit": {
-    "kind": "python",
-    "path": "tests/integration/verify_desktop_exit.py",
-    "args": [
-      "{work}"
-    ]
-  },
-  "native-countdown": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_countdown_ui.py",
-    "args": [
-      "{work}"
-    ]
-  },
-  "native-recovery-guard": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_recovery_guard_ui.py",
+    "kind": "node",
+    "path": "tests/integration/verify-desktop-exit.cjs",
     "args": [
       "{work}"
     ]
   },
   "i18n": {
-    "kind": "python",
-    "path": "tests/integration/verify-i18n.py",
+    "kind": "node",
+    "path": "tests/integration/verify-i18n.cjs",
     "args": [
       "{work}"
     ]
   },
   "relocation": {
-    "kind": "python",
-    "path": "tests/integration/verify-workspace-relocation.py",
+    "kind": "node",
+    "path": "tests/integration/verify-workspace-relocation.cjs",
     "args": [
       "{work}"
     ]
@@ -149,32 +143,23 @@
       "{evidence}"
     ]
   },
-  "prompt-manager": {
-    "kind": "python",
-    "path": "tests/prompts/verify_manager.py"
-  },
-  "prompt-updates": {
-    "kind": "python",
-    "path": "tests/prompts/verify_updates.py"
-  },
   "collector-session": {
     "kind": "node",
-    "path": "tests/interface/verify-collector-session.cjs"
-  },
-  "structure": {
-    "kind": "python",
-    "path": "tests/integration/verify_structure.py"
-  },
-  "management": {
-    "kind": "python",
-    "path": "tests/lifecycle/verify_management_checks.py",
+    "path": "tests/interface/verify-collector-session.cjs",
     "args": [
       "{work}"
     ]
   },
-  "prompt-diagnostics": {
-    "kind": "python",
-    "path": "tests/prompts/verify_diagnostics.py",
+  "structure": {
+    "kind": "node",
+    "path": "tests/integration/verify-structure.cjs",
+    "args": [
+      "{work}"
+    ]
+  },
+  "management": {
+    "kind": "node",
+    "path": "tests/lifecycle/verify-management.cjs",
     "args": [
       "{work}"
     ]
@@ -184,8 +169,22 @@
     "path": "tests/lifecycle/Verify-EntryWrappers.ps1"
   },
   "observability": {
-    "kind": "python",
-    "path": "tests/integration/verify-observability.py",
+    "kind": "node",
+    "path": "tests/integration/verify-observability.cjs",
+    "args": [
+      "{work}"
+    ]
+  },
+  "settings-migration": {
+    "kind": "node",
+    "path": "tests/integration/verify-settings-migration.cjs",
+    "args": [
+      "{work}"
+    ]
+  },
+  "shortcuts": {
+    "kind": "node",
+    "path": "tests/integration/verify-shortcuts.cjs",
     "args": [
       "{work}"
     ]

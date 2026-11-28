@@ -5,9 +5,6 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../platform/settings/settings_store.ps1')
 . (Join-Path $PSScriptRoot '../platform/settings/runtime_stamp.ps1')
 . (Join-Path $PSScriptRoot '../lifecycle/startup/codex_activation.ps1')
-$promptMonitor = Join-Path $PSScriptRoot '../prompts/monitoring/Start-Monitor.ps1'
-if (Test-Path -LiteralPath $promptMonitor) { . $promptMonitor }
-else { function Start-InstructionReviewCheck { } }
 
 function Start-ComposerStartupCheck {
     param([switch]$AfterUpdate)
@@ -22,9 +19,9 @@ function Start-ComposerStartupCheck {
 }
 
 function Invoke-ComposerRelaunch {
-    $settingsPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../.runtime/token-hud/embedded/settings.json'))
+    $settingsPath = Initialize-BetterCodexSettings
     $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    & $settings.python -B -X utf8 (Join-Path $PSScriptRoot '../../tools/token-hud-local/diagnostics/relaunch.py') --settings $settingsPath --execute
+    & $settings.node --no-warnings=ExperimentalWarning (Join-Path $PSScriptRoot '../lifecycle/recovery/relaunch.cjs') --settings $settingsPath --execute
     if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'check.relaunchFailed') }
 }
 
@@ -32,9 +29,14 @@ function Get-ComposerLaunchPlan($Package, $Settings, $Desktops, $Listeners) {
     if ($Settings.port -lt 1024 -or $Settings.port -gt 65535) { throw (Get-BetterCodexText 'launch.invalidPort') }
     $verified = @($Desktops | Where-Object { $_.Path -eq $Package.executable })
     if ($verified.Count -ne $Desktops.Count) { return @{arguments='';reason='desktop-identity-unverified';attach=$false} }
-    if ($Listeners.Count -and ($Listeners.Count -ne 1 -or $Listeners[0].LocalAddress -ne '127.0.0.1' -or
-        $Listeners[0].OwningProcess -notin @($verified | Select-Object -ExpandProperty Id))) {
-        return @{arguments='';reason='unverified-listener';attach=$false}
+    if ($Listeners.Count) {
+        $listener = $Listeners[0]
+        $owners = @($verified | Where-Object { $_.Id -eq $listener.OwningProcess -and $_.Created -eq $listener.Created })
+        if ($Listeners.Count -ne 1 -or $listener.LocalAddress -ne '127.0.0.1' -or -not $listener.CurrentSession -or
+            $listener.Executable -ne $Package.executable -or $listener.PackageFullName -ne $Package.packageFullName -or
+            -not $listener.Created -or $owners.Count -ne 1) {
+            return @{arguments='';reason='unverified-listener';attach=$false}
+        }
     }
     if ($Desktops.Count) {
         return @{arguments='';reason=$(if ($Listeners.Count) {'reuse-desktop'} else {'restart-required'});attach=[bool]$Listeners.Count}
@@ -60,7 +62,54 @@ function Get-ComposerSupervisorStamp($Settings) {
     return Get-BetterCodexRuntimeStamp $Settings
 }
 
+function Invoke-ComposerNative([string[]]$Arguments) {
+    $helper = Join-Path $script:BetterCodexRoot 'src/generated/native/BetterCodexNative.exe'
+    $receipt = & $helper @Arguments | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or -not $receipt.ok) { throw (Get-BetterCodexText 'launch.packageFailed') }
+    return $receipt
+}
+
+function Get-ComposerPackage {
+    return (Invoke-ComposerNative @('codex-package')).package
+}
+
+function Get-ComposerDesktopSnapshot($Package) {
+    $verified = @((Invoke-ComposerNative @('codex-processes')).processes | Where-Object {
+        $_.executable -eq $Package.executable -and $_.packageFullName -eq $Package.packageFullName
+    })
+    # A same-name process without verified package and kernel identity is a conflict.
+    Get-Process -Name ChatGPT -ErrorAction SilentlyContinue | ForEach-Object {
+        $candidate = $_
+        $trusted = @($verified | Where-Object {
+            $_.pid -eq $candidate.Id -and $_.created -eq $candidate.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
+        })
+        $owner = if ($trusted.Count -eq 1) { $trusted[0] }
+        [pscustomobject]@{Id=$candidate.Id;Path=$owner.executable;Created=$owner.created}
+    }
+}
+
+function Get-ComposerListenerSnapshot($Port) {
+    if ($Port -lt 1024 -or $Port -gt 65535) { throw (Get-BetterCodexText 'launch.invalidPort') }
+    (Invoke-ComposerNative @('port-listeners','--port',"$Port")).listeners | ForEach-Object {
+        [pscustomobject]@{LocalAddress=$_.address;OwningProcess=$_.pid;Created=$_.created;
+            Executable=$_.executable;PackageFullName=$_.packageFullName;CurrentSession=$_.currentSession}
+    }
+}
+
+function Get-ComposerSupervisorRuntime($Process, $Settings, [string]$SettingsPath, [string]$Runtime) {
+    $command = (Get-CimInstance Win32_Process -Filter "ProcessId=$($Process.Id)" -ErrorAction Stop).CommandLine
+    $nodeScript = Join-Path $PSScriptRoot 'supervisor.cjs'
+    $bound = $command -match ('(?i)(?:^|\s)--settings\s+"' + [regex]::Escape($SettingsPath) + '"(?=\s|$)') -and
+        $command -match ('(?i)(?:^|\s)--runtime\s+"' + [regex]::Escape($Runtime) + '"(?=\s|$)')
+    if (-not $bound) { return }
+    if ($Process.Path -eq $Settings.node -and $command -match ('(?i)(?:^|\s)"' + [regex]::Escape($nodeScript) + '"(?=\s|$)')) { return 'node' }
+}
+
 function Start-ComposerSupervisor($Settings, [string]$SettingsPath, [string]$Runtime) {
+    if (Test-Path -LiteralPath (Join-Path $script:BetterCodexRoot '.runtime/token-hud/embedded/runtime/launcher.json')) {
+        & $Settings.node --no-warnings=ExperimentalWarning (Join-Path $PSScriptRoot 'portable-bootstrap.cjs') --guard-legacy | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw (Get-BetterCodexText 'launch.dependencyMissing') }
+    }
     [IO.Directory]::CreateDirectory($Runtime) | Out-Null
     $pidPath = Join-Path $Runtime 'launcher.json'
     $stamp = Get-ComposerSupervisorStamp $Settings
@@ -70,8 +119,10 @@ function Start-ComposerSupervisor($Settings, [string]$SettingsPath, [string]$Run
             $previous = Get-Content -LiteralPath $pidPath -Raw -Encoding UTF8 | ConvertFrom-Json
             $process = Get-Process -Id $previous.supervisorPid -ErrorAction SilentlyContinue
             # PowerShell 7 can deserialize ISO timestamps as DateTime, unlike 5.1.
-            $alreadyRunning = $process -and $process.Path -eq $Settings.python -and
-                $process.StartTime.ToUniversalTime() -eq ([DateTimeOffset]$previous.startedAt).UtcDateTime
+            if ($process -and $process.StartTime.ToUniversalTime() -eq ([DateTimeOffset]$previous.startedAt).UtcDateTime) {
+                $hostRuntime = Get-ComposerSupervisorRuntime $process $Settings $SettingsPath $Runtime
+                $alreadyRunning = [bool]$hostRuntime
+            }
         } catch { }
     }
     $stop = Join-Path $Runtime 'stop'
@@ -84,9 +135,9 @@ function Start-ComposerSupervisor($Settings, [string]$SettingsPath, [string]$Run
     }
     if (Test-Path -LiteralPath $stop) { Remove-Item -LiteralPath $stop }
     if (-not $alreadyRunning) {
-        $arguments = '-X utf8 "{0}" --settings "{1}" --runtime "{2}"' -f (Join-Path $PSScriptRoot '../../tools/token-hud-local/embedded/supervisor.py'),$SettingsPath,$Runtime
+        $arguments = '--no-warnings=ExperimentalWarning "{0}" --settings "{1}" --runtime "{2}"' -f (Join-Path $PSScriptRoot 'supervisor.cjs'),$SettingsPath,$Runtime
         $env:BETTER_CODEX_LANGUAGE = $script:BetterCodexLanguage
-        $process = Start-Process -FilePath $Settings.python -ArgumentList $arguments -WindowStyle Hidden -PassThru
+        $process = Start-Process -FilePath $Settings.node -ArgumentList $arguments -WindowStyle Hidden -PassThru
         @{supervisorPid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().ToString('o');stamp=$stamp} | ConvertTo-Json | Set-Content -LiteralPath $pidPath -Encoding utf8
     }
     return $process.Id
@@ -103,7 +154,7 @@ function Write-ComposerLaunchReceipt([string]$Runtime, $Receipt, [string]$Name =
 }
 
 function Write-ComposerLaunchEvent($Settings, [string]$Runtime, $Receipt, [string]$Kind = 'launch-request-result') {
-    if (-not $Settings.python) { return }
+    if (-not $Settings.node) { return }
     $previousExitCode = $global:LASTEXITCODE
     try {
         $id = $Receipt.correlation_id
@@ -111,14 +162,14 @@ function Write-ComposerLaunchEvent($Settings, [string]$Runtime, $Receipt, [strin
         $event = @{kind=$Kind;status=$(if ($Kind -eq 'launch-requested') {'observed'} elseif ($Receipt.activationSucceeded) {'success'} else {'failed'});
             source='launcher';correlation_id=$id;instance=$id;
             context=@{reason=$Receipt.hudReason;package_version=$Receipt.packageVersion}}
-        $event | ConvertTo-Json -Depth 4 -Compress | & $Settings.python -B -X utf8 -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from src.platform.observability.cli import main; raise SystemExit(main())' $script:BetterCodexRoot --runtime $Runtime append 2>$null | Out-Null
+        $event | ConvertTo-Json -Depth 4 -Compress | & $Settings.node --no-warnings=ExperimentalWarning (Join-Path $PSScriptRoot '../platform/observability/cli.cjs') --runtime $Runtime append 2>$null | Out-Null
     } catch { } # Neither storage nor serialization failure may block activation.
     finally { $global:LASTEXITCODE = $previousExitCode }
 }
 
 function Invoke-ComposerMonitor {
-    $settingsPath = Join-Path $script:BetterCodexRoot '.runtime/token-hud/embedded/settings.json'
-    $runtime = Join-Path (Split-Path -Parent $settingsPath) 'runtime'
+    $settingsPath = Initialize-BetterCodexSettings
+    $runtime = Get-BetterCodexStatePath $settingsPath
     $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($settings.recoverAfterUpdate -eq $true) {
         $supervisorPid = Start-ComposerSupervisor $settings $settingsPath $runtime
@@ -128,18 +179,15 @@ function Invoke-ComposerMonitor {
 }
 
 function Wait-ComposerModelGateway($Settings, [string]$SettingsPath) {
-    if ($env:MAGPIE_SKIP_WAIT -or -not $Settings.python) { return }
+    if ($env:MAGPIE_SKIP_WAIT -or -not $Settings.node) { return }
     try {
-        & $Settings.python -B -X utf8 (Join-Path $PSScriptRoot '../lifecycle/startup/model_gateway.py') --settings $SettingsPath 2>$null | Out-Null
+        & $Settings.node --no-warnings=ExperimentalWarning (Join-Path $PSScriptRoot '../lifecycle/startup/model-gateway.cjs') --settings $SettingsPath 2>$null | Out-Null
     } catch { } # Gateway/configuration failures must not prevent official activation.
 }
 
 function Invoke-ComposerLaunch([switch]$CheckOnly) {
-    if (-not $CheckOnly -and -not $RecoveryActivation -and -not $StartupCheckStarted -and
-        -not (Test-CodexRunning)) { Start-ComposerStartupCheck }
-    $workspace = $script:BetterCodexRoot
-    $settingsPath = Join-Path $workspace '.runtime/token-hud/embedded/settings.json'
-    $runtime = Join-Path (Split-Path -Parent $settingsPath) 'runtime'
+    $settingsPath = Get-BetterCodexSettingsPath
+    $runtime = Get-BetterCodexStatePath $settingsPath
     $plan = @{arguments='';reason='hud-preparation-failed';attach=$false}
     $package = $null
     $correlation = $env:BETTER_CODEX_CORRELATION_ID
@@ -147,16 +195,19 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
     $receipt = @{source='Start-ComposerHud.ps1';checkedAtUtc=[DateTime]::UtcNow.ToString('o');activationSucceeded=$false;correlation_id=$correlation}
     $settings = $null
     $coldStart = $false
-    try { $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
     try {
-        foreach ($dependency in @($settings.python,$settings.node,(Join-Path $settings.collectorDir 'metrics.py'))) {
+        if ($CheckOnly) { $settingsPath = Get-BetterCodexSettingsPath -ReadLegacy }
+        else { $settingsPath = Initialize-BetterCodexSettings }
+        if (-not $CheckOnly -and -not $RecoveryActivation -and -not $StartupCheckStarted -and
+            -not (Test-CodexRunning)) { Start-ComposerStartupCheck }
+        $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($dependency in @($settings.node,(Join-Path $script:BetterCodexRoot 'src/generated/native/BetterCodexNative.exe'))) {
             if (-not $dependency -or -not (Test-Path -LiteralPath $dependency)) { throw (Get-BetterCodexText 'launch.dependencyMissing') }
         }
-        $package = & $settings.python (Join-Path $PSScriptRoot '../../tools/token-hud-local/shared/desktop_package.py') | ConvertFrom-Json
-        if ($LASTEXITCODE -ne 0 -or -not $package.executable) { throw (Get-BetterCodexText 'launch.packageFailed') }
-        $desktops = @(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)
+        $package = Get-ComposerPackage
+        $desktops = @(Get-ComposerDesktopSnapshot $package)
         $coldStart = -not $desktops.Count
-        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $settings.port -ErrorAction SilentlyContinue)
+        $listeners = @(Get-ComposerListenerSnapshot $settings.port)
         $plan = Resolve-ComposerLaunchPlan $package $settings $desktops $listeners $settingsPath -CheckOnly:$CheckOnly
         $receipt.displayPort = $settings.port
         if ($plan.previousPort) { $receipt.previousDisplayPort = $plan.previousPort }
@@ -187,7 +238,6 @@ function Invoke-ComposerLaunch([switch]$CheckOnly) {
     $receipt.message = Get-BetterCodexText "launch.$($receipt.hudReason)"
     Write-ComposerLaunchReceipt $runtime $receipt
     Write-ComposerLaunchEvent $settings $runtime $receipt
-    if ($receipt.activationSucceeded -and -not $RecoveryActivation) { Start-InstructionReviewCheck $settings $receipt.supervisorPid (Join-Path $runtime 'stop') }
     return $receipt
 }
 

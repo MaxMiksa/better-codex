@@ -1,23 +1,36 @@
-// Failure budget and stale-source rejection without starting any process.
-const assert=require('node:assert/strict'),{EventEmitter}=require('node:events');
-const {createCollector}=require('../../src/interface/host/collector-session.cjs');
-const children=[];
-const session=createCollector({settings:{python:'fixture',collectorDir:'fixture',codexHome:'fixture'},runtime:'fixture',launch:()=>{
-  const child=new EventEmitter();child.pid=children.length+1;child.exitCode=null;child.signalCode=null;
-  child.kill=()=>{child.signalCode='SIGTERM';child.emit('exit');return true;};children.push(child);return child;
-}});
-session.tick(1000);
-assert.ok(!session.accepts({collector_pid:1,updated_at_ms:999}));
-assert.ok(session.accepts({collector_pid:1,updated_at_ms:1000}));
-children[0].exitCode=1;session.tick(1100);
-assert.ok(!session.accepts({collector_pid:1,updated_at_ms:2000}));
-session.tick(2100);
-assert.ok(!session.accepts({collector_pid:1,updated_at_ms:2100}));
-assert.ok(session.accepts({collector_pid:2,updated_at_ms:2100}));
-children[0].emit('error',new Error('late old-child error'));
-assert.ok(session.accepts({collector_pid:2,updated_at_ms:2100}));
-children[1].exitCode=1;session.tick(2200);session.tick(3200);
-children[2].exitCode=1;session.tick(3300);session.tick(5000);
-assert.equal(children.length,3);
-session.tick(61001);assert.equal(children.length,4);
-session.stop().then(()=>{assert.ok(!session.accepts({collector_pid:4,updated_at_ms:62000}));console.log(JSON.stringify({passed:9,scope:'synthetic children only'}));}).catch(error=>{console.error(error);process.exitCode=1;});
+// The sampler must never spawn, and restart attempts are scoped to this session.
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {ChildProcess}=require('node:child_process');
+const launch=ChildProcess.prototype.spawn;
+let launched=0;
+ChildProcess.prototype.spawn=function(){launched++;throw Error('Unexpected collector subprocess');};
+const {createCollector}=require('../../src/runtime/collector-session.cjs');
+const work=process.argv[2];fs.mkdirSync(work,{recursive:true});
+const fixture=path.join(work,'metrics.json'),clock={value:1000};
+const {setTimeout:pending}=require('node:timers/promises');
+let created=0,fail=true;
+const session=createCollector({settings:{codexHome:work},runtime:work,clock:()=>clock.value,
+  makeSampler:()=>{
+    created++;
+    return async()=>{if(fail)throw Error('fixture');return {thread_id:'bound',collector_pid:process.pid};};
+  }});
+async function tick(now){clock.value=now;const status=session.tick();await pending(20);return status;}
+(async()=>{
+  try{
+    fs.writeFileSync(fixture,'{"collector_pid":1,"updated_at_ms":999999999999999}');
+    assert.equal(session.snapshot(),null); // Never trust a stale file, even with a newer timestamp.
+    assert.equal((await tick(1000)).phase,'running');
+    assert.equal((await tick(1100)).phase,'backoff');
+    assert.equal(session.snapshot(),null);
+    await tick(2000);await tick(3000);await tick(5000);assert.equal(created,3);
+    fail=false;
+    assert.equal((await tick(61000)).phase,'running');
+    for(let i=0;!session.snapshot()&&i<30;i++)await pending();
+    assert.equal(created,4);assert.equal(session.snapshot()?.collector_pid,process.pid);
+    assert.equal(JSON.parse(fs.readFileSync(fixture,'utf8')).thread_id,'bound');
+    await session.stop();
+    await tick(62000);assert.equal(session.snapshot(),null);assert.equal(created,4);
+    assert.equal(launched,0);
+    console.log(JSON.stringify({passed:11,collectorSubprocessLaunches:0}));
+  }finally{ChildProcess.prototype.spawn=launch;}
+})().catch(error=>{console.error(error);process.exitCode=1;});

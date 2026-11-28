@@ -3,15 +3,26 @@ param([string]$SettingsPath)
 
 function Get-BetterCodexRuntimeStamp($Settings) {
     $workspace = $script:BetterCodexRoot
-    $manifest = Get-Content -LiteralPath (Join-Path $workspace 'release/public-files.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    $files = @($manifest.runtime | Where-Object { $_ -like 'src/*' -and $_ -match '\.(py|ps1|cjs|js|json)$' }) +
-        @('VERSION','tools/token-hud-local/embedded/supervisor.py')
+    $sourceRoot = Join-Path $workspace 'src'
+    $excludedDirs = @('prompts', 'evidence', 'files', 'private', 'archive', 'dist', 'runtime', 'node_modules', '__pycache__', 'bin', 'obj', 'native')
+    $sourceDirs = [Collections.Generic.Stack[string]]::new()
+    $sourceDirs.Push($sourceRoot)
+    $files = @(while ($sourceDirs.Count) {
+        foreach ($entry in Get-ChildItem -LiteralPath ($sourceDirs.Pop())) {
+            if ($entry.Name.StartsWith('.') -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+            if ($entry.PSIsContainer) {
+                if ($entry.Name -notin $excludedDirs) { $sourceDirs.Push($entry.FullName) }
+            } elseif ($entry.Name -match '\.(ps1|cjs|mjs|js|json)$') {
+                $entry.FullName.Substring($workspace.Length + 1).Replace('\','/')
+            }
+        }
+    }) + @('package.json','src/generated/native/BetterCodexNative.exe')
     $hash = [Security.Cryptography.SHA256]::Create()
     try {
         $parts = @($files | Sort-Object | ForEach-Object {
             $_ + ':' + [BitConverter]::ToString($hash.ComputeHash([IO.File]::ReadAllBytes((Join-Path $workspace $_))))
         })
-        foreach ($key in @('python','node','collectorDir','port')) { $parts += $key + ':' + $Settings.$key }
+        foreach ($key in @('node','port','codexHome')) { $parts += $key + ':' + $Settings.$key }
         return [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes(($parts -join "`n")))).Replace('-','')
     } finally { $hash.Dispose() }
 }

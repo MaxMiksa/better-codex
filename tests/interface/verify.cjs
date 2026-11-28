@@ -1,15 +1,15 @@
 // Synthetic composer contract + metadata regressions; not desktop acceptance.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
-const {formatMetrics}=require('../../src/interface/statistics/metrics-view.cjs');
-const {resolveChat}=require('../../src/interface/statistics/chat-binding.cjs');
-const {createPromptReader}=require('../../src/interface/host/prompt-directory.cjs');
-const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolve(__dirname,'../../.runtime/token-hud/node/node_modules/playwright'));
+const {formatMetrics}=require('../../src/features/statistics/host/metrics-view.cjs');
+const {resolveChat}=require('../../src/features/statistics/host/chat-binding.cjs');
+const {createPromptReader}=require('../../src/features/command-menu/host/prompt-directory.cjs');
+const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolve(__dirname,'../../scripts/node/node_modules/playwright'));
 const evidence=path.resolve(process.argv[2]),scratch=path.resolve(process.argv[3]);
 const id='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002';
-const source=fs.readFileSync(path.join(__dirname,'../../src/interface/statistics/composer-strip.js'),'utf8');
-const commandSource=fs.readFileSync(path.join(__dirname,'../../src/interface/appearance/command-menu.js'),'utf8');
+const source=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/statistics.js'),'utf8');
+const commandSource=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/commands.js'),'utf8');
 const i18nSource=require('../../src/platform/i18n/i18n.js').pageSource('zh-CN');
-const readingSource=fs.readFileSync(path.join(__dirname,'../../src/interface/reading/reading-width.js'),'utf8');
+const readingSource=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/reading-width.js'),'utf8');
 const html=`<!doctype html><html lang="zh-CN"><style>
 #model[data-state="open"]{color:#777}
 :root{--color-text:#eee;--color-text-tertiary:#aaa;--color-surface:#292929;--thread-content-max-width:48rem;font-family:'Segoe UI',sans-serif}body{margin:0;background:#181818;color:var(--color-text)}
@@ -838,6 +838,25 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
       &&lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3&&[...line.children].every(button=>button.children.length===1&&button.textContent===button.title));
   }));
   check('prompts-excluded-from-command-settings-catalog',await page.evaluate(()=>!window.__codexCommandMenu.entries().some(item=>item.id.startsWith('prompt:'))));
+  const menuViewport=page.viewportSize();await page.setViewportSize({...menuViewport,height:700});
+  const nativeHeight=await page.locator('#native-menu').evaluate(menu=>{
+    const frame=document.createElement('div'),grid=menu.querySelector('[data-bc-command-grid]');
+    const nativeIcons=[...menu.querySelectorAll('[data-list-navigation-item] > svg')];
+    for(const icon of nativeIcons){icon.setAttribute('width','16');icon.setAttribute('height','16');}
+    frame.style.cssText='display:flex;flex-direction:column;overflow:hidden;max-height:180px;--composer-overlay-available-height:600px';
+    menu.style.cssText+=';flex:1;overflow-y:auto';menu.before(frame);frame.append(menu);
+    const fitsWithoutGap=frame.clientHeight>180&&menu.scrollHeight===menu.clientHeight&&Math.abs(grid.getBoundingClientRect().bottom-frame.getBoundingClientRect().bottom)<1;
+    frame.style.setProperty('--composer-overlay-available-height','160px');
+    const scrollsWhenConstrained=frame.clientHeight===160&&menu.scrollHeight>menu.clientHeight;
+    window.__codexCommandMenu.update({}, {enabled:false});
+    const restoresNativeCap=getComputedStyle(frame).maxHeight==='180px';
+    frame.before(menu);frame.remove();menu.style.cssText='width:400px';
+    window.__codexCommandMenu.update({}, {enabled:true});
+    return {fitsWithoutGap,scrollsWhenConstrained,restoresNativeCap};
+  });
+  for(const [name,pass] of Object.entries(nativeHeight))check('native-slash-menu-height-'+name,pass);
+  await page.setViewportSize(menuViewport);
+  await sendPrompts(await menuPromptRequests(),entries);
   const selectedMenuItem=()=>page.locator('#native-menu [data-bc-menu-button][data-bc-active]').getAttribute('data-bc-menu-button');
   await page.keyboard.press('Home');await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowRight');
   const forward=[];for(let step=0;step<5;step++){await page.keyboard.press('Control+ArrowDown');forward.push(await selectedMenuItem());}
@@ -876,6 +895,16 @@ function check(name,condition){assert.ok(condition,name);results.push({name,pass
   await sendPrompts(await menuPromptRequests(),await readPrompts());
   check('standalone-prompt-menu-opens-without-native-menu',await page.locator(`${standaloneSelector}:not([hidden]) [data-bc-prompt-row]`).count()>0&&await page.locator('#native-menu [data-bc-command-grid]').count()===0);
   check('standalone-prompt-menu-uses-three-column-name-buttons',await page.locator(`${standaloneSelector} [data-bc-prompt-row]`).evaluateAll(lines=>lines.length>0&&lines.every(line=>getComputedStyle(line).gridTemplateColumns.split(' ').length===3&&[...line.children].every(button=>button.children.length===1&&button.textContent===button.title))));
+  const standaloneHeight=await page.locator(standaloneSelector).evaluate(menu=>{
+    const composer=document.querySelector('#composer'),original=composer.style.top;
+    const position=top=>{composer.style.top=top;window.dispatchEvent(new Event('resize'));return menu.getBoundingClientRect();};
+    const small=position('78px'),scrollsOnlyWithinAvailableSpace=small.top>=11.5&&Math.abs(small.bottom-70)<1&&menu.scrollHeight>menu.clientHeight;
+    const tall=position('210px'),grid=menu.querySelector('[data-bc-command-grid]');
+    const fitsWithoutGap=menu.scrollHeight===menu.clientHeight&&Math.abs(tall.bottom-202)<1&&Math.abs(tall.bottom-grid.getBoundingClientRect().bottom-8)<1;
+    position(original);
+    return {scrollsOnlyWithinAvailableSpace,fitsWithoutGap};
+  });
+  for(const [name,pass] of Object.entries(standaloneHeight))check('standalone-slash-menu-height-'+name,pass);
   await openStandalone({draft:'/lat'});
   check('standalone-prompt-query-filters-by-name',await page.locator(`${standaloneSelector} [data-bc-menu-button]`).evaluateAll(buttons=>buttons.length===1&&buttons[0].dataset.bcMenuButton==='prompt:Latest'));
   await page.locator(`${standaloneSelector} [data-bc-menu-button="prompt:Latest"]`).click();

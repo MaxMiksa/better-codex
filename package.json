@@ -1,9 +1,40 @@
 {
   "name": "better-codex",
-  "version": "0.5.44",
+  "version": "1.0.0",
   "private": true,
   "description": "Community enhancements for the Codex Windows desktop app",
   "license": "MIT",
-  "engines": { "node": ">=24.11.1 <25", "pnpm": "12.16.1" },
-  "devDependencies": { "playwright": "1.62.1" }
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "pnpm": "12.16.1"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "build:ui": "node scripts/build-ui.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "typecheck": "tsc --project tsconfig.json",
+    "build": "pnpm run build:ui && pnpm run build:native",
+    "sync:version": "node scripts/sync-version.mjs",
+    "check": "node scripts/check.mjs",
+    "build:workspace-tree": "node scripts/workspace-tree/build.mjs",
+    "package": "node scripts/package.mjs",
+    "build-portable": "node scripts/build-portable.mjs",
+    "verify-package": "node scripts/verify-package.mjs",
+    "release:prepare": "node scripts/release-prepare.mjs",
+    "install:local": "powershell -NoProfile -ExecutionPolicy Bypass -File Install.ps1",
+    "start:local": "cmd /d /c Start.cmd",
+    "stop:local": "cmd /d /c Stop.cmd",
+    "diagnostics": "powershell -NoProfile -STA -ExecutionPolicy Bypass -File src/lifecycle/diagnostics/Show-StartupCheck.ps1",
+    "history": "powershell -NoProfile -ExecutionPolicy Bypass -File src/platform/observability/Get-RuntimeHistory.ps1"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.3",
+    "typescript": "5.9.3"
+  }
 }

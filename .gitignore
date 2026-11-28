@@ -15,13 +15,14 @@ Archive/
 Files/
 AI_RELEASE_RULES.md
 CHECKLIST.md
-CHANGELOG.md
 CHANGELOG-zh.md
 RELEASE_NOTES.md
 AGENTS.md
+/.agents/
 CHAT_LOGS.md
 PROJECT.md
 PLAN_*.md
 /docs/evidence/
+/prompts/
 /runtime/
 /BetterCodex.exe

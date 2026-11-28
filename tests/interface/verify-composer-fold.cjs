@@ -6,6 +6,9 @@ const id='00000000-0000-4000-8000-000000000001';
 const html=`<!doctype html><html lang="zh-CN"><style>
   body{margin:0} .thread-scroll-container{height:100vh;overflow:auto;position:relative}
   [data-thread-scroll-footer]{position:absolute;bottom:16px;left:15%;right:15%}
+  #timeline.stack{display:flex;flex-direction:column}
+  #timeline.stack #transcript{flex:1;min-height:0}
+  #timeline.stack [data-thread-scroll-footer]{position:relative;inset:auto;flex:none;margin:0 15% 16px}
   [data-thread-find-composer]{display:flex;flex-direction:column}
   [data-composer-body]{background:#333;border-radius:20px;padding:10px}
   [contenteditable]{height:38px;outline:none} [contenteditable] p{margin:0}
@@ -27,7 +30,7 @@ const html=`<!doctype html><html lang="zh-CN"><style>
       </div></div></div></div>
   </div></div></div>
 </div>`;
-const message='<div data-turn-key="fixture"><span data-user-message-bubble data-user-message-has-prompt="true">Fixture</span></div>';
+const message='<div data-turn-key="fixture"><span data-user-message-bubble data-user-message-has-prompt="true">Selectable conversation text</span></div>';
 let count=0;
 const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+label);};
 (async()=>{
@@ -36,8 +39,8 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     const page=browser.pages()[0];
     await page.setContent(html);
     await page.evaluate(i18n);
-    await page.evaluate(source('src/interface/appearance/composer-fold.js'));
-    await page.evaluate(source('src/interface/statistics/composer-strip.js'));
+    await page.evaluate(source('src/generated/ui/composer-fold.js'));
+    await page.evaluate(source('src/generated/ui/statistics.js'));
     const mode=value=>page.evaluate(value=>window.__codexComposerHud.settingsState({composerAutoHide:value}),value);
     const state=()=>page.locator('[data-thread-find-composer]').getAttribute('data-bc-composer-fold');
     const settled=value=>page.waitForFunction(value=>document.querySelector('[data-thread-find-composer]').getAttribute('data-bc-composer-fold')===value,value);
@@ -77,6 +80,19 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await settled('minimize');
     check('minimize-leaves-real-keyboard-accessible-pill-and-less-height',await pill.isVisible()&&await pill.innerText()==='展开输入框'&&(await shape())<openHeight&&!(await editorPainted()));
     check('HUD-keeps-chat-binding-while-folded',await page.evaluate(()=>{const s=window.__codexComposerHud.snapshot();return Boolean(s.id)&&!s.visible&&s.compatibility.reason==='composer-folded';}));
+    for(const value of ['minimize','hide']){
+      await mode(value);await settled(value);await blur();await inputReady();
+      const bounds=await page.locator('[data-user-message-bubble]').boundingBox(),y=bounds.y+bounds.height/2;
+      await page.mouse.move(bounds.x+1,y);await page.mouse.down();
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      const focusedDuringPress=await focus();
+      await page.mouse.move(bounds.x+bounds.width-1,y,{steps:5});await page.mouse.up();
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      check(value+'-preserves-native-text-drag-and-selection',focusedDuringPress!=='editor'&&await focus()!=='editor'&&await state()===value
+        &&await page.evaluate(()=>window.getSelection().toString()==='Selectable conversation text'));
+      await page.mouse.click(bounds.x+bounds.width+20,y);await inputReady();
+    }
+    await mode('minimize');await settled('minimize');
     await blur();await page.keyboard.press('Enter');
     check('one-enter-does-not-open',await state()==='minimize');
     await page.keyboard.press('ArrowLeft');await page.keyboard.press('Enter');
@@ -129,15 +145,34 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await page.waitForFunction(()=>document.querySelector('#editor').getBoundingClientRect().width<600);
     const resizedAnchor=await caretAnchor();
     check('standby-caret-follows-the-resized-conversation',!sameAnchor(resizedAnchor,naturalAnchor));
+    await timeline.evaluate(e=>e.classList.add('stack'));
     await editor.evaluate(e=>{
       window.nativeComposition=[];
       for(const type of ['compositionstart','compositionupdate','compositionend','beforeinput','input'])e.addEventListener(type,event=>{
         window.nativeComposition.push({type,composing:event.isComposing,data:event.data,open:!e.hasAttribute('data-bc-fold-input'),focused:document.activeElement===e});
       });
+      const shell=e.closest('[data-thread-find-composer]'),transcript=document.querySelector('#transcript');
+      window.openingFrames=new Promise(resolve=>e.addEventListener('beforeinput',()=>{
+        const frames=[];
+        function sample(){
+          const range=document.createRange();
+          range.selectNode(e.querySelector('p').firstChild);
+          const r=range.getBoundingClientRect();
+          frames.push({height:shell.getBoundingClientRect().height,transcript:transcript.getBoundingClientRect().bottom,
+            anchor:[r.left,r.top],focused:document.activeElement===e});
+          if(shell.dataset.bcComposerFold==='moving')requestAnimationFrame(sample);else resolve(frames);
+        }
+        sample();
+      },{once:true}));
     });
     const cdp=await browser.newCDPSession(page);
     await cdp.send('Input.imeSetComposition',{text:'n',selectionStart:1,selectionEnd:1});
     await settled(null);
+    const frames=await page.evaluate(()=>window.openingFrames);
+    const first=frames[0],last=frames.at(-1);
+    check('typing-animates-the-composer-and-transcript-through-intermediate-heights',first.height<=1&&last.height>1
+      &&frames.some(f=>f.height>first.height+1&&f.height<last.height-1&&f.transcript<first.transcript-1&&f.transcript>last.transcript+1));
+    check('caret-stays-at-the-same-anchor-for-every-animated-frame',frames.every(f=>f.focused&&sameAnchor(resizedAnchor,f.anchor)));
     check('first-ime-letter-reveals-the-same-editor-without-breaking-composition',await editor.innerText()==='n'
       &&await page.evaluate(()=>window.nativeComposition.some(e=>e.type==='beforeinput'&&e.data==='n'&&e.composing&&e.open&&e.focused)));
     check('first-ime-letter-uses-the-same-caret-anchor-after-expansion',sameAnchor(resizedAnchor,await caretAnchor()));
@@ -147,12 +182,29 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
       &&await page.evaluate(()=>window.nativeComposition.filter(e=>e.type==='compositionstart').length===1));
     await edit(empty);await page.keyboard.press('Escape');await settled('hide');
     await page.keyboard.type('Go');
+    await settled(null);
     check('english-typing-reveals-the-editor-with-no-missing-or-duplicated-keys',await state()===null&&await editor.innerText()==='Go');
+    await edit(empty);await page.keyboard.press('Escape');await settled('hide');
+    const beforeGrowth=await editor.evaluate(e=>{
+      e.addEventListener('input',()=>{e.style.height='98px';},{once:true});
+      const shell=e.closest('[data-thread-find-composer]');
+      return shell.getBoundingClientRect().height;
+    });
+    await page.keyboard.type('X');
+    await page.waitForFunction(expected=>{
+      const shell=document.querySelector('[data-thread-find-composer]');
+      return Math.abs(Number.parseFloat(shell.getAnimations()[0]?.effect?.getKeyframes().at(-1)?.height)-expected)<.5;
+    },openHeight+60);
+    await settled(null);
+    check('expansion-follows-a-draft-that-grows-during-the-animation',beforeGrowth===0&&await shape()===openHeight+60);
+    await editor.evaluate(e=>e.style.removeProperty('height'));
     await edit(empty);await page.keyboard.press('Escape');await settled('hide');
     await cdp.send('Input.imeSetComposition',{text:'n',selectionStart:1,selectionEnd:1});
     await cdp.send('Input.imeSetComposition',{text:'',selectionStart:0,selectionEnd:0});
+    await settled(null);
     check('canceling-ime-composition-leaves-an-empty-focused-editor',await state()===null&&await focus()==='editor'&&!(await editor.innerText()).trim());
     await edit(empty);await page.keyboard.press('Escape');await settled('hide');
+    await timeline.evaluate(e=>e.classList.remove('stack'));
     await page.setViewportSize({width:900,height:600});
     await cdp.detach();
     await page.locator('#message-action').focus();await twice();
@@ -232,6 +284,9 @@ const check=(label,value)=>{assert.ok(value,label);count++;console.log('PASS '+l
     await page.locator('#model').evaluate(e=>e.removeAttribute('aria-label'));
     await blur();await page.emulateMedia({reducedMotion:'reduce'});await settled('hide');await twice();await settled(null);
     check('reduced-motion-opens-without-layout-animation',await focus()==='editor'&&await page.locator('[data-thread-find-composer]').evaluate(e=>e.getAnimations().length===0));
+    await page.keyboard.press('Escape');await settled('hide');await inputReady();await page.keyboard.type('X');
+    check('typing-respects-reduced-motion-and-still-delivers-the-first-key',await state()===null&&await editor.innerText()==='X');
+    await edit(empty);
     await blur();await settled('hide');await page.locator('[data-turn-key]').evaluate(e=>e.remove());await settled(null);
     check('switching-to-empty-thread-restores-native-composer',await editorPainted());
     await insertMessage();await settled('hide');

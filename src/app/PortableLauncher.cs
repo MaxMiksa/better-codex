@@ -31,10 +31,10 @@ internal static class PortableLauncher {
             string mode = normal ? "--launch" : args[0];
             if (args.Length > 1 || (mode != "--launch" && mode != "--check" && mode != "--prepare-only" && mode != "--stop")) return 1;
             string root = AppDomain.CurrentDomain.BaseDirectory;
-            string python = Path.Combine(root, "runtime", "python", "python.exe");
-            string script = Path.Combine(root, "tools", "token-hud-local", "portable_bootstrap.py");
-            if (!File.Exists(python) || !File.Exists(script)) throw new FileNotFoundException();
-            var start = new ProcessStartInfo(python, "-B -X utf8 " + Quote(script) + " " + mode) {
+            string node = Path.Combine(root, "runtime", "node", "node.exe");
+            string script = Path.Combine(root, "src", "app", "portable-bootstrap.cjs");
+            if (!File.Exists(node) || !File.Exists(script)) throw new FileNotFoundException();
+            var start = new ProcessStartInfo(node, "--no-warnings=ExperimentalWarning " + Quote(script) + " " + mode) {
                 WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8

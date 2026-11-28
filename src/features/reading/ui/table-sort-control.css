@@ -1,0 +1,63 @@
+:host {
+  display: inline-flex;
+}
+
+button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 18px;
+  height: 20px;
+  font: inherit;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.45;
+  cursor: var(--cursor-interaction, pointer);
+  border-radius: 3px;
+}
+
+button:hover,
+button:focus-visible,
+button[data-active] {
+  opacity: 1;
+}
+
+button[data-preset] {
+  opacity: 0.7;
+}
+
+button:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+}
+
+svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+[data-priority] {
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+:host([data-floating]:not([data-measuring])) button {
+  position: relative;
+  width: 16px;
+  min-width: 16px;
+}
+
+:host([data-floating]:not([data-measuring])) [data-priority] {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 18px;
+}
+
+[hidden] {
+  display: none !important;
+}

@@ -1,25 +1,15 @@
 # 发行内容边界
 
-打包使用 [public-files.json](public-files.json) 的显式集合，不按代码后缀递归扩大范围。
+打包脚本基于 [scripts/package.mjs](../scripts/package.mjs) 的目录发现与显式排除规则自动确定发行范围，不再维护手工文件白名单。
 
-## 内容归属
+## 打包规则
 
-| 集合 | 用途 |
-| --- | --- |
-| runtime | 两种公开包共享的产品运行文件与必要说明 |
-| sourceExtras | 仅源码包增加的公开测试、runner 与模块说明 |
-| localOnly | 本机保留范围声明，不是产品开关或自动导出集合 |
+- **源码包（`scripts/package.mjs`）**：收录全部运行源码、入口文件、说明文档、测试与构建工具；自动排除 `.runtime/`、`.validation-runtime/`、`dist/`、`node_modules/`、`__pycache__/`、临时验证数据及任何私有标记目录。
+- **便携包（`scripts/build-portable.mjs`）**：仅收录运行所需文件，并附加 [scripts/portable-lock.json](../scripts/portable-lock.json) 锁定哈希的离线运行环境与原生启动器 `BetterCodex.exe`。
+- **外部生态**：可选原生预览器由独立项目 [Preview](https://github.com/MaxMiksa/preview) 发布，Better-Codex 仅内置其轻量桥接适配。
 
-scripts/package.py 导出 runtime + sourceExtras；scripts/build-portable.py 只导出 runtime，再加入 scripts/portable-lock.json 锁定的运行环境和许可。src/prompts/、根 prompts/、内部状态和私人研究材料不公开；成品图逐文件列出，不导出整个素材目录。
+## 版本与验收
 
-可选预览器由 [Preview](https://github.com/MaxMiksa/preview) 单独发行。Better-Codex 只发布文件树适配器和[接入说明](../src/interface/workspace_tree/preview/README.md)，不再构建预览器或为后续发行附加它的 ZIP；历史附件保留。
-
-产品内运行历史的 Python/PowerShell 实现、稳定查询入口和必要契约进入 runtime，隔离测试进入 sourceExtras。`.runtime/` 中的 SQLite、WAL、SHM、记录器健康状态及查询导出均不打包；源码实现完成不代表已经随版本发行。
-
-## 文件变更与候选验证
-
-新增运行文件时同步清单；迁移文件时同时调整稳定桥、调用方和清单，许可随实现保留必要兼容位置。文档链接也须能在对应源码包或便携包内解析，不能让公开入口依赖本机 PROJECT 或私人提示词文件。
-
-构建在隔离源码副本执行，避免覆盖主工作区保留的正式发行 ZIP。scripts/verify-package.py 校验实际双包的精确集合、字节、依赖摘要及 --check / --prepare-only 和隔离目录移动；工作目录须是本副本 .validation-runtime/ 下尚不存在的目录。它不执行 launch、stop 或 Codex 恢复。
-
-构建、源码合入、实际加载与公开发行分别记录。用户未要求发布时只保留本地候选和证据，不推送或替换现有发行附件。命令见[开发说明](../docs/DEVELOPMENT.md)。
+- 根目录 `package.json` 的 `version` 是唯一版本号来源；发版前运行 `pnpm run sync:version` 自动同步中英文 README 徽章与下载链接。
+- 候选构建在 `.validation-runtime/` 隔离暂存目录完成，通过 `scripts/verify-package.mjs` 核对双包内容、哈希、离线预检与含空格/中文路径迁移。
+- 源码验证通过与本地热加载不等于自动发版；仅在用户明确要求发版后发布，且不覆盖旧标签或旧发行附件。

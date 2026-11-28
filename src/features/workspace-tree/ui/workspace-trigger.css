@@ -1,0 +1,37 @@
+button {
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+button[aria-controls] {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+button:where(:hover, [aria-expanded="true"]) {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+
+button:focus-visible {
+  outline: 1px solid var(--codex-base-accent, currentColor);
+  outline-offset: -2px;
+}
+
+.notice {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 5;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--color-token-bg-primary, light-dark(#fff, #1c1c1c));
+  box-shadow: 0 2px 8px #0003;
+  white-space: nowrap;
+  pointer-events: none;
+}

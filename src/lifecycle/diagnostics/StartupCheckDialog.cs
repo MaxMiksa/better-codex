@@ -13,7 +13,7 @@ using System.Windows.Forms;
 
 namespace BetterCodex {
     public class StartupCheckRowData {
-        public string id, label, state, status, detail, summary, suggestion;
+        public string id, label, state, status, detail, summary, suggestion, promptRetentionKey;
     }
     public class StartupCheckAppearance {
         public bool dark;
@@ -104,6 +104,7 @@ namespace BetterCodex {
     public class StartupCheckRow : UserControl {
         public StartupCheckRowData Data;
         private Label name, status, detail, suggestion;
+        public RecoveryButton RetainPrompt;
         private Color rule, dot;
         private readonly float scaleFactor;
         public StartupCheckRow(StartupCheckRowData data, string family, bool showSuggestion, float scale) {
@@ -120,6 +121,8 @@ namespace BetterCodex {
                 Padding = new Padding((int)(8 * scale), (int)(6 * scale), (int)(8 * scale), (int)(6 * scale)),
                 Font = new Font(family, 14 * scale, FontStyle.Regular, GraphicsUnit.Pixel) };
             Controls.AddRange(new Control[] { name, status, detail, suggestion });
+            RetainPrompt = new RecoveryButton { Font = detail.Font, GrayscaleText = true, DpiScaleOverride = scale };
+            Controls.Add(RetainPrompt);
             UpdateData(data, showSuggestion);
         }
         public void UpdateData(StartupCheckRowData data, bool showSuggestion) {
@@ -128,6 +131,7 @@ namespace BetterCodex {
             status.Text = data.status;
             detail.Text = data.id == "permissions" ? "" : (data.summary ?? data.detail ?? "").Replace("\r", "").Replace("\n", " · ");
             suggestion.Text = showSuggestion ? data.suggestion ?? "" : "";
+            RetainPrompt.Visible = !String.IsNullOrEmpty(data.promptRetentionKey);
             AccessibleName = data.label + ": " + data.status + ". " + data.detail + ". " + data.suggestion;
         }
         public void Arrange(int width, bool compact) {
@@ -141,8 +145,14 @@ namespace BetterCodex {
             int detailHeight = String.IsNullOrEmpty(detail.Text) ? 0 : (int)((compact ? 22 : 24) * s);
             detail.Bounds = new Rectangle(0, top + line, width, detailHeight + (int)(2 * s));
             int next = detail.Bottom + (int)((compact ? 1 : 8) * s);
-            suggestion.Visible = !String.IsNullOrEmpty(suggestion.Text);
-            if (suggestion.Visible) {
+            if (!String.IsNullOrEmpty(Data.promptRetentionKey)) {
+                int buttonWidth = TextRenderer.MeasureText(RetainPrompt.Text, RetainPrompt.Font).Width + (int)(28 * s);
+                RetainPrompt.Bounds = new Rectangle(0, next, Math.Min(width, buttonWidth), (int)(34 * s));
+                next = RetainPrompt.Bottom + (int)(8 * s);
+            }
+            bool hasSuggestion = !String.IsNullOrEmpty(suggestion.Text);
+            suggestion.Visible = hasSuggestion;
+            if (hasSuggestion) {
                 int height = TextRenderer.MeasureText(suggestion.Text, suggestion.Font,
                     new Size(width - (int)(16 * s), 1000), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height + (int)(16 * s);
                 suggestion.Bounds = new Rectangle(0, next, width, height);
@@ -152,6 +162,9 @@ namespace BetterCodex {
         }
         public void ApplyAppearance(bool dark, Color background) {
             BackColor = background;
+            RetainPrompt.Dark = dark;
+            RetainPrompt.BackColor = background;
+            RetainPrompt.ForeColor = dark ? Color.FromArgb(241, 241, 241) : Color.FromArgb(21, 21, 21);
             name.ForeColor = dark ? Color.FromArgb(241, 241, 241) : Color.FromArgb(21, 21, 21);
             detail.ForeColor = dark ? Color.FromArgb(182, 182, 182) : Color.FromArgb(102, 102, 102);
             rule = dark ? Color.FromArgb(56, 56, 56) : Color.FromArgb(225, 225, 225);
@@ -187,11 +200,13 @@ namespace BetterCodex {
         private readonly RecoveryButton closeGlyph;
         private StartupCheckReport current;
         private Process worker;
+        private Process promptConfirmation;
+        private DateTime promptConfirmationStarted;
         private string sessionDirectory, outputPath;
         private DateTime started, copiedUntil, lastWrite, nextThemeRead;
         private bool queued, dark, finishing;
         private int fontDpi;
-        private string python, configPath;
+        private string node, configPath;
         private string appearanceStamp;
         private bool appearanceReading;
         private bool afterUpdate, planConsidered, reloading, previewRestarted;
@@ -221,6 +236,8 @@ namespace BetterCodex {
             }
         }
         private string T(string key) { string value; return words.TryGetValue("check." + key, out value) ? value : key; }
+        private string StateDirectory { get { string dir = Path.GetDirectoryName(settings); return Path.Combine(dir, String.Equals(Path.GetFileName(dir), ".runtime", StringComparison.OrdinalIgnoreCase) ? "state" : "runtime"); } }
+        private string RelaunchScript { get { return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(workerScript), "..", "lifecycle", "recovery", "relaunch.cjs")); } }
         private static string Quote(string value) { return "\"" + value.Replace("\"", "\\\"") + "\""; }
 
         public StartupCheckDialog(string settingsPath, string script, string messages, string locale,
@@ -247,7 +264,7 @@ namespace BetterCodex {
             Controls.Add(stateIcon);
             description = LabelAt("", new Rectangle(28, 105, 504, 45), 15, false);
             description.Visible = false;
-            body = new Panel { Bounds = new Rectangle(28, 118, 504, 440), AutoScroll = false };
+            body = new Panel { Bounds = new Rectangle(28, 118, 504, 440), AutoScroll = true };
             Controls.Add(body);
             note = new StartupTextLabel { Font = new Font(family, 14, FontStyle.Regular, GraphicsUnit.Pixel), AutoSize = false };
             CopyReport = ButtonAt(T("copy"), new Rectangle(28, ClientSize.Height - 66, 104, 40));
@@ -276,6 +293,7 @@ namespace BetterCodex {
                 finishing = true; timer.Stop(); timer.Dispose(); StopOwnWorker();
                 StopActivityProbe();
                 if (actionProcess != null) actionProcess.Dispose(); // A started relaunch finishes independently.
+                if (promptConfirmation != null) promptConfirmation.Dispose();
                 foreach (StartupCheckRow item in rows) item.Dispose();
             };
         }
@@ -303,13 +321,13 @@ namespace BetterCodex {
             Native.SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0010 | 0x0001 | 0x0002 | 0x0040);
         }
         private void RecordWorkerEnd(string reason) {
-            if (!String.IsNullOrEmpty(preview) || current == null || outputPath == null || !File.Exists(python)) return;
+            if (!String.IsNullOrEmpty(preview) || current == null || outputPath == null || !File.Exists(node)) return;
             try {
-                string args = "-B -X utf8 " + Quote(workerScript) + " --settings " + Quote(settings) +
+                string args = "--no-warnings=ExperimentalWarning " + Quote(workerScript) + " --settings " + Quote(settings) +
                     " --output " + Quote(outputPath) + " --instance " + Quote(Path.GetFileName(sessionDirectory)) + " --finish " + reason;
                 if (!String.IsNullOrEmpty(current.correlation_id)) args += " --correlation-id " + Quote(current.correlation_id);
                 else if (afterUpdate) args += " --after-update";
-                var start = new ProcessStartInfo(python, args) {
+                var start = new ProcessStartInfo(node, args) {
                     UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
                     RedirectStandardOutput = true, RedirectStandardError = true
                 };
@@ -400,7 +418,7 @@ namespace BetterCodex {
             return data;
         }
         private void StartCheck() {
-            if (finishing || reloading) return;
+            if (finishing || reloading || promptConfirmation != null) return;
             autoCloseArmed = false;
             presentedProblem = false;
             CancelCountdown(false); planConsidered = false; actionNote = null;
@@ -413,16 +431,18 @@ namespace BetterCodex {
         }
         private void TryStartWorker() {
             try {
-                var config = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settings, Encoding.UTF8));
-                python = Convert.ToString(config["python"]);
-                string home = config.ContainsKey("codexHome") ? Convert.ToString(config["codexHome"]) :
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+                Dictionary<string, object> config = null;
+                try { config = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settings, Encoding.UTF8)); }
+                catch (IOException) { } catch (ArgumentException) { }
+                if (!File.Exists(node) && config != null && config.ContainsKey("node")) node = Convert.ToString(config["node"]);
+                string home = config != null && config.ContainsKey("codexHome") ? Convert.ToString(config["codexHome"]) : null;
+                if (String.IsNullOrEmpty(home)) home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
                 configPath = Path.Combine(home, "config.toml");
-                if (!File.Exists(python) || !File.Exists(workerScript)) throw new FileNotFoundException();
-                sessionDirectory = Path.Combine(Path.GetDirectoryName(settings), "runtime", "startup-check", Guid.NewGuid().ToString("N"));
+                if (!File.Exists(node) || !File.Exists(workerScript)) throw new FileNotFoundException();
+                sessionDirectory = Path.Combine(StateDirectory, "startup-check", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(sessionDirectory);
                 outputPath = Path.Combine(sessionDirectory, "result.json");
-                var start = new ProcessStartInfo(python, "-B -X utf8 " + Quote(workerScript) + " --settings " + Quote(settings) + " --output " + Quote(outputPath) + " --instance " + Quote(Path.GetFileName(sessionDirectory)) + (afterUpdate ? " --after-update" : "")) {
+                var start = new ProcessStartInfo(node, "--no-warnings=ExperimentalWarning " + Quote(workerScript) + " --settings " + Quote(settings) + " --output " + Quote(outputPath) + " --instance " + Quote(Path.GetFileName(sessionDirectory)) + (afterUpdate ? " --after-update" : "")) {
                     UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
                 };
                 start.EnvironmentVariables["BETTER_CODEX_LANGUAGE"] = language;
@@ -436,6 +456,20 @@ namespace BetterCodex {
             }
         }
         private void Tick(object sender, EventArgs e) {
+            if (promptConfirmation != null) {
+                if (promptConfirmation.HasExited) {
+                    bool success = promptConfirmation.ExitCode == 0;
+                    promptConfirmation.Dispose(); promptConfirmation = null;
+                    StartCheck();
+                    if (!success) MessageBox.Show(this, T("promptRetentionFailed"), T("title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                } else if ((DateTime.UtcNow - promptConfirmationStarted).TotalSeconds > 12) {
+                    // Do not kill a write in progress. Its exact-version guard still applies.
+                    promptConfirmation.Dispose(); promptConfirmation = null;
+                    StartCheck();
+                    MessageBox.Show(this, T("promptRetentionFailed"), T("title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return;
+            }
             if (updateEvent != null && updateEvent.WaitOne(0)) { afterUpdate = true; queued = true; }
             if (refreshEvent != null && refreshEvent.WaitOne(0)) {
                 if (!String.IsNullOrEmpty(preview)) Present();
@@ -532,13 +566,14 @@ namespace BetterCodex {
             }
             if (activityProcess != null || DateTime.UtcNow < nextActivityRead || countdown <= 0) return;
             try {
-                activityDirectory = Path.Combine(Path.GetDirectoryName(settings), "runtime", "startup-check", Guid.NewGuid().ToString("N"));
+                activityDirectory = Path.Combine(StateDirectory, "startup-check", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(activityDirectory); activityOutput = Path.Combine(activityDirectory, "activity.json");
-                string args = "-B -X utf8 " + Quote(Path.Combine(Path.GetDirectoryName(workerScript), "relaunch.py")) +
+                string args = "--no-warnings=ExperimentalWarning " + Quote(RelaunchScript) +
                     " --activity --settings " + Quote(settings) + " --output " + Quote(activityOutput);
                 if (current.relaunch.target != null) args += " --target-pid " + Convert.ToString(current.relaunch.target["pid"], System.Globalization.CultureInfo.InvariantCulture) +
-                    " --target-started " + Convert.ToString(current.relaunch.target["started"], System.Globalization.CultureInfo.InvariantCulture);
-                activityProcess = Process.Start(new ProcessStartInfo(python, args) {
+                    " --target-started " + Convert.ToString(current.relaunch.target["started"], System.Globalization.CultureInfo.InvariantCulture) +
+                    " --target-created " + Quote(Convert.ToString(current.relaunch.target["created"]));
+                activityProcess = Process.Start(new ProcessStartInfo(node, args) {
                     UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
                 });
                 activityProcess.BeginOutputReadLine(); activityProcess.BeginErrorReadLine();
@@ -560,13 +595,13 @@ namespace BetterCodex {
             } else return;
             if (!String.IsNullOrEmpty(current.correlation_id)) operation += " --correlation-id " + Quote(current.correlation_id);
             try {
-                if (!File.Exists(python)) {
+                if (!File.Exists(node)) {
                     var config = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settings, Encoding.UTF8));
-                    python = Convert.ToString(config["python"]);
+                    node = Convert.ToString(config["node"]);
                 }
-                if (!File.Exists(python)) return;
-                string script = Path.Combine(Path.GetDirectoryName(workerScript), "relaunch.py");
-                var info = new ProcessStartInfo(python, "-B -X utf8 " + Quote(script) + " --settings " + Quote(settings) +
+                if (!File.Exists(node)) return;
+                string script = RelaunchScript;
+                var info = new ProcessStartInfo(node, "--no-warnings=ExperimentalWarning " + Quote(script) + " --settings " + Quote(settings) +
                     operation) { UseShellExecute = false, CreateNoWindow = true };
                 using (Process child = Process.Start(info)) { }
             } catch (Exception) { }
@@ -581,21 +616,18 @@ namespace BetterCodex {
                 previewRestarted = true; actionNote = T("previewRelaunch"); StartCheck(); return;
             }
             try {
-                string runtime = Path.Combine(Path.GetDirectoryName(settings), "runtime");
+                string runtime = StateDirectory;
                 string nonce = Guid.NewGuid().ToString("N");
                 actionDirectory = Path.Combine(runtime, "startup-check", nonce);
                 Directory.CreateDirectory(actionDirectory);
                 actionOutput = Path.Combine(actionDirectory, "action.json");
-                string request = Path.Combine(runtime, "startup-relaunch-request.json");
+                string request = Path.Combine(actionDirectory, "request.json");
                 File.WriteAllText(request + ".next", json.Serialize(new {
                     nonce = nonce, createdAt = (DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds, plan = current.relaunch
                 }), new UTF8Encoding(false));
-                if (File.Exists(request)) File.Delete(request);
                 File.Move(request + ".next", request);
-                string launcher = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(workerScript), "..", "Start-ComposerHud.ps1"));
-                string shell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-                actionProcess = Process.Start(new ProcessStartInfo(shell,
-                    "-NoProfile -NonInteractive -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File " + Quote(launcher) + " -TaskMode Reload") {
+                actionProcess = Process.Start(new ProcessStartInfo(node,
+                    "--no-warnings=ExperimentalWarning " + Quote(RelaunchScript) + " --settings " + Quote(settings) + " --execute --request " + nonce) {
                     UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
                 });
                 actionProcess.BeginOutputReadLine(); actionProcess.BeginErrorReadLine();
@@ -664,8 +696,6 @@ namespace BetterCodex {
                 if (WindowState != FormWindowState.Minimized)
                     Native.ShowWindow(Handle, 7 /* SW_SHOWMINNOACTIVE */);
             }
-            body.SuspendLayout();
-            int top = 0;
             int dpi = (int)Native.GetDpiForWindow(Handle);
             float s = dpi / 96f;
             if (fontDpi != dpi) {
@@ -678,9 +708,21 @@ namespace BetterCodex {
                 heading.Font = new Font(family, 32 * s, FontStyle.Bold, GraphicsUnit.Pixel);
                 foreach (RecoveryButton button in new[] { CopyReport, Recheck, RelaunchAction, closeGlyph }) { button.Font = Font; button.DpiScaleOverride = s; }
             }
+            LayoutReport(DisplayRows(data), Screen.FromControl(this).WorkingArea, s);
+            if (data.appearance != null && String.IsNullOrEmpty(forcedTheme)) ApplyAppearance(data.appearance.dark, data.appearance.surface);
+            else ApplyAppearance(dark, dark ? "#111111" : "#ffffff");
+            if (!healthy) autoCloseArmed = false;
+            else if (!autoCloseArmed) {
+                autoCloseArmed = true; autoCloseElapsed = 0; autoCloseTick = Stopwatch.GetTimestamp();
+            }
+        }
+        private void LayoutReport(StartupCheckRowData[] displayed, Rectangle work, float s) {
+            body.SuspendLayout();
+            int scrollY = -body.AutoScrollPosition.Y;
+            body.AutoScrollPosition = Point.Empty;
             int padding = (int)(28 * s);
+            int edge = (int)(12 * s), bodyTop = (int)(132 * s), footerSpace = (int)(88 * s);
             int contentWidth = (int)(504 * s);
-            StartupCheckRowData[] displayed = DisplayRows(data);
             foreach (StartupCheckRowData item in displayed) {
                 string single = (item.summary ?? item.detail ?? "").Replace("\r", "").Replace("\n", " · ");
                 if (item.id == "permissions") single = "";
@@ -690,7 +732,7 @@ namespace BetterCodex {
             int recheckWidth = Math.Max((int)(104 * s), TextRenderer.MeasureText(T("recheck"), Font).Width + (int)(24 * s));
             int reloadWidth = ReloadWidth(s);
             contentWidth = Math.Max(contentWidth, copyWidth + recheckWidth + reloadWidth + (int)(32 * s));
-            int formWidth = Math.Min(contentWidth + 2 * padding, Screen.FromControl(this).WorkingArea.Width - (int)(32 * s));
+            int formWidth = Math.Min(contentWidth + 2 * padding, work.Width - (int)(32 * s));
             int width = formWidth - 2 * padding;
             string suggestionId = null;
             foreach (StartupCheckRowData item in displayed)
@@ -710,35 +752,62 @@ namespace BetterCodex {
                     view.UpdateData(item, item.id == suggestionId);
                 } else {
                     view = new StartupCheckRow(item, family, item.id == suggestionId, s);
+                    StartupCheckRow actionRow = view;
+                    view.RetainPrompt.Click += delegate { RetainCurrentPrompt(actionRow.Data.promptRetentionKey); };
                     view.ApplyAppearance(dark, body.BackColor);
                     rows.Add(view);
                     body.Controls.Add(view);
                 }
-                view.Arrange(width, false); view.Location = new Point(0, top);
-                top += view.Height;
+                view.RetainPrompt.Text = T("promptRetain");
+                view.RetainPrompt.Enabled = Recheck.Enabled && String.IsNullOrEmpty(preview) && promptConfirmation == null;
             }
-            if ((int)(220 * s) + top > Screen.FromControl(this).WorkingArea.Height - (int)(24 * s)) {
-                top = 0;
-                foreach (StartupCheckRow view in rows) { view.Arrange(width, true); view.Top = top; top += view.Height; }
-            }
-            int formHeight = (int)(132 * s) + top + (int)(88 * s);
+            int maxHeight = work.Height - 2 * edge;
+            int rowsHeight = ArrangeRows(width, false);
+            if (bodyTop + rowsHeight + footerSpace > maxHeight) rowsHeight = ArrangeRows(width, true);
+            int formHeight = Math.Min(bodyTop + rowsHeight + footerSpace, maxHeight);
             ClientSize = new Size(formWidth, formHeight);
-            Rectangle work = Screen.FromControl(this).WorkingArea;
-            int edge = (int)(12 * s);
-            if (Bottom > work.Bottom - edge) Top = Math.Max(work.Top + edge, work.Bottom - Height - edge);
-            if (Right > work.Right - edge) Left = Math.Max(work.Left + edge, work.Right - Width - edge);
+            Location = new Point(Math.Max(work.Left + edge, Math.Min(Left, work.Right - Width - edge)),
+                Math.Max(work.Top + edge, Math.Min(Top, work.Bottom - Height - edge)));
             caption.Bounds = new Rectangle(padding, (int)(19 * s), formWidth - 2 * padding - (int)(32 * s), (int)(24 * s));
             heading.Bounds = new Rectangle(padding + (int)(42 * s), (int)(61 * s), width - (int)(42 * s), (int)(46 * s));
             stateIcon.Bounds = new Rectangle(padding, (int)(69 * s), (int)(28 * s), (int)(28 * s));
             closeGlyph.Bounds = new Rectangle(formWidth - (int)(46 * s), (int)(14 * s), (int)(32 * s), (int)(32 * s));
-            body.Bounds = new Rectangle(padding, (int)(132 * s), width, top);
+            int bodyHeight = Math.Max(0, Math.Min(rowsHeight, ClientSize.Height - bodyTop - footerSpace));
+            bool overflow = rowsHeight > bodyHeight;
+            // Use the right margin for the native scrollbar so row widths and wrapping do not change.
+            int scrollWidth = overflow ? Native.GetSystemMetricsForDpi(2 /* SM_CXVSCROLL */, (uint)fontDpi) : 0;
+            body.Bounds = new Rectangle(padding, bodyTop, width + scrollWidth, bodyHeight);
+            body.AutoScrollMinSize = overflow ? new Size(0, rowsHeight) : Size.Empty;
             LayoutFooter();
             body.ResumeLayout();
-            if (data.appearance != null && String.IsNullOrEmpty(forcedTheme)) ApplyAppearance(data.appearance.dark, data.appearance.surface);
-            else ApplyAppearance(dark, dark ? "#111111" : "#ffffff");
-            if (!healthy) autoCloseArmed = false;
-            else if (!autoCloseArmed) {
-                autoCloseArmed = true; autoCloseElapsed = 0; autoCloseTick = Stopwatch.GetTimestamp();
+            if (overflow && scrollY > 0) body.AutoScrollPosition = new Point(0, scrollY);
+        }
+        private int ArrangeRows(int width, bool compact) {
+            int top = 0;
+            foreach (StartupCheckRow view in rows) {
+                view.Arrange(width, compact);
+                view.Location = new Point(0, top);
+                top += view.Height;
+            }
+            return top;
+        }
+        private void RetainCurrentPrompt(string key) {
+            if (String.IsNullOrEmpty(key) || promptConfirmation != null || !Recheck.Enabled || !String.IsNullOrEmpty(preview)) return;
+            CancelCountdown(false); autoCloseArmed = false;
+            try {
+                var start = new ProcessStartInfo(node, "--no-warnings=ExperimentalWarning " + Quote(workerScript) + " --settings " + Quote(settings) +
+                    " --acknowledge-prompt " + Quote(key)) {
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+                };
+                promptConfirmation = Process.Start(start);
+                promptConfirmation.BeginOutputReadLine(); promptConfirmation.BeginErrorReadLine();
+                promptConfirmationStarted = DateTime.UtcNow;
+                Recheck.Enabled = RelaunchAction.Enabled = false;
+                foreach (StartupCheckRow view in rows) view.RetainPrompt.Enabled = false;
+            } catch (Exception) {
+                if (promptConfirmation != null) { promptConfirmation.Dispose(); promptConfirmation = null; }
+                StartCheck();
+                MessageBox.Show(this, T("promptRetentionFailed"), T("title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
         private int ReloadWidth(float scale) {
@@ -796,13 +865,12 @@ namespace BetterCodex {
             if (!String.IsNullOrEmpty(forcedTheme)) isDark = forcedTheme == "dark";
             // Reuse the same TOML reader as recovery, without blocking the UI.
             string stamp = isDark + "|" + (configPath == null ? "" : File.GetLastWriteTimeUtc(configPath).Ticks.ToString());
-            if (String.IsNullOrEmpty(forcedTheme) && File.Exists(python) && configPath != null && stamp != appearanceStamp && !appearanceReading) {
+            if (String.IsNullOrEmpty(forcedTheme) && File.Exists(node) && configPath != null && stamp != appearanceStamp && !appearanceReading) {
                 appearanceReading = true; appearanceStamp = stamp;
                 System.Threading.Tasks.Task.Factory.StartNew(delegate {
                     StartupCheckAppearance updated = null;
                     try {
-                        string script = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(workerScript), "..", "shared", "recovery_appearance.py"));
-                        using (var child = Process.Start(new ProcessStartInfo(python, "-B -X utf8 " + Quote(script) + " " + Quote(configPath)) {
+                        using (var child = Process.Start(new ProcessStartInfo(node, "--no-warnings=ExperimentalWarning " + Quote(workerScript) + " --appearance " + Quote(configPath)) {
                             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
                         })) {
                             child.BeginErrorReadLine();
@@ -892,7 +960,7 @@ namespace BetterCodex {
         }
         protected override void WndProc(ref Message message) {
             base.WndProc(ref message);
-            if (message.Msg == 0x02E0 && current != null)
+            if ((message.Msg == 0x02E0 || message.Msg == 0x0232) && current != null) // WM_DPICHANGED / WM_EXITSIZEMOVE
                 BeginInvoke(new Action(delegate { if (!IsDisposed) SetReport(current); }));
         }
         public static void EnableDpiAwareness() {
@@ -901,7 +969,7 @@ namespace BetterCodex {
                 Native.SetThreadDpiAwarenessContext(new IntPtr(-4));
             } catch (EntryPointNotFoundException) { }
         }
-        public static void Run(string settings, string script, string messages, string locale, string preview, string theme, bool afterUpdate) {
+        public static void Run(string settings, string script, string nodePath, string messages, string locale, string preview, string theme, bool afterUpdate) {
             string name;
             using (var hash = SHA256.Create()) name = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(
                 Path.GetFullPath(settings).ToLowerInvariant()))).Replace("-", "").Substring(0, 16);
@@ -922,7 +990,10 @@ namespace BetterCodex {
                     using (var refresh = new EventWaitHandle(false, EventResetMode.AutoReset, name + "-refresh"))
                     using (var update = new EventWaitHandle(false, EventResetMode.AutoReset, name + "-update"))
                     using (var form = new StartupCheckDialog(settings, script, messages, locale, preview, theme, refresh, update, afterUpdate))
+                    {
+                        form.node = nodePath;
                         Application.Run(form);
+                    }
                 } finally { if (held) mutex.ReleaseMutex(); }
             }
         }
@@ -934,6 +1005,7 @@ namespace BetterCodex {
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern bool SetProcessDpiAwarenessContext(IntPtr context);
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
             [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
+            [System.Runtime.InteropServices.DllImport("user32.dll")] internal static extern int GetSystemMetricsForDpi(int index, uint dpi);
             [System.Runtime.InteropServices.DllImport("dwmapi.dll")] internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
         }
     }

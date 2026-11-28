@@ -1,7 +1,7 @@
 // Synthetic layout contract; desktop acceptance is recorded separately.
 const fs=require('node:fs'),path=require('node:path');
-const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolve(__dirname,'../../.runtime/token-hud/node/node_modules/playwright'));
-const source=fs.readFileSync(path.join(__dirname,'../../src/interface/reading/reading-width.js'),'utf8');
+const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolve(__dirname,'../../scripts/node/node_modules/playwright'));
+const source=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/reading-width.js'),'utf8');
 const scratch=path.resolve(process.argv[2]);
 const results=[];
 function check(name,ok){if(!ok)throw Error(name);results.push(name);}
@@ -95,8 +95,9 @@ html{font-size:16px;--thread-content-max-width:48rem}body{margin:0}
    html{font-size:16px;--thread-content-max-width:48rem}body{margin:0;font:16px/1.6 sans-serif}
    .thread-scroll-container{height:550px;padding:0 16px;overflow:auto}
    .panel{overflow:clip}.transcript{width:100%;max-width:var(--thread-content-max-width);margin:auto}
+   [data-markdown-text-style="assistant-message"]{display:grid;grid-template-columns:minmax(0,1fr)}
    [data-markdown-table]{position:relative;width:100%;min-width:100%;margin:24px 0}
-   [data-markdown-table][data-wide-block]{width:fit-content;max-width:calc(50% + 800px)}
+   [data-markdown-table][data-wide-block]{justify-self:unsafe center;width:fit-content;max-width:calc(50% + 800px)}
    ._TableScroller_fixture,.TableScroller-native{overflow-x:auto;display:flex}
    ._TableWrapper_fixture,.TableWrapper-native{flex-shrink:0;width:fit-content;min-width:100%}
    table{border-collapse:separate;border-spacing:0;table-layout:auto;width:fit-content;min-width:100%}
@@ -129,7 +130,7 @@ html{font-size:16px;--thread-content-max-width:48rem}body{margin:0}
   check('table-centering-can-be-disabled',await page.evaluate(()=>window.__codexReadingWidth.setTableCentered(false).tableCentered===false));
   const nativeSmall=await box('#small'),nativeBody=await box('.transcript');
   check('uncentered-table-uses-native-start-alignment',near(nativeSmall.left,nativeBody.left)&&near(nativeSmall.width,nativeBody.width));
-  check('uncentered-table-keeps-column-enhancement',await page.locator('#wide td').first().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='32px'&&await page.locator('[data-codex-hud-reading-table]').count()===4);
+  check('uncentered-table-keeps-column-enhancement',await page.locator('#wide td').first().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='20px'&&await page.locator('[data-codex-hud-reading-table]').count()===4);
   check('table-centering-can-be-restored',await page.evaluate(()=>window.__codexReadingWidth.setTableCentered(true).tableCentered===true));
   check('restored-table-is-centered-again',near((await box('#small')).center,(await box('.transcript')).center));
   const tablesDisabled=await page.evaluate(()=>window.__codexReadingWidth.setTablesEnabled(false));
@@ -138,11 +139,12 @@ html{font-size:16px;--thread-content-max-width:48rem}body{margin:0}
   const tablesEnabled=await page.evaluate(()=>window.__codexReadingWidth.setTablesEnabled(true));
   check('table-master-switch-restores-layout-enhancement',tablesEnabled.tableEnabled===true&&tablesEnabled.tables===4&&await page.locator('[data-codex-hud-reading-table]').count()===4);
   check('prose-column-readable-minimum',await page.locator('#wide td').nth(1).evaluate(e=>getComputedStyle(e).minWidth)==='96px');
-  check('column-gap-is-32px',await page.locator('#wide td').first().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='32px');
+  check('short-column-gap-is-20px',await page.locator('#wide td').first().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='20px');
+  check('prose-column-gap-stays-32px',await page.locator('#wide td').nth(1).evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='32px');
   check('last-column-padding-stays-native',await page.locator('#wide td').last().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='24px');
   await page.evaluate(()=>{const style=document.createElement('style');style.id='font-fixture';style.textContent='#wide table{font-size:20px}';document.head.append(style);});await update(768);
   check('font-change-refreshes-measurement-without-content-mutation',await page.locator('#wide td').nth(1).evaluate(e=>getComputedStyle(e).minWidth)==='120px');
-  check('font-change-keeps-gap-at-32px',await page.locator('#wide td').first().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='32px');
+  check('font-change-keeps-prose-gap-at-32px',await page.locator('#wide td').nth(1).evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='32px');
   await page.evaluate(()=>document.querySelector('#font-fixture').remove());await update(768);
   check('native-font-and-alignment-retained',await page.locator('#wide table').evaluate(e=>getComputedStyle(e).tableLayout)==='auto');
   check('long-prose-uses-comfortable-column-wrap',await width('#prose')<500);
@@ -203,16 +205,18 @@ html{font-size:16px;--thread-content-max-width:48rem}body{margin:0}
   await page.locator('#mixed td').nth(1).evaluate(e=>{e.firstChild.data='这段流式说明现在需要更宽的列来保留清晰的阅读空间';});
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
   check('text-node-streaming-refreshes-readable-floor',await page.locator('#mixed td').nth(1).evaluate(e=>getComputedStyle(e).minWidth)==='96px');
+  check('streamed-prose-restores-comfortable-gap',await page.locator('#mixed td').nth(1).evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='32px');
   await page.locator('#mixed td').nth(1).evaluate(e=>{e.firstChild.data='先做';});
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
   check('shorter-content-releases-column-width',await page.locator('#mixed td').nth(1).evaluate(e=>e.getBoundingClientRect().width<100));
+  check('shortened-content-restores-compact-gap',await page.locator('#mixed td').nth(1).evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='20px');
   check('measurement-leaves-no-live-markers',await page.locator('[data-codex-hud-table-measuring]').count()===0);
   const beforeRename=await width('#mixed');
   await page.evaluate(()=>{
    document.querySelectorAll('._TableScroller_fixture').forEach(e=>e.className='TableScroller-native');
    document.querySelectorAll('._TableWrapper_fixture').forEach(e=>e.className='TableWrapper-native');
   });await update(992);
-  check('updated-codex-class-names-preserve-column-layout',near(await width('#mixed'),beforeRename)&&await page.locator('#mixed td').first().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='32px');
+  check('updated-codex-class-names-preserve-column-layout',near(await width('#mixed'),beforeRename)&&await page.locator('#mixed td').first().evaluate(e=>getComputedStyle(e).paddingInlineEnd)==='20px');
   if(process.env.BETTER_CODEX_TABLE_SCREENSHOT){
    await page.locator('#mixed').screenshot({path:process.env.BETTER_CODEX_TABLE_SCREENSHOT});
    await page.setViewportSize({width:640,height:700});await update(992);
@@ -282,6 +286,42 @@ html{font-size:16px;--thread-content-max-width:48rem}body{margin:0}
   await page.evaluate(()=>window.__codexReadingWidth.remove());
   check('stop-restores-native-table-styles',await page.locator('[data-codex-hud-reading-table],#codex-hud-reading-tables').count()===0&&await width('#small')===768);
   check('stop-removes-measurement-styles',await page.locator('#codex-hud-reading-table-measure,[data-codex-hud-table-measuring]').count()===0);
+  await page.setContent(`<!doctype html><style>
+   header{display:flex;width:420px} [data-viewer-header-item]{display:flex;flex:1;min-width:0}
+   nav{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
+   nav>div{grid-area:1/1;min-width:0;max-width:100%;justify-self:start}
+   nav>[aria-hidden]{visibility:hidden;height:0} nav span{display:block;width:240px;transform:scaleX(1.0001)}
+   nav ol{display:flex;width:max-content;max-width:100%;overflow:hidden;margin:0;padding:0;list-style:none}
+   nav li{width:240px;flex:none} nav li[aria-hidden]{display:none;width:24px} nav[data-compact] li[aria-hidden]{display:list-item}
+  </style><header data-viewer-density="compact"><div data-viewer-header-item><nav aria-label="File path">
+   <div aria-hidden="true"><span></span></div><div data-menu-overlay-surface><div><ol><li aria-hidden="true">…</li>
+   <li><button onclick="this.dataset.clicked='true'">File</button></li></ol></div></div>
+  </nav></div><button id="tools">Tools</button></header>`);
+  // A fractional intrinsic width undercounts the path in the full state; the
+  // compact label grows it again. This models the native fit feedback loop.
+  await page.locator('nav').evaluate(nav=>{
+   new ResizeObserver(()=>nav.toggleAttribute('data-compact',nav.getBoundingClientRect().width<nav.querySelector('span').getBoundingClientRect().width)).observe(nav);
+  });
+  const samplePath=()=>page.locator('nav').evaluate(async nav=>{
+   const states=new Set();
+   for(let i=0;i<8;i++){
+    await new Promise(resolve=>requestAnimationFrame(resolve));
+    states.add(nav.hasAttribute('data-compact'));
+   }
+   return [...states];
+  });
+  check('native-file-path-fixture-oscillates', (await samplePath()).length===2);
+  const toolsBefore=await box('#tools');
+  await page.evaluate(source);
+  await page.waitForFunction(()=>!document.querySelector('nav').hasAttribute('data-compact'));
+  check('file-path-stable-at-fractional-intrinsic-width',JSON.stringify(await samplePath())==='[false]'&&near((await box('#tools')).left,toolsBefore.left)&&await width('[data-menu-overlay-surface]')===240);
+  await page.locator('nav button').click();
+  check('file-path-native-button-stays-clickable',await page.locator('nav button').getAttribute('data-clicked')==='true');
+  await page.locator('header').evaluate(e=>e.style.width='225px');
+  await page.waitForFunction(()=>document.querySelector('nav').hasAttribute('data-compact'));
+  check('file-path-still-compacts-when-panel-narrows',JSON.stringify(await samplePath())==='[true]');
+  await page.evaluate(()=>window.__codexReadingWidth.remove());
+  check('stop-restores-native-file-path-layout',await page.locator('#codex-hud-file-path-width').count()===0&&await page.locator('nav').evaluate(e=>getComputedStyle(e).flexGrow)==='0');
   const dimensions=({width,height,columns})=>({width,height,columns});
   console.log(JSON.stringify({scope:'synthetic Edge layout',passed:results.length,results,comparison:{before:dimensions(before),after:dimensions(after)}}));
  }finally{await browser.close();}

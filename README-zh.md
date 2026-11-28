@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44"><img alt="版本" src="https://img.shields.io/badge/version-v0.5.44-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v1.0.0"><img alt="版本" src="https://img.shields.io/badge/version-v1.0.0-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -19,7 +19,7 @@
 ## 最新源码
 
 - **四项统计**：本轮首次响应耗时（TTFT）、输出速度、缓存比例与统计时间。点击统计条打开设置，各项可单独显隐，也可拖动调整顺序。
-- **工作区文件树**：在聊天左侧实时显示当前工作区或 worktree，文件按类型分组、组内按名称排序。空格用可选的 [Better Codex Preview](src/interface/workspace_tree/preview/README.md) 或 [QuickLook／PowerToys Peek](src/interface/README.md#工作区文件树) 预览；双击打开，点击项目名打开当前目录。面板宽度可拖动，同一项目的聊天共享打开状态。
+- **工作区文件树**：在聊天左侧实时显示当前工作区或 worktree，文件按类型分组、组内按名称排序。空格用可选的 [Better Codex Preview](src/features/workspace-tree/host/preview/README.md) 或 [QuickLook／PowerToys Peek](src/features/workspace-tree/README.md) 预览；双击打开，点击项目名打开当前目录。面板宽度可拖动，同一项目的聊天共享打开状态。
 - **统一设置面板**：正文宽度可在 768–1600 px 间调整；「AI 回复字号」可独立设为 10–40 px，留空则跟随原生。也可设置文件列表默认收起、开关配色自定义修复。修改自动保存，支持撤销、重做与恢复默认。
 - **自动隐藏输入框**：在「界面设置」选择关闭、最小化或完全隐藏。已有聊天的空输入框失焦后收起，任务运行中也一样；切入已有聊天时直接应用所选状态。在正文区直接打字即可展开，首个拼音字母就进入中文输入法。用鼠标从侧栏点开聊天后，也可连按两次 Enter 展开并输入，最小化时也可点击「展开输入框」。开启「发送后自动隐藏」后，发送成功时即使焦点还在输入框里也会收起。空白新聊天、未发送的草稿和附件保持显示。
 - **表格阅读与排序**：按内容分配列宽，可独立于正文宽度整体居中。点击表头循环切换排序方向与原始顺序；按住 Ctrl 依次选择多列，先选的优先；Alt 可预设或反转方向。设置中可选择首次点击采用智能、升序或降序。排序仅改变当前页面的视觉顺序，复制仍保留原始顺序。
@@ -27,7 +27,7 @@
 - **斜杠菜单中的 Skills 显隐**：打开「界面设置 → 命令界面 → Skills」即可逐项显示或隐藏。默认隐藏 Health、Excel Live Control、Spreadsheets、Visualize、Create Statusline；不禁用技能，也不改变原生 `$` 选择器。
 - **斜杠菜单中的 Prompt 快捷入口**：Codex Home 的 `prompts` 一级目录中的 Markdown 模板会以三列显示在 Skills 下方。选择后只在当前光标处插入正文，不替换草稿、不自动发送；`Ctrl+↑/↓` 可在命令组、Skills 和 Prompt 之间快速跳转。
 - **AI 重命名**：从侧栏聊天菜单或斜杠菜单重命名单个聊天，也可在项目的 `…` 菜单选择「批量 AI 重命名」。批量功能只处理该侧栏分组内未删除、未归档且标题不含 `：` 的聊天，包括归入该分组的工作树聊天。程序筛选，Luna 只生成 `feat：AI 重命名` 这样的标题；Codex 在后台保存，不改草稿。
-- **本地运行历史**：通过 `tools/token-hud-local/Get-RuntimeHistory.ps1` 查询近期启动、增强与恢复事件；记录仅留本机、保留五天，不记录聊天正文。
+- **本地运行历史**：通过 `src/platform/observability/Get-RuntimeHistory.ps1` 查询近期启动、增强与恢复事件；记录仅留本机、保留五天，不记录聊天正文。
 
 <p align="center"><img src="Presentation/table-sorting.png" alt="Codex 原生渲染的六列宽表，包含状态图标、排序控件和两级排序优先级" width="900" /></p>
 
@@ -37,15 +37,15 @@ TTFT 取本轮首次模型响应。速度优先使用 magpie 提供的本轮最�
 
 ## 开始使用
 
-1. 从 [v0.5.44 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44) 下载 `better-codex-v0.5.44-windows-x64-portable.zip`。
+1. 从 [v1.0.0 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v1.0.0) 下载 `better-codex-v1.0.0-windows-x64-portable.zip`。
 2. **完整解压**到可写、准备长期保留的目录。
-3. 双击 `BetterCodex.exe`；点击输入框底部的统计文字调节正文宽度。便携包不需要安装 Python/Node.js，首次启动不下载依赖。
+3. 双击 `BetterCodex.exe`；点击输入框底部的统计文字调节正文宽度。便携包无需另外安装 Node.js，首次启动不下载依赖。
 
 Codex 未运行时，从快捷方式启动会自动运行体检；如果 Codex 已经在运行（包括后台），点击任务栏图标会唤起 Codex，不再触发体检。体检默认最小化，有问题需要关注时才展开完整窗口。全部通过时保持最小化，或将自动展开的窗口收回任务栏，30 秒后自动关闭。确认增强未加载或刚完成 Codex 更新后，检测全部结束才开始 **15 秒重开倒计时**；点击按钮立即执行，**X / Esc 取消**。重开请求正常退出，失败不强制终止、不循环。当前工作需要保留时请取消，方便后再重开。
 
 随时双击 `Stop.cmd` 停止增强、恢复原生布局；Codex 和聊天历史保留。再次运行联合入口可恢复增强。
 
-## v0.5.44 功能
+## v1.0.0 核心能力
 
 | 使用场景 | 能力 |
 | --- | --- |
@@ -66,11 +66,11 @@ Codex 未运行时，从快捷方式启动会自动运行体检；如果 Codex �
 
 | 任务 | PowerShell 命令 |
 | --- | --- |
-| 启用登录启动 | `.\tools\token-hud-local\Set-LoginStartup.ps1 -Mode Enable` |
-| 启用 Codex 更新监测 | `.\tools\token-hud-local\Set-UpdateRecovery.ps1 -Mode Enable` |
+| 启用登录启动 | `.\src\lifecycle\installation\Set-LoginStartup.ps1 -Mode Enable` |
+| 启用 Codex 更新监测 | `.\src\lifecycle\recovery\Set-UpdateRecovery.ps1 -Mode Enable` |
 | 查看开关状态 | 对应脚本使用 `-Mode Status` |
 | 关闭上述开关 | 对应脚本使用 `-Mode Disable` |
-| 只读启动检查 | `.\tools\token-hud-local\Start-ComposerHud.ps1 -CheckOnly` |
+| 只读启动检查 | `.\src\app\Start-ComposerHud.ps1 -CheckOnly` |
 
 登录启动应保持单一入口：启用本项目入口时关闭 Codex 自身的登录启动。更新监测依赖增强后台，确认新版本后打开同一体检，再进行可取消的重开；关闭监测不会取消已经打开的倒计时。它不负责更新 Better-Codex，未来真实 Codex 升级恢复仍待自然使用验收。
 
@@ -78,6 +78,8 @@ Codex 未运行时，从快捷方式启动会自动运行体检；如果 Codex �
 
 <details>
 <summary>升级、移动与卸载</summary>
+
+从 v0.5.x 升级到 v1.0.0 请先阅读 [v1.0.0 升级指南](docs/UPGRADE-v1.md)（首次运行会自动无损迁移既有用户配置并接管本副本快捷方式）。
 
 旧版 v0.4.1 如启用过管理员启动，先在旧副本运行 `Set-AdministratorLaunch.ps1 -Mode Disable`（位于 `tools/token-hud-local/`），再升级、移动或卸载；该命令仅属于旧版。
 
@@ -91,7 +93,7 @@ Codex 未运行时，从快捷方式启动会自动运行体检；如果 Codex �
 
 | 现象 | 处理 |
 | --- | --- |
-| 统计未出现 | 先做只读检查；需完整体检时运行 `tools/token-hud-local/Show-StartupCheck.ps1`，工作中注意取消重开倒计时 |
+| 统计未出现 | 先做只读检查；需完整体检时运行 `src/lifecycle/diagnostics/Show-StartupCheck.ps1`，工作中注意取消重开倒计时 |
 | `restart-required` | 现有实例缺少显示接口或不满足启动条件；方便时正常退出，再从联合入口打开 |
 | `hud-preparation-failed` | 检查文件是否完整；停止本副本增强后将完整 ZIP 解压到新目录，不在压缩包内运行 |
 | 显示 `-` 或暂时隐藏 | 缺少用量/计时、聊天关联不确定、数据过期或布局不兼容；不代表速度为零，也不借用其他聊天数据 |
@@ -110,7 +112,7 @@ Codex 页面更新可能需要适配；不同版本、全部窗口布局和显�
 
 ## 开发与来源
 
-体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v0.5.44-source.zip`。当前源码安装需要 Python 3.11+、Node.js 22.15.0 或更新版本，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`，运行增强无需 npm 包或 Playwright。语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
+体验上图的最新界面，请克隆或下载本仓库的 **main 分支**；如需固定版本，下载 `better-codex-v1.0.0-source.zip`。源码安装需要 Node.js 24.11.1 或更新的 24.x 版本，运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`，运行增强无需 npm 包或 Playwright。语言可选 `-Language en` / `-Language zh-CN`。操作请参照所选源码版本随附的[开发说明](docs/DEVELOPMENT.md)。
 
 本地采集器复用自 [codex-token-hud](https://github.com/drkang7/codex-token-hud)。感谢 [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud)、[codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud) 与 [openai/codex](https://github.com/openai/codex)。复用范围、版本和许可见[第三方声明](THIRD_PARTY_NOTICES.md)。
 

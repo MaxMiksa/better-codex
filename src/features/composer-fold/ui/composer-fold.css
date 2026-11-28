@@ -1,0 +1,127 @@
+#codex-hud-expand-composer {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  max-width: 100%;
+  padding: 0 13px;
+  border: 1px solid var(--color-border, #7776);
+  border-radius: 999px;
+  background: var(--bc-composer-surface, var(--color-background-secondary, #323237));
+  color: var(--color-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+
+#codex-hud-expand-composer svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#codex-hud-expand-composer:hover {
+  background: color-mix(
+    in srgb,
+    var(--bc-composer-surface, var(--color-background-secondary, #323237)) 88%,
+    currentColor
+  );
+}
+
+#codex-hud-expand-composer:focus-visible {
+  outline: 2px solid var(--codex-base-accent, currentColor);
+  outline-offset: -3px;
+}
+
+#codex-hud-expand-composer[hidden],
+[data-bc-fold-measure-input] > #codex-hud-expand-composer {
+  display: none !important;
+}
+
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]) > [data-bc-composer-fold-track]:not(:is([data-bc-fold-status-path], [data-bc-fold-input-path])),
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]) :is([data-bc-fold-status-path], [data-bc-fold-input-path]) > :not(:is(:is([data-bc-fold-status-path], [data-bc-fold-input-path]), [data-bc-fold-status-row], [data-bc-fold-input])) {
+  display: none !important;
+}
+
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]) :is([data-bc-fold-status-path], [data-bc-fold-input-path]) {
+  display: contents !important;
+}
+
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]):has([data-bc-fold-input]) {
+  position: relative;
+}
+
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]) [data-bc-fold-input] {
+  position: absolute !important;
+  inset: auto auto var(--bc-fold-input-bottom, 0px) var(--bc-fold-input-left, 0px) !important;
+  width: var(--bc-fold-input-width, 0px) !important;
+  height: var(--bc-fold-input-height, 0px) !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]):has(> [data-bc-composer-fold-track][data-bc-fold-status-path]) {
+  display: flex;
+  flex-flow: row wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]) [data-bc-fold-status-row] {
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  height: auto !important;
+  align-self: center;
+}
+
+:is([data-bc-composer-fold="minimize"], [data-bc-composer-fold="hide"]):not([data-bc-fold-measure-input]) [data-bc-fold-status-row] > div {
+  position: relative !important;
+  inset: auto !important;
+  padding-bottom: 0 !important;
+}
+
+[data-bc-composer-fold="moving"] {
+  position: relative;
+  min-height: 0 !important;
+  overflow: clip;
+}
+
+[data-bc-composer-fold="moving"] > [data-bc-composer-fold-track] {
+  position: absolute;
+  inset: auto 0 0;
+  transform-origin: center bottom;
+}
+
+[data-bc-composer-fold="moving"] > #codex-hud-expand-composer {
+  position: absolute;
+  inset: auto auto 0 50%;
+  translate: -50% 0;
+}
+
+[data-bc-composer-fold="moving"]:has([data-codex-composer="true"]:focus) > [data-bc-composer-fold-track],
+[data-bc-composer-fold="moving"] [data-composer-body]:has([data-codex-composer="true"]:focus) {
+  scale: none !important;
+}
+
+[data-bc-fold-closing] > [data-bc-composer-fold-track] {
+  pointer-events: none;
+}
+
+[data-bc-fold-closing] > [data-bc-composer-fold-track]:not([data-bc-fold-input-path]),
+[data-bc-fold-closing] [data-bc-fold-input-path] > :not([data-bc-fold-input-path], [data-bc-fold-input]) {
+  interactivity: inert;
+}

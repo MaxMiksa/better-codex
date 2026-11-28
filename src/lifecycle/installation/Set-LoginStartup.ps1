@@ -2,17 +2,22 @@ param([ValidateSet('Enable','Disable','Status')][string]$Mode = 'Status')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../../platform/i18n/i18n.ps1')
 $workspace = $script:BetterCodexRoot
-$startup = [Environment]::GetFolderPath('Startup')
+$startup = Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/Startup'
 $destination = Join-Path $startup 'Codex with HUD.lnk'
 $source = Join-Path $workspace 'launchers/Codex.lnk'
-$wrapper = Join-Path $workspace '.runtime/token-hud/embedded/start-composer.vbs'
+$wrapper = Join-Path $workspace '.runtime/launchers/start-better-codex.vbs'
 $expectedTarget = Join-Path $env:WINDIR 'System32/wscript.exe'
 $expectedArguments = '"{0}"' -f $wrapper
-$shell = New-Object -ComObject WScript.Shell
+$helper = Join-Path $workspace 'src/generated/native/BetterCodexNative.exe'
 
 function Test-OwnedShortcut([string]$Path) {
-    $link = $shell.CreateShortcut($Path)
-    return $link.TargetPath -eq $expectedTarget -and $link.Arguments -eq $expectedArguments
+    $receipt = & $helper shortcut-inspect --path $Path | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or -not $receipt.ok) { return $false }
+    $link = $receipt.shortcut
+    $allowed = @($expectedArguments, ('"{0}"' -f (Join-Path $workspace '.runtime/token-hud/embedded/start-composer.vbs')),
+        ('"{0}"' -f (Join-Path $workspace '.runtime/hud/service/start-embedded.vbs')))
+    return $link.target -eq $expectedTarget -and $link.arguments -in $allowed -and
+        $link.appId -in @('OpenAI.Codex_2p2nqsd0c76g0!App','com.openai.codex')
 }
 
 if ((Test-Path -LiteralPath $destination) -and -not (Test-OwnedShortcut $destination)) {

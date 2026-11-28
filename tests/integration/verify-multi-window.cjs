@@ -1,9 +1,9 @@
-// Production controller + collectors in isolated Edge pages, using synthetic logs only.
+// Production controller + in-process collectors in isolated Edge pages, using synthetic logs only.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn,execFile}=require('node:child_process'),{promisify}=require('node:util');
 const execute=promisify(execFile),{createSettingsStore}=require('../../src/platform/settings/settings-store.cjs');
-const {isMainPageUrl}=require('../../src/interface/host/page-contract.cjs');
-const {connectToBrowser}=require('../../src/interface/host/local-cdp.cjs');
+const {isMainPageUrl}=require('../../src/runtime/page-contract.cjs');
+const {connectToBrowser}=require('../../src/runtime/local-cdp.cjs');
 const root=path.resolve(__dirname,'../..'),scratch=path.resolve(process.argv[2]),evidence=path.resolve(process.argv[3]);
 const dependencies=JSON.parse(fs.readFileSync(process.argv[4],'utf8').replace(/^\uFEFF/,''));
 const playwright=require(dependencies.playwright),fixtureUrl='https://hud-fixture.invalid/index.html';
@@ -72,6 +72,7 @@ async function snapshot(page){
 }
 async function finish(child){
   if(!child||child.exitCode!==null||child.signalCode!==null)return;
+  if(child.stdin?.writable)child.stdin.end();
   await new Promise(resolve=>{child.once('exit',resolve);child.kill();});
 }
 (async()=>{
@@ -79,22 +80,44 @@ async function finish(child){
   assert.ok(!fs.existsSync(scratch),'use a fresh test directory');
   fs.mkdirSync(scratch,{recursive:true});fs.mkdirSync(evidence,{recursive:true});
   const home=path.join(scratch,'synthetic-home'),runtime=path.join(scratch,'runtime');
-  const sandbox=path.join(scratch,'settings sandbox 中文'),toolDir=path.join(sandbox,'tools/token-hud-local');
-  const settingsPath=path.join(sandbox,'.runtime/token-hud/embedded/settings.json');
+  const sandbox=path.join(scratch,'settings sandbox 中文');
+  const settingsPath=path.join(sandbox,'.runtime/settings.json');
   fs.mkdirSync(path.join(home,'sessions'),{recursive:true});fs.mkdirSync(runtime,{recursive:true});
   fs.mkdirSync(path.join(home,'prompts'));fs.writeFileSync(path.join(home,'prompts','First frame.md'),'Fixture only');
   fs.mkdirSync(path.dirname(settingsPath),{recursive:true});
-  fs.cpSync(path.join(root,'tools/token-hud-local'),toolDir,{recursive:true,filter:source=>!source.includes('__pycache__')});
   fs.cpSync(path.join(root,'src'),path.join(sandbox,'src'),{recursive:true,filter:source=>!source.includes('__pycache__')});
-  fs.copyFileSync(path.join(root,'VERSION'),path.join(sandbox,'VERSION'));
+  fs.copyFileSync(path.join(root,'package.json'),path.join(sandbox,'package.json'));
   logs(home,A,110,13);logs(home,B,370,83);
   fs.writeFileSync(path.join(home,'config.toml'),'[desktop.appearanceDarkChromeTheme]\naccentSource="custom"\naccent="#39c4f7"\nsurface="#111111"\n');
   // Substitute only the document contract in the copied controller. The native
   // CDP client, window worker and bindings are identical to the shipped files.
-  const host=path.join(sandbox,'src/interface/host');
+  const host=path.join(sandbox,'src/runtime');
   const guard='location.origin==='+JSON.stringify(new URL(fixtureUrl).origin)+'&&location.pathname==="/index.html"';
   fs.writeFileSync(path.join(host,'page-contract.cjs'),'module.exports={isMainPageUrl(value){try{const u=new URL(value);return u.origin==='+
     JSON.stringify(new URL(fixtureUrl).origin)+'&&u.pathname==="/index.html";}catch{return false;}},pageGuard:'+JSON.stringify(guard)+'};');
+  const preload=path.join(scratch,'collector-guard.cjs'),launches=path.join(scratch,'unexpected-subprocess');
+  fs.writeFileSync(preload,[
+    "const fs=require('node:fs'),path=require('node:path');",
+    "const children=require('node:child_process'),spawn=children.ChildProcess.prototype.spawn;",
+    "children.ChildProcess.prototype.spawn=function(options){",
+    "const name=path.basename(options.file).toLowerCase();",
+    "const settings=name==='bettercodexnative.exe'&&options.args[1]==='settings-lock';",
+    "const prompts=name==='cmd.exe'&&options.args[5]?.startsWith('dir /b /a:-d-h ');",
+    "if(settings||prompts)return spawn.call(this,options);",
+    "fs.appendFileSync("+JSON.stringify(launches)+",'attempt\\n');throw Error('Unexpected controller subprocess');};",
+    "const collectors=require("+JSON.stringify(path.join(host,'collector-session.cjs'))+");",
+    "const original=collectors.createCollector;",
+    "collectors.createCollector=options=>original({...options,makeSampler:()=>{const sample=collectors.createSampler(options);",
+    "return async selection=>{const mark=path.join(options.runtime,'fixture-sampler-failure');",
+    "if(fs.existsSync(mark)){fs.unlinkSync(mark);throw Error('Isolated one-window sampler fault');}return sample(selection);};}});"
+  ].join('\n'));
+  const isolatedEnv={...process.env,XDG_CONFIG_HOME:path.join(scratch,'xdg')};
+  // Invalid fixture port preserves the cache-only measurements without reading the real gateway config.
+  fs.mkdirSync(path.join(isolatedEnv.XDG_CONFIG_HOME,'magpie'),{recursive:true});
+  fs.writeFileSync(path.join(isolatedEnv.XDG_CONFIG_HOME,'magpie/settings.json'),'{"port":0}');
+  const startController=stdio=>spawn(dependencies.node,
+    ['--no-warnings=ExperimentalWarning','--require',preload,path.join(host,'controller.cjs'),settingsPath,runtime],
+    {env:isolatedEnv,windowsHide:true,stdio});
   let context,controller,lock;
   let output='';
   try{
@@ -108,16 +131,17 @@ async function finish(child){
     let p1=await context.newPage(),p2=await context.newPage();
     await Promise.all([p1.goto(fixtureUrl),p2.goto(fixtureUrl+'?initialRoute=fixture')]);
     await p2.evaluate(id=>{document.querySelector('[data-above-composer-conversation-id]').setAttribute('data-above-composer-conversation-id',id);},B);
-    const settings={python:dependencies.python,node:dependencies.node,port,codexHome:home,collectorDir:path.join(root,'tools/token-hud-local/collector'),readingWidth:1232,customAccent:true,sentinel:'保留中文设置'};
+    const settings={node:dependencies.node,port,codexHome:home,readingWidth:1232,customAccent:true,sentinel:'保留中文设置'};
     fs.writeFileSync(settingsPath,JSON.stringify(settings));
     const store=createSettingsStore(settingsPath,settings);
-    controller=spawn(dependencies.node,[path.join(host,'controller.cjs'),settingsPath,runtime],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+    controller=startController(['ignore','pipe','pipe']);
     controller.stdout.on('data',chunk=>{output+=chunk;});controller.stderr.on('data',chunk=>{output+=chunk;});
     const view=()=>read(path.join(runtime,'view-status.json'));
     const track=()=>{for(const entry of view()?.windows||[]){const data=read(path.join(runtime,'windows',entry.windowId,'metrics.json'));if(data?.collector_pid)collectors.add(data.collector_pid);}};
     const matching=async(page,id,speed,cache)=>{const s=await snapshot(page);return s.id===id&&s.speed===speed&&s.cache===cache;};
     await until(async()=>await matching(p1,A,'- tok/s','13%')&&await matching(p2,B,'- tok/s','83%'),'two independent rendered statistics');
-    track();check('native-fallback-preserves-distinct-chat-caches-with-missing-tps',view().windows.length===2&&collectors.size===2);
+    track();check('native-fallback-preserves-distinct-chat-caches-in-one-node-process',
+      view().windows.length===2&&collectors.size===1&&collectors.has(controller.pid));
     check('native-fallback-keeps-ttft-missing-in-both-windows',(await snapshot(p1)).ttft==='-s'&&(await snapshot(p2)).ttft==='-s');
     check('route-parameter-window-supported-without-accepting-other-documents',isMainPageUrl('app://-/index.html?initialRoute=fixture')&&!isMainPageUrl('app://-/detached-window.html?initialRoute=fixture')&&!isMainPageUrl('https://example.invalid/index.html'));
     check('all-enhancements-coexist-in-both-pages',(await snapshot(p1)).modules&&(await snapshot(p2)).modules&&(await snapshot(p1)).accentStyle&&(await snapshot(p2)).accentStyle&&(await snapshot(p1)).width===1232&&(await snapshot(p2)).width===1232);
@@ -157,22 +181,40 @@ async function finish(child){
     await until(async()=>read(settingsPath).assistantFontSize===23&&await replySize(p1)==='23px'&&await replySize(p2)==='23px','font saved and synchronized');
     await fontInput.fill('');await fontInput.press('Enter');
     await until(async()=>read(settingsPath).assistantFontSize===null&&await replySize(p1)==='16px'&&await replySize(p2)==='16px','native font saved and synchronized');
-    const foldControl=p1.getByRole('radiogroup',{name:'自动隐藏输入框'});
-    const foldOff=foldControl.getByRole('radio',{name:'关闭',exact:true});
-    const bothFold=async value=>read(settingsPath).composerAutoHide===value&&(await Promise.all([p1,p2].map(page=>page.evaluate(value=>window.__codexComposerFold&&window.__codexComposerHud.snapshot().preferences.composerAutoHide===value,value)))).every(Boolean);
-    await foldOff.press('ArrowRight');
-    await until(()=>bothFold('minimize'),'segmented control saves and syncs minimize');
-    await foldControl.getByRole('radio',{name:'最小化'}).press('ArrowRight');
+    const [fontField,widthField]=await Promise.all([fontInput,p1.locator('#width-number')].map(input=>input.evaluate(e=>{
+      const {x,y,width}=e.parentElement.getBoundingClientRect();return {x,y,width};
+    })));
+    check('font-row-is-first-and-number-fields-are-equally-wide',fontField.y<widthField.y&&fontField.x===widthField.x&&fontField.width===widthField.width);
+    const foldToggle=p1.getByRole('button',{name:'隐藏输入框',exact:true});
+    const foldMaster=p1.getByRole('switch',{name:'隐藏输入框',exact:true});
+    const foldControl=p1.getByRole('radiogroup',{name:'隐藏样式'});
+    check('input-hide-settings-start-collapsed',await foldToggle.getAttribute('aria-expanded')==='false'&&await foldControl.count()===0);
+    const bothFold=async(value,style=value)=>read(settingsPath).composerAutoHide===value&&read(settingsPath).composerHideStyle===style&&(await Promise.all([p1,p2].map(page=>page.evaluate(({value,style})=>{
+      const prefs=window.__codexComposerHud.snapshot().preferences;
+      return window.__codexComposerFold&&prefs.composerAutoHide===value&&prefs.composerHideStyle===style;
+    },{value,style})))).every(Boolean);
+    await foldMaster.click();
+    await until(()=>bothFold('minimize'),'header switch saves and syncs the default minimize style');
+    check('input-hide-master-toggles-without-expanding',await foldMaster.isChecked()&&await foldToggle.getAttribute('aria-expanded')==='false');
+    await foldToggle.press('Enter');
+    const minimize=foldControl.getByRole('radio',{name:'最小化'});
+    const hide=foldControl.getByRole('radio',{name:'完全隐藏'});
+    await minimize.press('ArrowRight');
     await until(()=>bothFold('hide'),'segmented control saves and syncs hide');
-    check('fold-segments-are-keyboard-selectable-and-mutually-exclusive',await foldControl.getByRole('radio',{checked:true}).count()===1&&await foldControl.getByRole('radio',{name:'完全隐藏'}).isChecked());
+    check('fold-style-has-only-two-keyboard-selectable-choices',await foldControl.getByRole('radio').count()===2&&await foldControl.getByRole('radio',{checked:true}).count()===1&&await hide.isChecked());
     await p1.locator('#undo').click();await until(()=>bothFold('minimize'),'undo restores minimize');
     await p1.locator('#redo').click();await until(()=>bothFold('hide'),'redo restores hide');
     const sendFold=p1.getByRole('switch',{name:'发送后自动隐藏'});
     const bothSendFold=async value=>read(settingsPath).composerHideAfterSend===value&&(await Promise.all([p1,p2].map(page=>page.evaluate(value=>window.__codexComposerHud.snapshot().preferences.composerHideAfterSend===value,value)))).every(Boolean);
     await sendFold.click();await until(()=>bothSendFold(true),'send option saves and syncs');
-    await foldOff.press('Space');await until(()=>bothFold('off'),'fold mode resets in both windows');
-    check('hide-after-send-is-synced-and-disabled-with-the-main-mode-off',await sendFold.isDisabled()&&await bothSendFold(true));
+    await foldMaster.press('Space');await until(()=>bothFold('off','hide'),'master switch preserves the selected style in both windows');
+    check('input-hide-sub-options-disable-without-losing-their-values',await minimize.isDisabled()&&await hide.isDisabled()&&await hide.isChecked()&&await sendFold.isDisabled()&&await bothSendFold(true));
     check('fold-preference-saves-and-syncs-with-undo-and-redo',true);
+    await foldToggle.click();
+    check('input-hide-settings-collapse-without-changing-preferences',await foldToggle.getAttribute('aria-expanded')==='false'&&await foldControl.count()===0&&await bothSendFold(true)&&await bothFold('off','hide'));
+    await foldMaster.click();await until(()=>bothFold('hide'),'re-enabling restores the remembered style');
+    await foldMaster.click();await until(()=>bothFold('off','hide'),'restore fixture to off');
+    check('input-hide-master-restores-last-selected-style',true);
     await p1.locator('#metrics').click();
     check('reply-font-and-native-reset-save-and-sync-across-windows',true);
     async function firstPromptFrame(page,stall=null){
@@ -258,22 +300,29 @@ async function finish(child){
     const shells=[path.join(process.env.WINDIR,'System32/WindowsPowerShell/v1.0/powershell.exe'),'C:/Program Files/PowerShell/7/pwsh.exe'];
     for(const shell of shells)for(let i=0;i<2;i++){
       await store.patch({readingWidth:1024,customAccent:true});
-      await Promise.all([store.patch({readingWidth:1232}),execute(shell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(toolDir,'Set-CustomAccent.ps1'),'-Mode','Disable'],{windowsHide:true,timeout:15000})]);
+      await Promise.all([store.patch({readingWidth:1232}),execute(shell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(sandbox,'src/features/appearance/host/Set-CustomAccent.ps1'),'-Mode','Disable'],{windowsHide:true,timeout:15000})]);
       const saved=read(settingsPath);assert.equal(saved.readingWidth,1232);assert.equal(saved.customAccent,false);assert.equal(saved.sentinel,'保留中文设置');
     }
     check('concurrent-node-and-powershell-5-and-7-writes-preserve-both-preferences',true);
-    await execute(shells[0],['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(toolDir,'Set-ReadingWidth.ps1'),'-Mode','Wide'],{windowsHide:true,timeout:15000});
+    const numbersPath=path.join(sandbox,'untouched-numbers.json');
+    fs.writeFileSync(numbersPath,'{"unrelated":{"id":9007199254740993,"negativeZero":-0}}');
+    await createSettingsStore(numbersPath,{}).patch({readingWidth:1232});
+    check('settings-patch-preserves-unknown-numeric-values-exactly',
+      /"id": 9007199254740993\b/.test(fs.readFileSync(numbersPath,'utf8'))&&Object.is(read(numbersPath).unrelated.negativeZero,-0));
+    await execute(shells[0],['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(sandbox,'src/features/reading/host/Set-ReadingWidth.ps1'),'-Mode','Wide'],{windowsHide:true,timeout:15000});
     check('reading-width-script-uses-the-shared-writer',read(settingsPath).readingWidth==='wide'&&read(settingsPath).customAccent===false);
     await store.patch({readingWidth:1232});
     await until(async()=>!(await snapshot(p1)).accentStyle&&!(await snapshot(p2)).accentStyle,'disable accent in both pages');
     check('disable-accent-keeps-other-enhancements-in-both-windows',(await snapshot(p1)).modules&&(await snapshot(p2)).modules);
-    lock=spawn(dependencies.python,['-I','-X','utf8','-c',"import ctypes,sys,time; k=ctypes.WinDLL('kernel32',use_last_error=True); k.CreateFileW.restype=ctypes.c_void_p; k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_ulong,ctypes.c_void_p]; h=k.CreateFileW(sys.argv[1],0x80000000,0,None,3,0,None); assert h!=ctypes.c_void_p(-1).value; print('ready',flush=True); time.sleep(30)",settingsPath],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+    lock=spawn(shells[0],['-NoProfile','-NonInteractive','-Command',
+      '$held=[IO.File]::Open($env:BC_FIXTURE_FILE,\'Open\',\'Read\',\'Read\'); try { [Console]::WriteLine(\'ready\'); [Console]::Read() | Out-Null } finally { $held.Dispose() }'],
+      {env:{...process.env,BC_FIXTURE_FILE:settingsPath},windowsHide:true,stdio:['pipe','pipe','pipe']});
     await new Promise((resolve,reject)=>{lock.stdout.once('data',resolve);lock.once('exit',code=>reject(Error('lock helper exited '+code)));lock.once('error',reject);});
     await sleep(1000);
     check('exclusive-file-lock-does-not-reenable-accent',!(await snapshot(p1)).accentStyle&&!(await snapshot(p2)).accentStyle&&store.read().customAccent===false);
     await assert.rejects(store.patch({readingWidth:1408}));
     check('unreadable-settings-save-fails-without-replacing-the-file',true);
-    await finish(lock);lock=null;
+    await new Promise(resolve=>{lock.once('exit',resolve);lock.stdin.end();});lock=null;
     check('preferences-survive-the-lock',read(settingsPath).readingWidth===1232&&read(settingsPath).customAccent===false);
     const valid=fs.readFileSync(settingsPath,'utf8');fs.writeFileSync(settingsPath,'{broken');
     await sleep(700);await assert.rejects(store.patch({readingWidth:1408}));
@@ -283,8 +332,11 @@ async function finish(child){
     check('settings-recover-and-reenable-without-controller-restart',controller.exitCode===null);
     const victim=view().windows.find(w=>w.id===A),victimRuntime=path.join(runtime,'windows',victim.windowId),victimData=read(path.join(victimRuntime,'metrics.json'));
     const originalHud=await p1.locator('#codex-composer-hud').elementHandle();
-    await execute(dependencies.python,['-I','-c',"import psutil,sys; p=psutil.Process(int(sys.argv[1])); assert p.ppid()==int(sys.argv[2]); assert sys.argv[3] in p.cmdline(); p.terminate()",String(victimData.collector_pid),String(controller.pid),victimRuntime],{windowsHide:true,timeout:5000});
-    await until(async()=>view()?.windows.some(w=>w.id===A&&w.windowId===victim.windowId)&&read(path.join(victimRuntime,'metrics.json'))?.collector_pid!==victimData.collector_pid&&await matching(p1,A,'- tok/s','13%'),'single collector recovery');
+    fs.writeFileSync(path.join(victimRuntime,'fixture-sampler-failure'),'');
+    await until(()=>view()?.windows.some(w=>w.id===A&&w.collector?.phase==='backoff'),'single collector backoff');
+    await until(async()=>view()?.windows.some(w=>w.id===A&&w.windowId===victim.windowId&&w.collector?.attemptsInMinute===2)&&
+      read(path.join(victimRuntime,'metrics.json'))?.updated_at_ms>victimData.updated_at_ms&&
+      await matching(p1,A,'- tok/s','13%'),'single collector recovery');
     check('collector-recovery-keeps-the-original-hud-and-width',await originalHud.evaluate(node=>node.isConnected)&&(await snapshot(p1)).width===1232);
     track();check('one-collector-failure-recovers-without-replacing-the-other-window',view().windows.find(w=>w.id===B).windowId===second.windowId&&await matching(p2,B,'- tok/s','83%'));
     await p1.close();await until(()=>view()?.windows.length===1,'close first page');
@@ -339,16 +391,23 @@ async function finish(child){
     const cleaned=await Promise.all([p1,p2].map(page=>page.evaluate(()=>!window.__codexComposerHud&&!window.__codexCustomAccent&&!window.__codexReadingWidth&&!window.__codexTableSort&&!window.__codexFileChanges&&!window.__codexCommandMenu)));
     check('stop-cleans-both-pages',cleaned.every(Boolean)&&controller.exitCode===0);
     check('stop-cleans-own-runtime-directories',fs.readdirSync(path.join(runtime,'windows')).length===0);
-    await execute(dependencies.python,['-I','-c',"import psutil,sys; assert all(not psutil.pid_exists(int(p)) for p in sys.argv[1:])",...Array.from(collectors,String)],{windowsHide:true,timeout:5000});
-    check('all-observed-test-collectors-exit',true);
+    check('all-first-controller-collectors-shared-its-lifetime',collectors.size===1&&collectors.has(controller.pid));
     fs.unlinkSync(path.join(runtime,'stop'));
     // A browser-side disconnect must end the client promptly so the verified
     // supervisor can relaunch it. The browser used here is a disposable fixture.
-    controller=spawn(dependencies.node,[path.join(host,'controller.cjs'),settingsPath,runtime],{windowsHide:true,stdio:'ignore'});
+    const bundles=path.join(sandbox,'src/generated/ui');
+    fs.unlinkSync(path.join(bundles,'custom-accent.js'));
+    fs.writeFileSync(path.join(bundles,'composer-fold.js'),
+      'window.__codexComposerFold={remove(){window.__fixtureFoldRemoved=true;}};throw Error("fixture init failure");');
+    controller=startController('ignore');
     await until(async()=>await matching(p1,A,'- tok/s','13%'),'fresh controller after stop');
+    check('missing-feature-bundle-does-not-block-other-enhancements',!(await snapshot(p1)).accentStyle);
+    check('feature-initialization-error-does-not-block-other-enhancements',await p1.evaluate(()=>
+      window.__fixtureFoldRemoved&&!window.__codexComposerFold&&Boolean(window.__codexComposerHud&&window.__codexReadingWidth)));
     await context.close();context=null;
     await until(()=>controller.exitCode!==null,'browser-side disconnect');
     check('browser-disconnect-exits-and-cleans-window-workers',controller.exitCode===0&&fs.readdirSync(path.join(runtime,'windows')).length===0);
+    check('zero-collector-subprocess-launch-attempts-through-both-controller-lifetimes',!fs.existsSync(launches));
     fs.writeFileSync(path.join(evidence,'integration.json'),JSON.stringify({scope:'isolated Edge + production controller and collectors; app URL adapter; synthetic logs; no Codex desktop connection',passed:results.length,results},null,2));
     console.log(JSON.stringify({passed:results.length}));
   }catch(error){fs.writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({passed:results,error:String(error),controllerOutput:output},null,2));throw error;}

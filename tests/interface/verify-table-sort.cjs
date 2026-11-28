@@ -1,8 +1,8 @@
 // Synthetic pages only. No application context, persisted settings or model requests.
 const fs=require('node:fs'),path=require('node:path');
-const {chromium}=require(process.env.HUD_PLAYWRIGHT||path.resolve(__dirname,'../../.runtime/token-hud/node/node_modules/playwright'));
-const source=fs.readFileSync(path.join(__dirname,'../../src/interface/reading/table-sort.js'),'utf8');
-const reading=fs.readFileSync(path.join(__dirname,'../../src/interface/reading/reading-width.js'),'utf8');
+const {chromium}=require(process.env.HUD_PLAYWRIGHT||path.resolve(__dirname,'../../scripts/node/node_modules/playwright'));
+const source=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/table-sort.js'),'utf8');
+const reading=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/reading-width.js'),'utf8');
 const i18n=require('../../src/platform/i18n/i18n.js');
 const [scratch,evidence]=process.argv.slice(2).map(value=>path.resolve(value));
 const results=[];
@@ -85,38 +85,116 @@ async function extended(page,sort,visual,dom,frame) {
  await mount('emoji',[['🔴 A','1',''],['🔴 C','2',''],['🟢 B','3','']]);await sort('emoji',0);await frame();
  const expected=await page.locator('#emoji tbody tr').evaluateAll(rows=>rows.map((row,index)=>({text:row.cells[0].textContent,index})).sort((a,b)=>new Intl.Collator('zh-CN',{numeric:true,sensitivity:'base'}).compare(b.text,a.text)||a.index-b.index).map(item=>String(item.index)));
  check('emoji-compares-whole-original-text-without-special-priority',JSON.stringify(await visual('emoji'))===JSON.stringify(expected));
- // Native controls stay outside table, exactly as in Codex's floating toolbar.
- for(const [id,last] of [['actions-short','说明'],['actions-long','单项综合评估与补充说明']]){
-  await mount(id,[['P2','20','可继续'],['P3','10','需要复核']],['工作','耗时',last]);
-  await page.locator(`#${id}`).evaluate(container=>{
-   const toolbar=document.createElement('div');toolbar.dataset.nativeActions='';toolbar.style.cssText='position:absolute;right:0;top:0;display:flex;gap:8px';
-   toolbar.innerHTML='<button style="width:28px;height:28px" aria-label="复制">⧉</button><button style="width:28px;height:28px" aria-label="展开">⤢</button>';
-   toolbar.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>container.dataset.nativeClicked='true'));container.append(toolbar);
-  });await frame();
- }
- const noOverlap=id=>page.locator(`#${id}`).evaluate(container=>{
-  const controls=[...container.querySelectorAll('[data-codex-table-sort-control]')].map(host=>host.getBoundingClientRect());
-  const actions=[...container.querySelectorAll('[data-native-actions] button')].map(button=>button.getBoundingClientRect());
-  return controls.every(a=>actions.every(b=>a.right<=b.left||a.left>=b.right||a.bottom<=b.top||a.top>=b.bottom));
+ // Native positioning is owned by the table container, not the sorting module.
+ await mount('actions',[['P2','20','可继续'],['P3','10','需要复核']],['工作','耗时','单项综合评估与补充说明']);
+ const actions=page.locator('#actions'),toolbar=actions.locator('[data-native-actions]');
+ await actions.evaluate(container=>{
+  const bar=document.createElement('div');bar.dataset.nativeActions='';
+  bar.style.cssText='position:absolute;right:0;top:0;display:flex;gap:8px';
+  bar.innerHTML='<button style="width:28px;height:28px" aria-label="复制">⧉</button><button style="width:28px;height:28px" aria-label="展开">⤢</button>';
+  bar.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>container.dataset.nativeClicked=button.getAttribute('aria-label')));
+  container.append(bar);
+ });await frame();
+ const nativeLayout=()=>actions.evaluate(container=>{
+  const box=container.getBoundingClientRect(),bar=container.querySelector('[data-native-actions]').getBoundingClientRect();
+  const header=container.querySelector('thead tr').getBoundingClientRect();
+  return bar.top>=header.top-.5&&bar.bottom<=header.bottom+.5&&Math.abs(box.right-bar.right)<.5
+   &&getComputedStyle(container).paddingBlockStart==='0px'&&getComputedStyle(container).marginBlockStart==='24px'
+   &&getComputedStyle(container.querySelector('th:last-child')).paddingInlineEnd==='40px';
  });
- check('short-last-header-avoids-both-native-actions',await noOverlap('actions-short'));
- check('long-last-header-avoids-both-native-actions',await noOverlap('actions-long'));
- await page.locator('#actions-long [data-native-actions] button').last().click();
- check('native-action-remains-clickable',await page.locator('#actions-long').getAttribute('data-native-clicked')==='true');
- await sort('actions-long',2);await frame();
- check('size-icons-use-distinct-lucide-geometries',await page.locator('#actions-long th').nth(2).locator('[data-symbol]').getAttribute('data-icon')==='large-first'&&await page.locator('#priority th').first().locator('[data-symbol]').getAttribute('data-icon')==='small-first');
- await page.locator('#actions-long').screenshot({path:path.join(evidence,'native-actions.png')});
+ check('native-toolbar-stays-at-header-right-with-native-spacing',await nativeLayout());
+ await actions.locator('th').last().click({position:{x:8,y:12}});await frame();
+ check('size-icons-use-distinct-lucide-geometries',await actions.locator('th').last().locator('[data-symbol]').getAttribute('data-icon')==='large-first'&&await page.locator('#priority th').first().locator('[data-symbol]').getAttribute('data-icon')==='small-first');
+ await page.addStyleTag({content:'[data-native-actions]{opacity:0;pointer-events:none}[data-markdown-table]:hover>[data-native-actions],[data-native-actions]:focus-within{opacity:1;pointer-events:auto}'});
+ const toolbarOpacity=()=>toolbar.evaluate(bar=>getComputedStyle(bar).opacity);
+ await page.mouse.move(0,0);
+ check('native-toolbar-keeps-original-hover-visibility',await toolbarOpacity()==='0');
+ await actions.locator('th').first().hover();
+ await toolbar.getByRole('button',{name:'复制'}).click();
+ check('native-copy-remains-clickable',await actions.getAttribute('data-native-clicked')==='复制');
+ await page.mouse.move(0,0);await toolbar.getByRole('button',{name:'展开'}).focus();
+ check('keyboard-focus-can-reveal-native-toolbar',await toolbarOpacity()==='1');
+ await page.keyboard.press('Enter');
+ check('native-expand-remains-keyboard-operable',await actions.getAttribute('data-native-clicked')==='展开');
  await page.setViewportSize({width:420,height:900});await frame();
- check('narrow-window-native-actions-do-not-cover-sort-controls',await noOverlap('actions-short')&&await noOverlap('actions-long'));
- await page.locator('#actions-long [class*="TableScroller"]').evaluate(scroller=>{scroller.scrollLeft=scroller.scrollWidth;});await frame();
- check('horizontal-scroll-keeps-native-actions-clear',await noOverlap('actions-long'));
- // Release temporary padding and all key listeners/state when unloading.
+ check('narrow-window-keeps-native-toolbar-at-header-right',await nativeLayout());
  await page.evaluate(()=>window.__codexTableSort.remove());await frame();
- check('unload-restores-original-native-header-padding',await page.locator('#actions-long th,#actions-short th').evaluateAll(cells=>cells.every(cell=>!cell.style.getPropertyValue('padding-inline-end'))));
+ check('unload-preserves-native-toolbar-layout',await nativeLayout());
  check('unload-clears-ranks-directions-and-all-row-translates',await page.locator('[data-codex-sort-rank],[data-codex-sort-direction],tbody tr[style]').count()===0);
  await page.keyboard.down('Control');await page.keyboard.up('Control');await page.evaluate(source);await frame();await sort('multi',1);await frame();
  check('reinstall-forgets-direction-presets-and-multi-selection',await headers.nth(1).getAttribute('aria-sort')==='descending'&&await headers.nth(1).locator('[data-priority]').isHidden());
  await page.setViewportSize({width:1280,height:900});await frame();
+}
+async function compact(page) {
+ await page.setViewportSize({width:1280,height:900});
+ await page.setContent(html);
+ await page.locator('.transcript').evaluate(element=>{
+  element.querySelectorAll('[data-markdown-text-style], [data-conversation-print]').forEach(child=>child.remove());
+  const assistant=document.createElement('div');assistant.setAttribute('data-markdown-text-style','assistant-message');element.append(assistant);
+ });
+ await page.locator('.transcript > [data-markdown-text-style="assistant-message"]').evaluate((element,markup)=>element.innerHTML=markup,
+  table('compact',[
+   ['Aurora standard','18分24秒','8','9','7','8','8','40'],
+   ['Aurora extended','25分16秒','9','8','9','9','8','43'],
+   ['Orbit standard','8分32秒','7','7','8','8','8','38']
+  ],['模型 / 档位','耗时','美观','原理','拆解定位','研磨调节','易用','总分'])+
+  table('roomy',[['A deliberately wide body label','9','说明内容保持完整且可正常阅读'],['Another extended body label','8','较长文字列继续采用舒适的阅读间距']],['名称','综合评分','说明']));
+ await page.evaluate(i18n.pageSource('zh-CN'));await page.evaluate(reading);await page.evaluate(()=>window.__codexReadingWidth.update(992));
+ const frame=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ const dimensions=()=>page.locator('#compact th').evaluateAll(cells=>cells.map(cell=>cell.getBoundingClientRect().width));
+ const baseline=await dimensions();
+ await page.evaluate(source);await frame();await page.mouse.move(0,0);
+ const cells=page.locator('#compact th'),floating=cells.nth(4).locator('[data-codex-table-sort-control]');
+ check('icon-only-floats-when-it-would-widen-its-column',await floating.getAttribute('data-floating')!==null&&await page.locator('#roomy th').first().locator('[data-codex-table-sort-control]').getAttribute('data-floating')===null);
+ const stable=async()=>{const actual=await dimensions();return actual.every((width,index)=>Math.abs(width-baseline[index])<1);};
+ check('sort-icons-do-not-widen-compact-table',await stable());
+ check('floating-inactive-icon-is-quiet',await floating.evaluate(element=>getComputedStyle(element).opacity)==='0');
+ check('icon-with-existing-room-stays-visible',await page.locator('#roomy th').first().locator('[data-codex-table-sort-control]').evaluate(element=>getComputedStyle(element).opacity)==='1');
+ await cells.nth(4).hover();
+ check('hover-reveals-floating-icon-without-moving-columns',await floating.evaluate(element=>getComputedStyle(element).opacity)==='1'&&await stable());
+ await page.mouse.move(0,0);await floating.locator('button').focus();
+ check('keyboard-focus-reveals-floating-icon',await floating.evaluate(element=>getComputedStyle(element).opacity)==='1');
+ await page.keyboard.press('Enter');await frame();await floating.locator('button').blur();await page.mouse.move(0,0);
+ check('active-floating-icon-stays-visible',await floating.evaluate(element=>getComputedStyle(element).opacity)==='1'&&await cells.nth(4).getAttribute('aria-sort')==='descending');
+ await page.keyboard.down('Control');await cells.nth(4).click();await cells.nth(5).click();await page.keyboard.up('Control');await frame();await page.mouse.move(0,0);
+ check('floating-multi-sort-keeps-priorities-and-width',await floating.locator('[data-priority]').textContent()==='1'&&await cells.nth(5).locator('[data-priority]').textContent()==='2'&&await stable());
+ check('floating-icons-clear-the-complete-header-text',await cells.evaluateAll(cells=>cells.every(cell=>{
+  const host=cell.querySelector('[data-codex-table-sort-control]');if(!host.hasAttribute('data-floating'))return true;
+  const range=document.createRange();range.selectNodeContents(cell.firstChild);return host.getBoundingClientRect().left>=range.getBoundingClientRect().right;
+ })));
+ check('compact-header-does-not-add-line-breaks',await cells.evaluateAll(cells=>cells.every(cell=>{const range=document.createRange();range.selectNodeContents(cell.firstChild);return range.getClientRects().length===1;})));
+ await page.locator('#compact').screenshot({path:path.join(evidence,'compact-multi.png')});
+ await page.locator('#compact td:nth-child(5)').evaluateAll(cells=>cells.forEach(cell=>cell.textContent='Longer body content now supplies enough width'));await frame();
+ check('body-growth-restores-normal-always-visible-icon',await floating.getAttribute('data-floating')===null);
+ await page.locator('#compact td:nth-child(5)').evaluateAll(cells=>cells.forEach(cell=>cell.textContent='8'));await frame();
+ check('body-shrink-rechecks-whether-icon-widens-column',await floating.getAttribute('data-floating')!==null);
+ const cached=await page.evaluate(async()=>{
+  let count=0;const original=Element.prototype.setAttribute;
+  Element.prototype.setAttribute=function(name,value){if(name==='data-codex-table-sort-measuring')count++;return original.call(this,name,value);};
+  try{for(let index=0;index<5;index++){window.dispatchEvent(new Event('resize'));await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));}}finally{Element.prototype.setAttribute=original;}
+  return count===0;
+ });
+ check('unchanged-layout-reuses-icon-width-measurements',cached);
+ await page.setViewportSize({width:420,height:900});await frame();
+ check('compact-narrow-table-scrolls-locally',await page.locator('#compact [class*="TableScroller"]').evaluate(element=>element.scrollWidth>element.clientWidth)&&await page.evaluate(()=>document.documentElement.scrollWidth===document.documentElement.clientWidth));
+ check('narrow-layout-floats-icons-that-would-force-header-wrapping',await cells.evaluateAll(cells=>cells.every(cell=>{const range=document.createRange();range.selectNodeContents(cell.firstChild);return range.getClientRects().length===1;})));
+ await page.locator('#compact [class*="TableScroller"]').evaluate(element=>element.scrollLeft=element.scrollWidth);await frame();
+ check('compact-scroll-retains-visible-active-icons',await floating.evaluate(element=>getComputedStyle(element).opacity)==='1');
+ await page.locator('#compact').screenshot({path:path.join(evidence,'compact-narrow.png')});
+ const zoomContext=await page.context().browser().newContext({viewport:{width:960,height:600},deviceScaleFactor:2}),zoomPage=await zoomContext.newPage();
+ try{
+ await zoomPage.setContent(html);
+ await zoomPage.locator('.transcript').evaluate((element,markup)=>element.innerHTML='<div data-markdown-text-style="assistant-message">'+markup+'</div>',table('compact',[['Aurora standard','18分24秒','8','9','7','8','8','40'],['Aurora extended','25分16秒','9','8','9','9','8','43']],['模型 / 档位','耗时','美观','原理','拆解定位','研磨调节','易用','总分']));
+ await zoomPage.evaluate(i18n.pageSource('zh-CN'));await zoomPage.evaluate(reading);await zoomPage.evaluate(()=>window.__codexReadingWidth.update(992));await zoomPage.evaluate(source);
+ await zoomPage.keyboard.down('Control');await zoomPage.locator('#compact th').nth(4).click();await zoomPage.locator('#compact th').nth(5).click();await zoomPage.keyboard.up('Control');await zoomPage.mouse.move(0,0);
+ await zoomPage.locator('#compact').screenshot({path:path.join(evidence,'compact-200.png')});
+ check('double-density-keeps-floating-priorities-clear-of-next-column',await zoomPage.locator('#compact th').nth(4).evaluate(cell=>{
+  const host=cell.querySelector('[data-codex-table-sort-control]'),button=host.shadowRoot.querySelector('button'),rank=host.shadowRoot.querySelector('[data-priority]');
+  return button.getBoundingClientRect().right<=cell.nextElementSibling.getBoundingClientRect().left+1&&rank.getBoundingClientRect().bottom<=cell.getBoundingClientRect().bottom;
+ }));
+ }finally{await zoomContext.close();}
+ await page.evaluate(()=>{window.__codexTableSort.remove();window.__codexReadingWidth.remove();});
+ check('compact-unload-restores-header-positioning',await page.locator('[data-codex-table-sort-positioned],[data-codex-table-sort-measuring],[data-codex-table-sort-control]').count()===0);
 }
 (async()=>{
  fs.mkdirSync(evidence,{recursive:true});
@@ -212,6 +290,7 @@ async function extended(page,sort,visual,dom,frame) {
   // Additional interactions are isolated from the earlier fixtures.
   await extended(page,sort,visual,dom,frame);
   await page.evaluate(()=>{window.__codexTableSort.remove();window.__codexReadingWidth.remove();});
+  await compact(page);
   console.log(JSON.stringify({scope:'synthetic Edge; visual sorting only',passed:results.length,results}));
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

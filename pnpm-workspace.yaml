@@ -1,0 +1,7 @@
+packages:
+  - scripts/node
+  - scripts/workspace-tree
+
+pmOnFail: error
+allowBuilds:
+  esbuild: true

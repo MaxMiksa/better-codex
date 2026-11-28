@@ -1,7 +1,7 @@
 <h1 align="center">Better-Codex</h1>
 
 <p align="center">
-  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44"><img alt="Version" src="https://img.shields.io/badge/version-v0.5.44-blue.svg?logo=github&amp;logoColor=white" /></a>
+  <a href="https://github.com/MaxMiksa/better-codex/releases/tag/v1.0.0"><img alt="Version" src="https://img.shields.io/badge/version-v1.0.0-blue.svg?logo=github&amp;logoColor=white" /></a>
   <a href="#"><img alt="Windows" src="https://img.shields.io/badge/Platform-Windows-blue.svg?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cGF0aCBkPSJNNi4zMzcgMTguNjA1bDM1LjY4Ny00Ljg2LjAxNiAzNC40MjItMzUuNjcuMjAzem0zNS42NyAzMy41MjlsLjAyOCAzNC40NTMtMzUuNjctNC45MDUtLjAwMi0yOS43OHptNC4zMjctMzkuMDI1bDQ3LjMxOC02LjkwNlY0Ny43M2wtNDcuMzE4LjM3NXptNDcuMzI5IDM5LjM0OWwtLjAxMiA0MS4zNC00Ny4zMTgtNi42NzktLjA2Ni0zNC43Mzl6IiBmaWxsPSIjZmZmIi8+PC9zdmc+&amp;logoColor=white" /></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/License-MIT-green.svg?logo=opensourceinitiative&amp;logoColor=white" /></a>
   &nbsp;&nbsp;
@@ -19,7 +19,7 @@ Images use real Codex screenshots; table content and statistics are examples.
 ## Latest source
 
 - **Four statistics:** time to first response (TTFT), output speed, cache percentage and sample age. Click the statistics to open settings; toggle individual fields or drag to reorder them.
-- **Workspace files:** view the current workspace or worktree beside the chat, with live updates and files grouped by type. Press Space to preview with the optional [Better Codex Preview](src/interface/workspace_tree/preview/README.md), [QuickLook or PowerToys Peek](src/interface/README.md#工作区文件树). Double-click to open a file, or click the project name to open its folder. Resize by dragging the edge; each project remembers whether the tree is open.
+- **Workspace files:** view the current workspace or worktree beside the chat, with live updates and files grouped by type. Press Space to preview with the optional [Better Codex Preview](src/features/workspace-tree/host/preview/README.md), [QuickLook or PowerToys Peek](src/features/workspace-tree/README.md). Double-click to open a file, or click the project name to open its folder. Resize by dragging the edge; each project remembers whether the tree is open.
 - **One settings panel:** adjust reading width from 768 to 1600 px and AI reply font size from 10 to 40 px. Leave the font field blank to follow Codex. You can also choose whether file lists start collapsed and toggle Custom accent correction. Changes save automatically, with undo, redo and restore defaults.
 - **Auto-hide the input:** choose **Off**, **Minimize** or **Hide** in Interface settings. An empty input collapses when it loses focus in an existing chat, even while a task is running. Type directly from the conversation to open the input with IME support from the first key. After clicking a chat in the sidebar, you can also press Enter twice to open and focus its input, or click **Expand input** in Minimize mode. With **Hide after sending** enabled, successful sends also collapse the input if it still has focus. Blank new chats, unsent drafts and attachments stay visible.
 - **Readable, sortable tables:** content determines column widths, with optional centering independent of reading width. Click a header to cycle through sorting directions and the original order; hold Ctrl to select multiple columns in priority order, or Alt to preset/reverse a direction. Choose Smart, Ascending or Descending as the first-click direction in settings. Sorting changes only the current visual order; copying retains the source order.
@@ -27,7 +27,7 @@ Images use real Codex screenshots; table content and statistics are examples.
 - **Choose which Skills appear in the slash menu:** open **Interface settings → Command menu → Skills** to show or hide individual Skills. Health, Excel Live Control, Spreadsheets, Visualize, and Create Statusline are hidden by default. Skills remain enabled and available through the native `$` picker.
 - **Prompt shortcuts in the slash menu:** reusable Markdown prompts from the first level of Codex Home's `prompts` folder appear below Skills in a three-column section. Activate one to insert its text at the current cursor without replacing your draft or sending it. `Ctrl+↑/↓` jumps between command groups, Skills and Prompt.
 - **AI rename:** rename one local chat from its sidebar menu or the slash menu, or choose **Batch AI rename** from a project's `…` menu. The batch takes active chats in that sidebar group, including its worktree chats, and skips any title already containing `：`. Luna generates titles such as `feat：AI 重命名`; it does not choose the chats. Codex saves the titles in the background without touching your draft.
-- **Local runtime history:** inspect recent startup, enhancement and recovery events with `tools/token-hud-local/Get-RuntimeHistory.ps1`. Records stay local and expire after five days; chat text is not recorded.
+- **Local runtime history:** inspect recent startup, enhancement and recovery events with `src/platform/observability/Get-RuntimeHistory.ps1`. Records stay local and expire after five days; chat text is not recorded.
 
 <p align="center"><img src="Presentation/table-sorting.png" alt="A six-column table in Codex with status icons, native sorting controls and two sorting priorities" width="900" /></p>
 
@@ -37,15 +37,15 @@ TTFT uses the first model response in the current turn. Speed uses magpie's late
 
 ## Get started
 
-1. Download `better-codex-v0.5.44-windows-x64-portable.zip` from [v0.5.44 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v0.5.44).
+1. Download `better-codex-v1.0.0-windows-x64-portable.zip` from [v1.0.0 Releases](https://github.com/MaxMiksa/better-codex/releases/tag/v1.0.0).
 2. **Extract the entire ZIP** to a writable folder you plan to keep.
-3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No Python/Node.js installation or first-launch dependency download is needed.
+3. Run `BetterCodex.exe`. Click the statistics beneath the input box to adjust reading width. No separate Node.js installation or first-launch dependency download is needed.
 
 The shortcut runs the startup check when Codex isn't running. If Codex is already running, even in the background, clicking the taskbar icon brings it forward without starting another check. The startup check runs minimized and opens the full window only when something needs attention. Once checks pass, it stays minimized or returns to the taskbar if it opened automatically, then closes after 30 seconds. When missing enhancements or a completed Codex update are confirmed, a **15-second relaunch countdown** starts after all checks finish. Click to act immediately; **X / Esc cancels**. Recovery requests normal exit, never forces termination, and does not loop after failure. Cancel while you have work to preserve, then relaunch when convenient.
 
 Run `Stop.cmd` at any time to stop enhancements and restore the native layout. Codex and chat history remain available. Use the combined entry again to restore enhancements.
 
-## v0.5.44 features
+## v1.0.0 features
 
 | Task | What you get |
 | --- | --- |
@@ -66,11 +66,11 @@ Run these commands from the initialized extracted folder. Login startup and Code
 
 | Task | PowerShell command |
 | --- | --- |
-| Enable login startup | `.\tools\token-hud-local\Set-LoginStartup.ps1 -Mode Enable` |
-| Enable Codex update monitoring | `.\tools\token-hud-local\Set-UpdateRecovery.ps1 -Mode Enable` |
+| Enable login startup | `.\src\lifecycle\installation\Set-LoginStartup.ps1 -Mode Enable` |
+| Enable Codex update monitoring | `.\src\lifecycle\recovery\Set-UpdateRecovery.ps1 -Mode Enable` |
 | Read either switch | Use `-Mode Status` with its script |
 | Disable either switch | Use `-Mode Disable` with its script |
-| Read-only launch check | `.\tools\token-hud-local\Start-ComposerHud.ps1 -CheckOnly` |
+| Read-only launch check | `.\src\app\Start-ComposerHud.ps1 -CheckOnly` |
 
 Keep a single login entry: turn off Codex's own login startup when enabling this project's entry. Update monitoring needs the enhancement host to keep running. A confirmed new version opens the same check before an optional relaunch; disabling monitoring does not cancel a countdown already open. It does not update Better-Codex itself. Recovery after a real future Codex upgrade still awaits natural-use acceptance.
 
@@ -78,6 +78,8 @@ Use `launchers/Codex.lnk` for taskbar pinning. Unpin the original Codex entry fi
 
 <details>
 <summary>Upgrade, move or uninstall</summary>
+
+Upgrading from v0.5.x to v1.0.0? See [UPGRADE-v1.md](docs/UPGRADE-v1.md) (existing preferences migrate automatically and losslessly on first run).
 
 If administrator launch was enabled in v0.4.1, first run `Set-AdministratorLaunch.ps1 -Mode Disable` from the old copy's `tools/token-hud-local/` folder before upgrading, moving or uninstalling. This is a legacy-version command.
 
@@ -91,7 +93,7 @@ To uninstall, disable login startup, run Stop.cmd, unpin the shortcut, and delet
 
 | Symptom | Action |
 | --- | --- |
-| Statistics are absent | Start with the read-only check. For the full check, run `tools/token-hud-local/Show-StartupCheck.ps1`; cancel its relaunch countdown while working |
+| Statistics are absent | Start with the read-only check. For the full check, run `src/lifecycle/diagnostics/Show-StartupCheck.ps1`; cancel its relaunch countdown while working |
 | `restart-required` | The running instance lacks the display interface or required launch conditions. Exit normally when convenient, then use the combined entry |
 | `hud-preparation-failed` | Check for missing files. Stop this copy's enhancements and extract the complete ZIP to a new folder; do not run inside the ZIP |
 | A dash or temporarily hidden statistics | Usage/timing is unavailable, chat identity is uncertain, data is stale, or the layout is incompatible; this is not zero speed, and another chat's data is never substituted |
@@ -110,7 +112,7 @@ Local state can contain chat identifiers, titles, paths and usage. **Do not uplo
 
 ## Development and credits
 
-For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v0.5.44-source.zip`. Current source installation needs Python 3.11+, Node.js 22.15.0 or later; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. No npm package or Playwright is needed to run the enhancements. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
+For the latest interface shown above, clone or download the **main branch** of this repository. For a fixed version, use `better-codex-v1.0.0-source.zip`. Source installation requires Node.js 24.11.1 or later in the 24.x line; run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1`. No npm package or Playwright is needed to run the enhancements. Optional `-Language en` / `-Language zh-CN` selects setup messages. Follow the [development guide](docs/DEVELOPMENT.md) bundled with your chosen source version.
 
 The local collector is reused from [codex-token-hud](https://github.com/drkang7/codex-token-hud). Thank you to [codex-lite-hud](https://github.com/flitfancy/codex-lite-hud), [codex-speed-hud](https://github.com/Creative-developer-single/codex-speed-hud), and [openai/codex](https://github.com/openai/codex). See [Third-party notices](THIRD_PARTY_NOTICES.md) for reuse scope, versions and licenses.
 

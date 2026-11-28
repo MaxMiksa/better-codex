@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$WorkDirectory)
+param([Parameter(Mandatory=$true)][string]$WorkDirectory)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $work = [IO.Path]::GetFullPath($WorkDirectory)
@@ -17,10 +17,19 @@ function Assert-Worker($Name, $Condition) {
 }
 function Set-Field($Dialog, $Name, $Value) { $type.GetField($Name,$flags).SetValue($Dialog,$Value) }
 function Get-Field($Dialog, $Name) { $type.GetField($Name,$flags).GetValue($Dialog) }
+function Wait-Worker($Dialog) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(8)
+    do {
+        $null = $type.GetMethod('Tick',$flags).Invoke($Dialog,@($null,[EventArgs]::Empty))
+        if ($null -eq (Get-Field $Dialog 'worker') -and $null -eq (Get-Field $Dialog 'promptConfirmation')) { return }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Isolated diagnostic worker did not finish'
+}
 foreach ($scenario in @('early-exit','blocked-read-timeout','completed-at-deadline')) {
     # Never show a window or invoke production checks/recovery. Exercise the real
     # timer with only an owned child and a synthetic report in the work directory.
-    $dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), (Join-Path $work 'unused.py'), $words, 'zh-CN', '', 'dark', $null, $null, $false)
+    $dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), (Join-Path $work 'unused.cjs'), $words, 'zh-CN', '', 'dark', $null, $null, $false)
     $process = $null; $reader = $null
     try {
         $report = $type.GetMethod('Initial',$flags).Invoke($dialog,@('pending',''))
@@ -63,7 +72,7 @@ foreach ($scenario in @('early-exit','blocked-read-timeout','completed-at-deadli
         $dialog.Dispose()
     }
 }
-$dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), (Join-Path $work 'unused.py'), $words, 'zh-CN', '', 'dark', $null, $null, $false)
+$dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), (Join-Path $work 'unused.cjs'), $words, 'zh-CN', '', 'dark', $null, $null, $false)
 try {
     $report = $type.GetMethod('Initial',$flags).Invoke($dialog,@('pending',''))
     $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
@@ -117,11 +126,30 @@ try {
     $dialog.Dispose()
 }
 # Exercise automatic window closure without running probes or recovery.
-$dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), (Join-Path $work 'unused.py'), $words, 'zh-CN', 'Healthy', 'dark', $null, $null, $false)
+$dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), (Join-Path $work 'unused.cjs'), $words, 'zh-CN', 'Healthy', 'dark', $null, $null, $false)
 try {
     $report = $type.GetMethod('PreviewReport',$flags).Invoke($dialog,@())
     $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
     Assert-Worker 'healthy-result-arms-auto-close' (Get-Field $dialog 'autoCloseArmed')
+    $report.managementRows[0].state = 'warning'
+    $report.managementRows[0].promptRetentionKey = 'a' * 64
+    $report.managementRows[0].summary = $catalog.'zh-CN'.'check.promptTemplateChanged'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    Assert-Worker 'template-warning-blocks-auto-close' (-not (Get-Field $dialog 'autoCloseArmed'))
+    $promptRow = (Get-Field $dialog 'rows')[6]
+    Assert-Worker 'template-warning-has-retention-button' ($promptRow.RetainPrompt.Text -eq $catalog.'zh-CN'.'check.promptRetain' -and $promptRow.RetainPrompt.Height -gt 0)
+    Assert-Worker 'preview-cannot-write-retention' (-not $promptRow.RetainPrompt.Enabled)
+    $report.managementRows[0].state = 'pass'
+    $report.managementRows[0].promptRetentionKey = $null
+    $report.managementRows[0].summary = $catalog.'zh-CN'.'check.promptTemplateRetained'
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    Assert-Worker 'retained-template-arms-auto-close' (Get-Field $dialog 'autoCloseArmed')
+    foreach ($dark in @($true,$false)) {
+        $promptRow.ApplyAppearance($dark,[Drawing.Color]::White)
+        $status = @($promptRow.Controls | Where-Object { $_ -is [BetterCodex.StartupStatusLabel] })[0]
+        $expected = if ($dark) { [Drawing.Color]::FromArgb(111,218,130) } else { [Drawing.Color]::FromArgb(30,120,49) }
+        Assert-Worker ('retained-template-is-green-' + $dark) ($status.ForeColor -eq $expected -and $status.DotColor -eq $expected)
+    }
     Set-Field $dialog 'autoCloseElapsed' ([double]29)
     $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
     Assert-Worker 'report-refresh-preserves-auto-close-progress' ((Get-Field $dialog 'autoCloseElapsed') -eq 29)
@@ -154,37 +182,6 @@ try {
     Assert-Worker 'healthy-window-closes-at-thirty-seconds' $dialog.IsDisposed
 } finally {
     if (-not $dialog.IsDisposed) { (Get-Field $dialog 'timer').Dispose(); $dialog.Dispose() }
-}
-# Exercise the real terminal-history handoff without running a diagnostic probe.
-$history = Join-Path $work 'history-fixture'
-[IO.Directory]::CreateDirectory($history) | Out-Null
-$settings = Join-Path $history 'settings.json'
-$python = (Get-Command python -ErrorAction Stop).Source
-@{python=$python} | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding utf8
-$scriptPath = Join-Path $root 'tools/token-hud-local/diagnostics/checks.py'
-$dialog = [BetterCodex.StartupCheckDialog]::new($settings, $scriptPath, $words, 'zh-CN', '', 'dark', $null, $null, $false)
-try {
-    $report = $type.GetMethod('Initial',$flags).Invoke($dialog,@('pending',''))
-    $report.correlation_id = [Guid]::NewGuid().ToString('N')
-    $session = Join-Path $history ([Guid]::NewGuid().ToString('N'))
-    [IO.Directory]::CreateDirectory($session) | Out-Null
-    Set-Field $dialog 'current' $report
-    Set-Field $dialog 'python' $python
-    Set-Field $dialog 'sessionDirectory' $session
-    Set-Field $dialog 'outputPath' (Join-Path $session 'result.json')
-    $null = $type.GetMethod('RecordWorkerEnd',$flags).Invoke($dialog,@('workerTimeout'))
-    $deadline = [DateTime]::UtcNow.AddSeconds(8)
-    do {
-        Start-Sleep -Milliseconds 100
-        $found = & (Join-Path $root 'tools/token-hud-local/Get-RuntimeHistory.ps1') -SettingsPath $settings -Kind diagnostic-completed -CorrelationId $report.correlation_id | ConvertFrom-Json
-    } while (-not $found.events.Count -and [DateTime]::UtcNow -lt $deadline)
-    Assert-Worker 'terminal-handoff-records-once-without-probing' ($found.events.Count -eq 1)
-    Assert-Worker 'terminal-handoff-keeps-ten-underlying-checks' ($found.events[0].payload.checks.Count -eq 10)
-    Assert-Worker 'terminal-handoff-retains-timeout-reason' ($found.events[0].payload.checks[0].codes[0] -eq 'workerTimeout')
-    Assert-Worker 'terminal-handoff-does-not-create-launch-receipt' (-not (Test-Path -LiteralPath (Join-Path $history 'runtime/launch-receipt.json')))
-} finally {
-    (Get-Field $dialog 'timer').Dispose()
-    $dialog.Dispose()
 }
 # Check real window state with synthetic reports and no runnable worker.
 Add-Type 'public static class TestStartupWindow {
@@ -234,5 +231,136 @@ try {
     $dialog.Close()
     $refresh.Dispose()
     $update.Dispose()
+}
+# A short work area must reserve space for the footer before sizing the list.
+$dialog = [BetterCodex.StartupCheckDialog]::new((Join-Path $work 'settings.json'), '', $words, 'zh-CN', 'Healthy', 'dark', $null, $null, $false)
+try {
+    $report = $type.GetMethod('PreviewReport',$flags).Invoke($dialog,@())
+    $null = $type.GetMethod('SetReport',$flags).Invoke($dialog,@($report))
+    $scale = [single]((Get-Field $dialog 'fontDpi') / 96)
+    $available = [Windows.Forms.Screen]::FromControl($dialog).WorkingArea
+    $shortWork = [Drawing.Rectangle]::new($available.X,$available.Y,$available.Width,[Math]::Min($available.Height,[int](700 * $scale)))
+    $layout = $type.GetMethod('LayoutReport',$flags)
+    $report.rows[4].state = 'warning'
+    $report.rows[4].suggestion = ('Synthetic warning with more detail.' + [Environment]::NewLine) * 8
+    $report.managementRows[0].promptRetentionKey = 'fixture-only'
+    $displayed = $type.GetMethod('DisplayRows',$flags).Invoke($dialog,@($report))
+    $null = $layout.Invoke($dialog,@($displayed,$shortWork,$scale))
+    $body = Get-Field $dialog 'body'
+    $lastRow = (Get-Field $dialog 'rows')[7]
+    Assert-Worker 'oversized-warning-window-fits-monitor-work-area' ($shortWork.Contains($dialog.Bounds))
+    Assert-Worker 'overflow-is-vertical-and-includes-last-check' ($body.VerticalScroll.Visible -and -not $body.HorizontalScroll.Visible -and $body.AutoScrollMinSize.Height -eq $lastRow.Bottom -and $lastRow.Bottom -gt $body.ClientSize.Height)
+    Assert-Worker 'scrollable-checks-do-not-overlap-footer' ($body.Bottom -lt $dialog.CopyReport.Top)
+    foreach ($button in @($dialog.CopyReport,$dialog.Recheck,$dialog.RelaunchAction)) {
+        Assert-Worker ('footer-remains-inside-window-' + $button.TabIndex) ($dialog.ClientRectangle.Contains($button.Bounds))
+    }
+    $report.rows[4].suggestion = ''
+    $report.managementRows[0].promptRetentionKey = $null
+    if ($shortWork.Height -eq [int](700 * $scale)) {
+        $displayed = $type.GetMethod('DisplayRows',$flags).Invoke($dialog,@($report))
+        $null = $layout.Invoke($dialog,@($displayed,$shortWork,$scale))
+        Assert-Worker 'compact-report-with-enough-room-needs-no-scrollbar' (-not $body.VerticalScroll.Visible -and $body.AutoScrollMinSize.IsEmpty)
+    }
+} finally {
+    (Get-Field $dialog 'timer').Dispose()
+    $dialog.Dispose()
+}
+# Exercise recheck after the first report is removed, and the retired prompt write flag.
+# The child uses the production argument parser but never probes or writes live state.
+$retention = Join-Path $work ([Guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($retention) | Out-Null
+$settings = Join-Path $retention 'settings.json'
+$node = (Get-Command node.exe -ErrorAction Stop).Source
+@{node=$node;codexHome=$retention} | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding utf8
+[IO.File]::WriteAllText((Join-Path $retention 'config.toml'), '')
+[IO.File]::WriteAllText((Join-Path $retention 'source-root.txt'), $root, [Text.UTF8Encoding]::new($false))
+$scriptPath = Join-Path $retention 'worker.cjs'
+@'
+const fs=require('node:fs'),path=require('node:path');
+const root=fs.readFileSync(path.join(__dirname,'source-root.txt'),'utf8');
+const checks=require(path.join(root,'src/lifecycle/diagnostics/checks.cjs'));
+const {report,row}=require(path.join(root,'src/lifecycle/diagnostics/results.cjs'));
+const marker=path.join(__dirname,'checked');
+checks.run=async (_settings,output)=>{
+  const rows=checks.IDS.map(id=>row(id,'pass')),managementRows=checks.MANAGEMENT_IDS.map(id=>row(id,'pass'));
+  if(!fs.existsSync(marker)){managementRows[0]=row('prompts','warning');fs.writeFileSync(marker,'');}
+  fs.writeFileSync(output,JSON.stringify({...report([...rows,...managementRows]),rows,managementRows}));
+};
+require(path.join(root,'src/app/startup-diagnostics.cjs')).main(process.argv.slice(2)).catch(()=>{process.exitCode=1;});
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+$dialog = [BetterCodex.StartupCheckDialog]::new($settings, $scriptPath, $words, 'zh-CN', '', 'dark', $null, $null, $false)
+try {
+    $null = $type.GetMethod('StartCheck',$flags).Invoke($dialog,@())
+    Wait-Worker $dialog
+    Assert-Worker 'first-warning-report-is-cleaned-up' ($null -eq (Get-Field $dialog 'outputPath') -and (Get-Field $dialog 'current').state -eq 'partial')
+    $null = [System.Windows.Forms.Button].GetMethod('OnClick',$flags).Invoke($dialog.Recheck,@([EventArgs]::Empty))
+    Wait-Worker $dialog
+    Assert-Worker 'recheck-arms-auto-close-after-warning-clears' ((Get-Field $dialog 'current').state -eq 'healthy' -and (Get-Field $dialog 'autoCloseArmed'))
+    $dismissed = Join-Path $retention 'retired-result.json'
+    & $node --no-warnings=ExperimentalWarning $scriptPath --settings $settings --output $dismissed --acknowledge-prompt ('a' * 64)
+    Assert-Worker 'retired-prompt-write-refused-before-dispatch' ($LASTEXITCODE -eq 1 -and -not (Test-Path -LiteralPath $dismissed))
+} finally {
+    $null = $type.GetMethod('StopOwnWorker',$flags).Invoke($dialog,@())
+    (Get-Field $dialog 'timer').Dispose()
+    $dialog.Dispose()
+}
+# Exercise the real terminal-history handoff without running a diagnostic probe.
+$history = Join-Path $work 'history-fixture'
+[IO.Directory]::CreateDirectory($history) | Out-Null
+$settings = Join-Path $history 'settings.json'
+$node = (Get-Command node.exe -ErrorAction Stop).Source
+@{node=$node} | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding utf8
+$scriptPath = Join-Path $root 'src/app/startup-diagnostics.cjs'
+$dialog = [BetterCodex.StartupCheckDialog]::new($settings, $scriptPath, $words, 'zh-CN', '', 'dark', $null, $null, $false)
+try {
+    $report = $type.GetMethod('Initial',$flags).Invoke($dialog,@('pending',''))
+    $report.correlation_id = [Guid]::NewGuid().ToString('N')
+    $session = Join-Path $history ([Guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($session) | Out-Null
+    Set-Field $dialog 'current' $report
+    Set-Field $dialog 'node' $node
+    Set-Field $dialog 'sessionDirectory' $session
+    Set-Field $dialog 'outputPath' (Join-Path $session 'result.json')
+    $null = $type.GetMethod('RecordWorkerEnd',$flags).Invoke($dialog,@('workerTimeout'))
+    $deadline = [DateTime]::UtcNow.AddSeconds(8)
+    do {
+        Start-Sleep -Milliseconds 100
+        $found = & (Join-Path $root 'src/platform/observability/Get-RuntimeHistory.ps1') -SettingsPath $settings -Kind diagnostic-completed -CorrelationId $report.correlation_id | ConvertFrom-Json
+    } while (-not $found.events.Count -and [DateTime]::UtcNow -lt $deadline)
+    Assert-Worker 'terminal-handoff-records-once-without-probing' ($found.events.Count -eq 1)
+    Assert-Worker 'terminal-handoff-keeps-ten-underlying-checks' ($found.events[0].payload.checks.Count -eq 10)
+    Assert-Worker 'terminal-handoff-retains-timeout-reason' ($found.events[0].payload.checks[0].codes[0] -eq 'workerTimeout')
+    Assert-Worker 'terminal-handoff-does-not-create-launch-receipt' (-not (Test-Path -LiteralPath (Join-Path $history 'runtime/launch-receipt.json')))
+} finally {
+    (Get-Field $dialog 'timer').Dispose()
+    $dialog.Dispose()
+}
+# Drive the real countdown and guard without opening a window or executing a relaunch.
+foreach ($preview in @('Updated','Enhancements','Busy','UnknownActivity')) {
+    $dialog = [BetterCodex.StartupCheckDialog]::new($settings, '', $words, 'zh-CN', $preview, 'dark', $null, $null, $false)
+    try {
+        $null = $type.GetMethod('StartCheck',$flags).Invoke($dialog,@())
+        if ($preview -in @('Updated','Enhancements')) {
+            Assert-Worker ($preview + '-arms-15-second-countdown') ((Get-Field $dialog 'countdown') -eq 15 -and $dialog.RelaunchAction.Enabled)
+            Set-Field $dialog 'countdownElapsed' ([double]0.99)
+            Set-Field $dialog 'countdownTick' ([long]0)
+            $null = $type.GetMethod('Tick',$flags).Invoke($dialog,@($null,[EventArgs]::Empty))
+            Assert-Worker ($preview + '-advances') ((Get-Field $dialog 'countdown') -eq 14)
+            if ($preview -eq 'Updated') {
+                $null = $type.GetMethod('StartCheck',$flags).Invoke($dialog,@())
+                Assert-Worker 'recheck-replaces-countdown' ((Get-Field $dialog 'countdown') -eq 15)
+            }
+            Set-Field $dialog 'countdown' ([int]1)
+            Set-Field $dialog 'countdownElapsed' ([double]0.99)
+            Set-Field $dialog 'countdownTick' ([long]0)
+            $null = $type.GetMethod('Tick',$flags).Invoke($dialog,@($null,[EventArgs]::Empty))
+            Assert-Worker ($preview + '-expiry-simulates-once') ((Get-Field $dialog 'previewRestarted') -and (Get-Field $dialog 'countdown') -eq 0 -and -not (Get-Field $dialog 'actionProcess'))
+        } else {
+            Assert-Worker ($preview + '-session-protection-disables-relaunch') (-not $dialog.RelaunchAction.Enabled -and (Get-Field $dialog 'countdown') -eq 0)
+        }
+    } finally {
+        (Get-Field $dialog 'timer').Dispose()
+        $dialog.Dispose()
+    }
 }
 @{passed=$checks.Count;checks=@($checks)} | ConvertTo-Json

@@ -4,9 +4,11 @@ Better-Codex is an independent community project and is not affiliated with Open
 
 ## Code reused
 
-The standalone workspace tree bundles the [Pierre Trees](https://trees.software/docs) renderer and its dependencies. The bundle uses a distinct custom-element name so it can coexist with Codex's viewer. Its [versions, copyrights and licenses](src/interface/workspace_tree/TREE-RENDERER-LICENSES.txt) are included in both distributions.
+The standalone workspace tree bundles the [Pierre Trees](https://trees.software/docs) renderer and its dependencies. The bundle uses a distinct custom-element name so it can coexist with Codex's viewer. Its [versions, copyrights and licenses](src/features/workspace-tree/ui/TREE-RENDERER-LICENSES.txt) are included in both distributions.
 
-Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hud) and its contributors. `src/interface/statistics/collector/metrics.py` and `history.py` derive from its `v1.3.0-beta.8` sources at commit [`1c51c0a`](https://github.com/drkang7/codex-token-hud/tree/1c51c0aead8814a140b14cd33e7a2fa08453317c). The local adaptation removes the unused dashboard entry point and corrects response timing and restored-usage handling. Its [MIT copyright and license](src/interface/statistics/collector/LICENSE) are preserved, including the original compatibility location under tools/token-hud-local/collector/. This substantial reuse is not presented as original Better-Codex work.
+Thank you to [drkang7/codex-token-hud](https://github.com/drkang7/codex-token-hud) and its contributors. The Node.js collector adapts its `v1.3.0-beta.8` sources at commit [`1c51c0a`](https://github.com/drkang7/codex-token-hud/tree/1c51c0aead8814a140b14cd33e7a2fa08453317c), including response timing and restored-usage handling. Its [MIT copyright and license](src/features/statistics/host/collector/LICENSE) are preserved.
+
+The native preview host bundles parsers for configuration syntax checks. The [parser versions, copyrights and licenses](src/features/workspace-tree/host/preview/CONFIG-PARSER-LICENSES.txt) are included in both distributions.
 
 ## Related work
 
@@ -20,9 +22,7 @@ Thank you to [openai/codex](https://github.com/openai/codex) and its contributor
 
 ## Runtime dependencies
 
-The portable ZIP bundles [psutil](https://github.com/giampaolo/psutil) (BSD-3-Clause), and [pywin32](https://github.com/mhammond/pywin32) (its PSF-derived license). Their original license files are included with the bundled distributions. The source installer downloads these dependencies instead. Playwright is an optional development test dependency and is not bundled.
-
-The portable ZIP also includes the official Windows x64 CPython 3.14.8 embeddable distribution (PSF-2.0 and its included component notices), and Node.js 24.22.0 (MIT and the complete bundled third-party notices). Python LICENSE.txt and Node LICENSE are preserved under runtime/. Fixed download URLs and integrity digests are recorded in scripts/portable-lock.json; runtime/manifest.json identifies the assembled files. The Codex app remains a user-installed prerequisite and is not bundled.
+The portable ZIP includes official Windows x64 Node.js 24.22.0 with its MIT license and bundled third-party notices in `runtime/node/LICENSE`. The pinned download and digest are recorded in `scripts/portable-lock.json`; `runtime/manifest.json` identifies the assembled files. Python, Playwright and the Codex app are not bundled.
 
 ---
 

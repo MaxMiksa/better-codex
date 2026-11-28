@@ -1,1 +1,18 @@
-{"name":"better-codex-workspace-tree-build","private":true,"dependencies":{"@pierre/trees":"1.0.0","esbuild":"0.27.3"}}
+{
+  "name": "better-codex-workspace-tree-build",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "onFail": "error"
+    }
+  },
+  "dependencies": {
+    "@pierre/trees": "1.0.0",
+    "esbuild": "0.27.3",
+    "jsonc-parser": "3.3.1",
+    "smol-toml": "1.9.1",
+    "yaml": "2.9.1"
+  }
+}

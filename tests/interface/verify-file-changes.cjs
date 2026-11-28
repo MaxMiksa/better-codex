@@ -1,7 +1,7 @@
 // Synthetic interaction/lifecycle contract; real desktop checks are separate.
 const fs=require('node:fs'),path=require('node:path');
-const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolve(__dirname,'../../.runtime/token-hud/node/node_modules/playwright'));
-const source=fs.readFileSync(path.join(__dirname,'../../src/interface/file_changes/file-changes.js'),'utf8');
+const {chromium}=require(process.env.HUD_PLAYWRIGHT||require('node:path').resolve(__dirname,'../../scripts/node/node_modules/playwright'));
+const source=fs.readFileSync(path.join(__dirname,'../../src/generated/ui/file-changes.js'),'utf8');
 const i18nSource=require('../../src/platform/i18n/i18n.js').pageSource('zh-CN');
 const scratch=path.resolve(process.argv[2]),results=[];
 function check(name,ok){if(!ok)throw Error(name);results.push(name);}

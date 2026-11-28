@@ -1,0 +1,9 @@
+/* Stabilize native file-page breadcrumb truncation without stretching its click area. */
+header[data-viewer-density] [data-viewer-header-item] > nav[aria-label]:only-child:has(> [aria-hidden="true"]:first-child + [data-menu-overlay-surface]:last-child > div > ol) {
+  flex: 1 1 0%;
+  pointer-events: none;
+}
+
+header[data-viewer-density] [data-viewer-header-item] > nav[aria-label]:only-child:has(> [aria-hidden="true"]:first-child + [data-menu-overlay-surface]:last-child > div > ol) > [data-menu-overlay-surface] {
+  pointer-events: auto;
+}

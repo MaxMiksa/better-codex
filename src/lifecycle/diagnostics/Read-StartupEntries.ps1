@@ -3,19 +3,20 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../../platform/i18n/i18n.ps1')
 function Add-EntryResult($Code, $State) { $parts.Add(@{code=$Code;state=$State}) }
 function Get-ExpectedWrapperContent($Workspace) {
-    $template = [IO.File]::ReadAllText((Join-Path $Workspace 'tools/token-hud-local/start-composer.vbs')).Replace("`r`n", "`n")
-    return $template.Replace('@POWERSHELL@', (Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe')).Replace('@SCRIPT@', (Join-Path $Workspace 'tools/token-hud-local/Start-ComposerHud.ps1'))
+    $template = [IO.File]::ReadAllText((Join-Path $Workspace 'src/lifecycle/installation/start-better-codex.vbs')).Replace("`r`n", "`n")
+    return $template.Replace('@POWERSHELL@', (Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe')).Replace('@SCRIPT@', (Join-Path $Workspace 'src/app/Start-ComposerHud.ps1'))
 }
 function Test-WrapperContent($Path, $Expected) {
     return (Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path).Replace("`r`n", "`n") -eq $Expected
 }
 function Test-Entry($Path, $Allowed) {
-    $link = $shell.CreateShortcut($Path)
-    if ($link.TargetPath -ne (Join-Path $env:WINDIR 'System32/wscript.exe') -or
-        $link.Arguments -notin @($Allowed | ForEach-Object { '"{0}"' -f $_ })) { return $false }
-    # ExtendedProperty reads the existing shortcut, never saves or creates it.
-    $folder = (New-Object -ComObject Shell.Application).Namespace((Split-Path -Parent $Path))
-    return $folder.ParseName((Split-Path -Leaf $Path)).ExtendedProperty('System.AppUserModel.ID') -eq $expectedId
+    try {
+        $receipt = & $helper shortcut-inspect --path $Path | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or -not $receipt.ok) { return $false }
+        $link = $receipt.shortcut
+        return $link.target -eq (Join-Path $env:WINDIR 'System32/wscript.exe') -and
+            $link.arguments -in @($Allowed | ForEach-Object { '"{0}"' -f $_ }) -and $link.appId -eq $expectedId
+    } catch { return $false }
 }
 function Get-NativeStartupResult([bool]$ManagedLoginEnabled) {
     # Read the current Codex package's known App startup task. Never change its
@@ -34,18 +35,17 @@ function Get-NativeStartupResult([bool]$ManagedLoginEnabled) {
 if ($FunctionsOnly) { return }
 $settings = Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $workspace = $script:BetterCodexRoot
-$shell = New-Object -ComObject WScript.Shell
-$wrapper = Join-Path $workspace '.runtime/token-hud/embedded/start-composer.vbs'
-$compat = Join-Path $workspace '.runtime/hud/service/start-embedded.vbs'
+$helper = Join-Path $workspace 'src/generated/native/BetterCodexNative.exe'
+$wrapper = Join-Path $workspace '.runtime/launchers/start-better-codex.vbs'
 $expectedId = 'OpenAI.Codex_2p2nqsd0c76g0!App'
 $parts = [Collections.Generic.List[object]]::new()
 $project = Join-Path $workspace 'launchers/Codex.lnk'
 if (-not (Test-Path -LiteralPath $project)) { Add-EntryResult 'entryProjectMissing' 'warning' }
 elseif (-not (Test-Entry $project @($wrapper))) { Add-EntryResult 'entryProjectChanged' 'warning' }
 else { Add-EntryResult 'entryProjectReady' 'pass' }
-if (-not (Test-Path -LiteralPath $wrapper) -or -not (Test-Path -LiteralPath $compat)) { Add-EntryResult 'entryWrapperMissing' 'warning' }
-elseif (-not (Test-WrapperContent $wrapper (Get-ExpectedWrapperContent $workspace)) -or -not (Test-WrapperContent $compat (Get-ExpectedWrapperContent $workspace))) { Add-EntryResult 'entryWrapperChanged' 'warning' }
-$startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'Codex with HUD.lnk'
+if (-not (Test-Path -LiteralPath $wrapper)) { Add-EntryResult 'entryWrapperMissing' 'warning' }
+elseif (-not (Test-WrapperContent $wrapper (Get-ExpectedWrapperContent $workspace))) { Add-EntryResult 'entryWrapperChanged' 'warning' }
+$startup = Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/Startup/Codex with HUD.lnk'
 $managedLoginEnabled = $false
 if (-not (Test-Path -LiteralPath $startup)) { Add-EntryResult 'entryLoginDisabled' 'notApplicable' }
 elseif (-not (Test-Entry $startup @($wrapper))) { Add-EntryResult 'entryLoginUnmanaged' 'unknown' }
@@ -64,7 +64,7 @@ $pinned = Join-Path $env:APPDATA 'Microsoft/Internet Explorer/Quick Launch/User 
 $links = @(Get-ChildItem -LiteralPath $pinned -Filter 'Codex*.lnk' -ErrorAction SilentlyContinue)
 if (-not $links.Count) { Add-EntryResult 'entryPinAbsent' 'notApplicable' }
 else {
-    $owned = @($links | Where-Object { Test-Entry $_.FullName @($wrapper,$compat) })
+    $owned = @($links | Where-Object { Test-Entry $_.FullName @($wrapper) })
     Add-EntryResult $(if ($owned.Count) { 'entryPinReady' } else { 'entryPinUnmanaged' }) $(if ($owned.Count) { 'pass' } else { 'notApplicable' })
 }
 Add-EntryResult 'entryScope' 'notApplicable'

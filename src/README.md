@@ -1,27 +1,31 @@
 # 源码地图
 
-实现按界面增强、运行管理和本机提示词定制组织，app 组合功能，platform 提供共用机制。本机维护副本的当前状态以根 PROJECT.md 为入口；该文件及私人提示词不随公开包导出。
+实现采用 **底座 + 自治特性插件（Feature-First）** 分层，所有依赖严格单向流动：`app → runtime / features / lifecycle → platform`。
 
-## 按改动定位
-
-| 目录 | 负责什么 | 入口 |
+| 目录 | 职责 | 入口说明 |
 | --- | --- | --- |
-| app/ | 联合启动、便携入口、唯一 supervisor 装配 | [应用装配](app/README.md) |
-| interface/ | 每窗统计、正文宽度、文件列表、配色与 AI 重命名 | [界面增强](interface/README.md) |
-| lifecycle/ | 启动、安装、体检、更新发现与恢复 | [运行管理](lifecycle/README.md) |
-| platform/ | 安装根、程序身份、Windows 原语、设置、语言及本机运行历史机制 | [共用机制](platform/README.md) |
-| prompts/（仅本机） | 指令管理与监测程序；根 prompts/ 持有内容、批准和部署 | 仅在本机维护副本提供 README 和规则 |
+| `app/` | 联合启动入口、便携启动器与后台装配 | [应用装配](app/README.md) |
+| `runtime/` | CDP WebSocket 连接宿主、每窗调度与特性插件注册表 | [运行宿主](runtime/README.md) |
+| `features/` | 8 个自治界面增强特性（每个含 `ui/` TS+CSS 源码与可选 `host/`） | 见下表 |
+| `generated/` | 随包直用的浏览器注入产物与 Windows 助手 | 自动生成，勿手改 |
+| `native/` | Windows 进程、Shell 与设置锁原语 | [原生助手](native/README.md) |
+| `lifecycle/` | 官方普通激活、启动体检、更新监测与优雅恢复 | [运行管理](lifecycle/README.md) |
+| `platform/` | 安装根、进程身份、Windows 原语、配置锁、多语言与运行历史 | [共用机制](platform/README.md) |
 
-## 依赖与进程边界
+## 自治特性清单（`src/features/`）
 
-依赖方向为 app → 功能域 → platform。基础层不导入业务域；恢复通过稳定命令协议重入完整启动入口，不点源 app 内部函数。
+| 特性目录 | 职责 | 说明 |
+| --- | --- | --- |
+| `statistics/` | 输入区统计条（TTFT/TPS/缓存/时效）、统一设置面板与会话采集 | [statistics](features/statistics/README.md) |
+| `reading/` | 正文宽度、AI 回复字号、聊天标题居中、路径栏防抖、表格排版与排序 | [reading](features/reading/README.md) |
+| `command-menu/` | `/` 横排命令分组、Skills 显隐与三列菜单、Prompt 快捷插入 | [command-menu](features/command-menu/README.md) |
+| `composer-fold/` | 输入框最小化/完全隐藏、首键中文组字与展开动画 | [composer-fold](features/composer-fold/README.md) |
+| `ai-rename/` | 侧栏与 `/` 入口的单条及项目批量 AI 重命名 | [ai-rename](features/ai-rename/README.md) |
+| `workspace-tree/` | 当前工作区只读文件树、按需监听与 Preview/QuickLook/Peek 桥接 | [workspace-tree](features/workspace-tree/README.md) |
+| `file-changes/` | 多文件更改卡片默认收起与手动展开状态保持 | [file-changes](features/file-changes/README.md) |
+| `appearance/` | Custom 配色可读前景修正与主题读取 | [appearance](features/appearance/README.md) |
 
-app/supervisor.py 是唯一后台宿主。界面连接拥有 Node 控制器，每个窗口拥有自己的采集器；采集故障局部恢复。体检窗和已经开始的正常退出/恢复动作独立于后台退出，不能被通用进程清理打断。
+## 构建与校验
 
-运行历史是产品能力，不按本机私有功能裁剪。通用事件/SQLite/只读查询归 platform/observability；lifecycle/runtime_events.py 和 interface/runtime_events.py 解释业务状态，由现有 app 装配，不增加第四业务域、常驻事件总线或外部监控平台。存储、5 天保留和查询参数见[运行历史契约](platform/observability/README.md)。
-
-## 外部命令与验证
-
-已登记命令保留在 [tools/token-hud-local/](../tools/token-hud-local/)，作为进入本目录的单向桥；参数、退出码、导入身份及旧动态路径属于兼容契约。Python 内部模块使用 src 包导入，外部使用稳定桥，不直接按文件路径运行需要包导入的内部模块。
-
-检查从项目根的 scripts/check.py 进入，分类见 [tests/README](../tests/README.md)。打包范围由 [发行清单](../release/public-files.json)明确列举；新增或迁移实现时同步入口、清单与对应测试。
+- 前端源码修改后运行 `pnpm run typecheck && pnpm run build:ui`，再通过 `pnpm run check` 运行对应隔离检查。
+- 各特性之间禁止交叉导入；单特性初始化失败仅隔离自身，不影响其余特性或原生 Codex。
